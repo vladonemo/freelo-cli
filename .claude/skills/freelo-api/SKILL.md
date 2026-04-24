@@ -1,74 +1,145 @@
 ---
 name: freelo-api
-description: Cached knowledge of the Freelo.io REST API — auth, resources, pagination, rate limits, and known quirks. Load when building or maintaining any command that talks to Freelo. Kept current by the freelo-api-specialist agent.
+description: Cached knowledge of the Freelo.io REST API — grounded in the official OpenAPI 3.0.3 spec checked in at docs/api/freelo-api.yaml. Load when building or maintaining any command that talks to Freelo.
 ---
 
 # Freelo API — working reference
 
-This skill is the repo's **cached** knowledge of Freelo's API. The authoritative source is always the official docs at <https://freelo.io/en/api/v3> (v3 at the time of writing). When in doubt, fetch.
+Authoritative source: **`docs/api/freelo-api.yaml`** (OpenAPI 3.0.3), pulled from <https://api.freelo.io/docs/v1/freelo-api.yaml>. Refresh it with:
+
+```bash
+curl -sSfL -o docs/api/freelo-api.yaml https://api.freelo.io/docs/v1/freelo-api.yaml
+```
+
+When the cached spec and this doc disagree, **the spec wins**. Update this doc, don't fix the spec locally.
 
 ## Base & versioning
 
-- Base URL: `https://api.freelo.io/v1/` — **verify current version in official docs before a release**.
-- All endpoints are REST+JSON. Responses are `application/json; charset=utf-8`.
-- IDs are numeric (JSON numbers); we carry them as `number` in TS.
+- Base URL: `https://api.freelo.io/v1`
+- OpenAPI: 3.0.3
+- Single production server declared in the spec — no sandbox URL.
+- Content type: `application/json; charset=utf-8` only.
+
+## Required headers
+
+Every request **must** include a `User-Agent` header identifying our app. Example:
+
+```
+User-Agent: freelo-cli/1.2.3 (+https://github.com/vladonemo/freelo-cli)
+```
+
+The client builds this from `package.json` version. Without it, Freelo may reject requests.
 
 ## Authentication
 
-- HTTP Basic Auth: `email` as username, personal **API key** as password.
-- The API key is obtained from the user's Freelo profile → API section.
-- Our CLI stores the email and key as a pair per profile. Email is not a secret; the key is.
-
-## Core resources (high-level)
-
-| Resource | Typical endpoints |
-|----------|-------------------|
-| Projects | `GET /projects`, `GET /project/{id}`, `POST /projects` |
-| Project workers / users | `GET /project/{id}/workers` |
-| Tasklists | `GET /project/{id}/tasklists`, `POST /project/{id}/tasklists` |
-| Tasks | `GET /tasklist/{id}/tasks`, `POST /tasklist/{id}/tasks`, `POST /task/{id}/finish` |
-| Comments | `GET /task/{id}/comments`, `POST /task/{id}/comments` |
-| Time tracking | `POST /timetracking/start`, `POST /timetracking/stop`, `GET /timetracking/reports` |
-| Files | multipart upload endpoints on task/comment |
-
-> Confirm exact paths against the current docs before implementing any specific command. This table is a map, not a contract.
+- HTTP Basic Auth: `email` as username, **API key** as password.
+- The user obtains the key from <https://app.freelo.io/profil/nastaveni>.
+- Our CLI stores `{ email, apiKey }` per profile. The email is not a secret; the key is.
 
 ## Pagination
 
-- Many list endpoints accept `page` and `per_page` (1-based, max varies).
-- Responses include a `total` count and often a `next_page` URL.
-- Our client exposes `{ data, nextCursor }` shape; `nextCursor` is the next page number when more pages exist, else `undefined`.
+- Query param: **`?p=<n>`, zero-indexed** (first page is `p=0`).
+- No client-side page size — the server controls it.
+- Paginated responses follow this shape (OpenAPI `PaginatedResponse` + `data`):
+
+  ```json
+  {
+    "total": 137,
+    "count": 25,
+    "page": 0,
+    "per_page": 25,
+    "data": { "<resource>": [ ... ] }
+  }
+  ```
+
+- Our client normalizes this to `{ data: T[], page, perPage, total, nextCursor }` where `nextCursor = page + 1` if `(page + 1) * per_page < total`, else `undefined`.
 
 ## Rate limits
 
-- Limits are **per API key**, applied as a sliding window.
-- On `429`, response includes `Retry-After` (seconds). Our client honors it, capped at 60s, and logs at `warn`.
-- Retries are **read-only**: GET only. POST/PUT/DELETE surface the 429 to the caller.
-
-## Date/time semantics
-
-- Timestamps in responses are ISO 8601 with timezone (usually UTC or Europe/Prague — **verify per-endpoint**).
-- Our renderers show UTC by default, local time with `--local`.
+- **Do not hardcode limits on the client.** The spec explicitly warns they change over time.
+- On `429 Too Many Requests`, back off and retry.
+- Our client: exponential backoff with jitter, max 3 attempts, **GETs only**. Writes surface the 429 to the caller.
+- Log every retry at `warn` with the retry count.
 
 ## Error shape
 
-Freelo error responses usually look like:
-
 ```json
-{ "result": "error", "message": "Human readable reason" }
+{ "errors": ["Human readable reason", "Another error"] }
 ```
 
-Status + message are surfaced; `requestId` (if present in headers) is logged at `debug` for support.
+An array of strings — not a single `message`. Our `FreeloApiError` captures the full array and joins them for display:
+
+```ts
+const FreeloErrorSchema = z.object({ errors: z.array(z.string()) });
+```
+
+Status code comes from HTTP; there's no machine-readable `code` field in the body. For distinguishing error types in code, pair status + message substring, or use the endpoint context.
+
+## Currency encoding
+
+From the spec: *"All currency amounts must be strings with exactly 2 decimal places multiplied by 100."*
+
+This means a value of **99.95 EUR** is sent/received as the string **`"9995.00"`** — base-unit cents, expressed as a 2-decimal string. A `src/lib/money.ts` helper centralizes parse/format. Never do arithmetic on these as floats.
+
+> Verify this interpretation with a real response before wiring a money-facing command. If it turns out they meant "9995" (integer cents as a string), the helper changes in one place.
+
+## Resources (spec tags → endpoint groups)
+
+Full list in the spec; summary of the 90 endpoints grouped:
+
+| Tag | What it covers |
+|---|---|
+| Users | `/users/me`, `/users`, `/users/project-manager-of`, `/users/manage-workers`, out-of-office |
+| Projects | list/get/create/archive/activate, workers, labels, pinned items, templates |
+| Project Labels | find, CRUD, add/remove from project |
+| Pinned Items | per-project pins, CRUD on `/pinned-item/{id}` |
+| Tasklists | CRUD, assignable workers, create-from-template |
+| Tasks | CRUD, move, finish/activate, descriptions, reminders, public links, estimates, subtasks, relations |
+| Task Labels | CRUD at `/task-labels`, add/remove |
+| Comments | list, create, CRUD per comment, `/all-comments` |
+| Time Tracking | start/stop/edit/status — **one active session per user** |
+| Work Reports | list, per-task, single-report CRUD |
+| Issued Invoices | list, get, reports, `mark-as-invoiced` |
+| Notifications | list, mark-as-read/unread |
+| Events | activity feed |
+| Files | upload, per-file lookup, `/all-docs-and-files` |
+| States | enum of task states |
+| Custom Fields | types, create/rename/delete/restore, add-or-edit-value, enum values |
+
+## Endpoint path conventions
+
+Two patterns coexist:
+
+- **Resource-first**: `/project/{id}/tasklists`, `/tasklist/{id}/tasks` — for nested resources
+- **Aggregate**: `/all-projects`, `/all-tasks`, `/all-comments`, `/all-notifications` — cross-resource lists with filtering
+
+When both exist, prefer the aggregate for read commands that need cross-project views, and the nested form for scoped reads. Note this in the spec when designing a command.
 
 ## Known quirks
 
-> Add to this list as we discover things. Each entry needs a link to a fixture or a doc section.
+> Add as we discover them. Every entry cites a fixture or spec location.
 
-- *(none recorded yet — add as we go)*
+- **`?p` is 0-indexed.** Easy to get wrong — our client enforces this in one place.
+- **`per_page` is server-controlled**, not a query param. Don't expose it as a CLI flag.
+- **Currency string encoding** — see above; verify interpretation on first money-related command.
+- **Required `User-Agent`** — client enforces; tests assert the header is present.
+- **Time tracking is singleton per user** — `/timetracking/start` with one running session returns an error; surface this as a user-friendly "already tracking X since Y" message.
 
-## How to verify before coding
+## Codegen — open decision
 
-1. Read the official docs page for the endpoint.
-2. If behavior is unclear, ask the `freelo-api-specialist` agent to capture a real scrubbed response into `test/fixtures/`.
+The spec is OpenAPI 3.0.3 and complete. Two paths for `src/api/`:
+
+1. **Hand-model with zod** (current scaffolded architecture). Pro: precise control, zod narrows beyond OpenAPI. Con: duplicated effort, drift risk.
+2. **Codegen types and/or zod schemas** from the YAML. Candidates:
+   - `openapi-typescript` — pure types, runtime-free
+   - `openapi-zod-client` — zod + a typed fetch client
+   - `kubb` — flexible, plugin-based
+
+> This decision is **deferred** until the first real command is specced. Revisit in the Phase 1 spec for `auth` or `projects list` and pick based on spec fidelity. Whichever we pick, the zod layer stays the single source of runtime truth.
+
+## How to answer an API question
+
+1. Open `docs/api/freelo-api.yaml` and search for the path.
+2. If the spec is ambiguous, the `freelo-api-specialist` agent captures a real (scrubbed) response into `test/fixtures/`.
 3. Model the response with zod in `src/api/schemas/<resource>.ts`.
 4. Never hand a raw fetch response to business logic — parse first.
