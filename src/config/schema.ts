@@ -31,7 +31,8 @@ export type AppConfig = Readonly<{
   apiBaseUrl: string;
   userAgent: string;
   output: {
-    mode: 'auto' | 'human' | 'json' | 'ndjson';
+    /** After buildPartialAppConfig, mode is always resolved (never 'auto'). */
+    mode: 'human' | 'json' | 'ndjson';
     color: 'auto' | 'never' | 'always';
   };
   verbose: 0 | 1 | 2;
