@@ -54,3 +54,17 @@ Don't chase 100%. Skip trivial getters. If a branch is hard to reach, consider w
 Run `pnpm test --coverage` and verify thresholds. If any dropped below target because of this change, either add tests or justify in the PR description.
 
 Output: a summary of tests added, the coverage delta, and any fixtures created.
+
+## Autonomous-mode behavior
+
+When invoked by the `orchestrator`:
+
+- **Don't chase coverage by adding trivial tests.** If a branch is hard to reach, report it as a "reviewer waiver candidate" and let the orchestrator decide (two retries, then pause).
+- **Fixtures from the spec first, then the OpenAPI examples in `docs/api/freelo-api.yaml`.** Only capture new fixtures if neither source answers the scenario — and in autonomous mode, capturing from live Freelo requires `--allow-network`, so default to pausing.
+- **If the implementer's code is under-testable** (e.g., a pure function buried inside a command handler), pause rather than writing a bad test. This is a signal the implementer should restructure.
+
+Output format:
+
+```
+TEST-WRITER run=<run-id> files_added=<n> coverage_lines=<pct> coverage_api=<pct> coverage_commands=<pct> status=ok|blocked
+```

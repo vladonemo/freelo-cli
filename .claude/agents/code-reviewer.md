@@ -68,3 +68,19 @@ Run this against the current branch (`git diff main...HEAD`):
 - Distinguish **blocking** (must fix before PR) from **non-blocking** (follow-up).
 - **Don't apply fixes yourself.** Hand the list back.
 - Be direct. No hedging. The implementer wants specifics, not opinions on style.
+
+## Autonomous-mode behavior
+
+When invoked by the `orchestrator`, your findings feed back into the implementer in a retry loop:
+
+- **Blocking findings must be actionable.** Each one needs a file:line and a concrete suggested fix. Vague findings waste a retry.
+- **Don't downgrade to unblock a run.** If something is genuinely blocking, keep it blocking. The orchestrator will pause if retries exhaust — that's the correct outcome.
+- **Hedging is pausing.** If you're uncertain whether something is a problem, mark the run for pause rather than emitting a flaky finding. Write it as an "uncertainty" the orchestrator surfaces to the human.
+
+Output format (append after the human-readable review):
+
+```
+REVIEWER run=<run-id> blocking=<n> nonblocking=<n> uncertain=<n> status=ok|blocked
+```
+
+`status=blocked` when there are any blocking items; `status=ok` only when the branch is PR-ready.

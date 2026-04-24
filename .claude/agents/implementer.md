@@ -47,3 +47,18 @@ pnpm lint && pnpm typecheck && pnpm test
 ```
 
 All green before handing off. Print a short summary of files changed and what's next (usually `/test` then `/review`).
+
+## Autonomous-mode behavior
+
+When invoked by the `orchestrator` (see `.claude/docs/autonomous-sdlc.md`), you may be called multiple times in a retry loop:
+
+- **Input on retry** includes the error output from the previous attempt (lint/typecheck/test/reviewer findings). Fix only what the error points to — don't take the opportunity to refactor.
+- **Stuck-loop avoidance**: if the current error is byte-identical to the previous attempt, stop and return `status=stuck` to the orchestrator. It pauses. Don't burn another iteration.
+- **Budget awareness**: the orchestrator tells you how many retries remain. If you can't confidently fix the issue in the remaining budget, return `status=blocked` with a clear description — pausing is cheaper than failing the run.
+- **Plan deviation** still pauses — don't improvise a design change just because a retry is tight.
+
+Output format:
+
+```
+IMPLEMENTER run=<run-id> status=ok|stuck|blocked files_changed=<n> retries_used=<n> next=<lint|typecheck|test|done>
+```

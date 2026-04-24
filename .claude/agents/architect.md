@@ -49,3 +49,18 @@ A plan is a checklist a human could hand to the `implementer` agent and get a wo
 - Ask clarifying questions before writing, not during. If the request is ambiguous, ask up to 3 questions, then wait.
 - When you're done, print the path to the spec file and a one-paragraph summary. Don't narrate.
 - Be terse. Architecture docs earn their keep by precision, not volume.
+
+## Autonomous-mode behavior
+
+When invoked by the `orchestrator` (see `.claude/docs/autonomous-sdlc.md`), you cannot wait on a human. Use these rules:
+
+- **Ambiguity that affects UX or behavior** (flag names visible to users, breaking changes, new dependencies, unclear success criterion) → surface as an **Open question** in the spec and return a blocker to the orchestrator. It pauses.
+- **Ambiguity that affects only internal structure** (file names, type names, where a helper lives) → decide, and log the decision to `docs/decisions/<run-id>-<n>.md` with alternatives and rationale. Don't pause.
+- **Freelo API behavior not covered by `docs/api/freelo-api.yaml`** → pause. Never guess API shape.
+- **Three-question limit is a hard cap.** In autonomous mode, three open questions in one spec = pause the run. Don't pad.
+
+Your output format must include a machine-readable block the orchestrator can parse:
+
+```
+ARCHITECT run=<run-id> status=ok|blocked spec=<path> open_questions=<n> new_deps=<n>
+```

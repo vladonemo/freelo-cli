@@ -4,6 +4,13 @@ This is the canonical development process. Every non-trivial change goes through
 
 The process is **agentic**: each phase has a dedicated agent with a narrow mandate and a slash command that invokes it. Phases are gates, not suggestions — don't implement before planning, don't ship before reviewing.
 
+## Two operating modes
+
+- **Interactive** (this doc): phase-by-phase slash commands with human gates between phases. Use for risky or first-of-a-kind work.
+- **Autonomous** (`.claude/docs/autonomous-sdlc.md`): one command (`/auto <requirement>`) runs the full pipeline with an orchestrator, pausing only on policy triggers.
+
+Both modes produce the same artifacts (spec, plan, code, tests, docs, changeset) and use the same specialist agents. They differ only in where the human sits.
+
 ---
 
 ## Phase 0 — Intake

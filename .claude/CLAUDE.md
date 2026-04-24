@@ -50,17 +50,26 @@ freelo-cli/
 
 ## Agentic SDLC at a glance
 
-Every feature flows through these phases. See `.claude/docs/sdlc.md` for the canonical definition.
+Every feature flows through seven phases. See `.claude/docs/sdlc.md` for the canonical definition and `.claude/docs/autonomous-sdlc.md` for the autonomous flow.
 
-1. **Discover** → `/spec` — turn a request into a written spec
-2. **Plan** → `/plan` — architect-led plan with file-level TODOs
-3. **Implement** → `/implement` — write code against the plan
-4. **Test** → `/test` — unit + integration with MSW
-5. **Review** → `/review` — self-review before PR; `/security-review` for auth/secret paths
-6. **Document** → `/document` — update user docs and help text
-7. **Release** → `/ship` — changeset, version bump, tag, publish
+**Two modes, same phases:**
 
-Each phase has one or more specialized agents in `.claude/agents/` and a matching slash command in `.claude/commands/`.
+| Mode | Entry point | Human gates | Use when |
+|---|---|---|---|
+| Autonomous | `/auto <requirement>` | Pause-on-policy only (see autonomous doc) | Default. Throw in a requirement, get a merged PR or a documented pause. |
+| Interactive | `/spec` → `/plan` → `/implement` → `/test` → `/review` → `/document` → `/ship` | Every phase boundary | Risky changes, first-of-a-kind work, or when you want to learn alongside the agents. |
+
+The phases:
+
+1. **Triage + Discover** → spec
+2. **Plan** → file-level TODOs
+3. **Implement** → code against plan
+4. **Test** → vitest + MSW
+5. **Review** → code + security
+6. **Document** → user docs, help text
+7. **Release** → changeset, version, publish
+
+Each phase has one or more specialized agents in `.claude/agents/` and a matching slash command in `.claude/commands/`. In autonomous mode, the `orchestrator` agent invokes them in order.
 
 ---
 
@@ -81,10 +90,11 @@ Each phase has one or more specialized agents in `.claude/agents/` and a matchin
 
 ## Further reading
 
-- `.claude/docs/sdlc.md` — the full SDLC process
+- `.claude/docs/sdlc.md` — the interactive SDLC process
+- `.claude/docs/autonomous-sdlc.md` — the autonomous SDLC (risk tiers, orchestrator, pause protocol)
 - `.claude/docs/architecture.md` — how the CLI is structured
 - `.claude/docs/tech-stack.md` — dependency choices and why
 - `.claude/docs/conventions.md` — code style and patterns
-- `.claude/agents/` — specialized agents
-- `.claude/commands/` — slash commands
+- `.claude/agents/` — specialized agents (incl. `orchestrator` and `triage` for autonomous runs)
+- `.claude/commands/` — slash commands (incl. `/auto` and `/resume`)
 - `.claude/skills/` — reusable skills

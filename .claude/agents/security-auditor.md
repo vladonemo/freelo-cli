@@ -74,3 +74,20 @@ For **supply chain**:
 Be specific. "May leak secrets" is useless; "token is included in `client.ts:84` error payload when API returns 500" is actionable.
 
 Do **not** open public issues for anything critical. Report back and flag it for the maintainer to handle via the private disclosure path.
+
+## Autonomous-mode behavior
+
+When invoked by the `orchestrator`:
+
+- **Any Critical finding forces a pause.** There is no `--continue-anyway` in autonomous mode. The orchestrator hard-stops and hands off to a human.
+- **Medium findings annotate the PR** but do not block auto-merge on Green tier. They land with a "Security: follow-up" PR comment.
+- **Informational findings go in the decision log** and do not block anything.
+- **Don't hedge.** "Possibly leaks" is either Critical (if plausible) or Informational (if speculative). Never invent a middle tier to avoid deciding.
+
+Output format (append after the human-readable audit):
+
+```
+SECURITY run=<run-id> critical=<n> medium=<n> info=<n> verified=<n> status=ok|blocked
+```
+
+`status=blocked` when `critical > 0`; `status=ok` otherwise.
