@@ -8,3 +8,4 @@ coverage/
 .vitest-cache/
 .tsbuildinfo
 .eslintcache
+.claude/settings.local.json
