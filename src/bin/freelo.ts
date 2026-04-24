@@ -42,10 +42,33 @@ function isEntryPoint(): boolean {
   }
 }
 
+/**
+ * Catastrophic-path error writer. R01 replaces this with the full
+ * `handleTopLevelError` that maps typed errors to exit codes and renders
+ * `freelo.error/v1` envelopes in every machine mode. Until then, this
+ * narrower version still honors the agent-first contract: non-TTY callers
+ * get a parseable envelope on stderr, TTY callers get a clean message.
+ */
+function writeCatastrophicError(message: string): void {
+  if (process.stdout.isTTY) {
+    process.stderr.write(`freelo: ${message}\n`);
+    return;
+  }
+  const envelope = {
+    schema: 'freelo.error/v1',
+    error: {
+      code: 'INTERNAL_ERROR',
+      message,
+      retryable: false,
+    },
+  };
+  process.stderr.write(`${JSON.stringify(envelope)}\n`);
+}
+
 if (isEntryPoint()) {
   run(process.argv).catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`freelo: ${message}\n`);
+    writeCatastrophicError(message);
     process.exit(1);
   });
 }
