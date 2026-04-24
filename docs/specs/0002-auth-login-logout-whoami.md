@@ -296,3 +296,127 @@ That is the **only** documented field on the `user` object — no `email`, `name
 8. **Real `/users/me` response shape.** The OpenAPI guarantees only `user.id` (`docs/api/freelo-api.yaml:97-144`); any real response carries more (email, fullname, avatar, etc.). Before `whoami`'s renderer hard-codes `email` / `fullName`, capture one scrubbed fixture from a real call and check it into `test/fixtures/users-me.json`. Blocks the `--json` allow-list and the human renderer's field layout. If the fixture shows `fullname` (lowercase) rather than `fullName`, the CLI's camelCase output maps the snake/lower form to camel per a documented convention — decide now: map or pass-through verbatim? Recommendation: **map** to camelCase in the `--json` allow-list only (so CLI output is stable), pass through the raw names on `.passthrough()` validation.
 9. **401 error body shape.** `/users/me`'s 401 documents `{ errors: [{ message: string }] }` (array of objects, `docs/api/freelo-api.yaml:130-143`) while the global `ErrorResponse` is `{ errors: string[] }` (`docs/api/freelo-api.yaml:4803-4812`). These are incompatible. What does the server actually emit? Recommendation: define `FreeloErrorSchema` as a **tolerant union** (`errors: z.array(z.union([z.string(), z.object({ message: z.string() }).passthrough()]))`), normalize both shapes to `string[]` for display, and revisit once we have a real 401 captured.
 10. **Rate-limit headers and Basic-Auth email case.** Two small unknowns the spec is silent on: (a) does Freelo return `Retry-After` (or any `RateLimit-*` header) on 429 in practice? The client's retry policy assumes `Retry-After || 1 s + jitter`; confirm on first real 429 and tighten. (b) Does Freelo lower-case the email server-side in Basic Auth, or is the auth case-sensitive? Store as entered for now; document the answer once observed.
+
+---
+
+## Plan
+
+### Notes
+
+All ten open questions above are resolved in writing by the maintainer; the resolutions are encoded below and no new questions are introduced. Two pre-existing scaffold artefacts are being reshaped rather than created: `src/errors/config-error.ts` currently declares a flat `ConfigError` with a fixed exit code 3, and `src/errors/index.ts` re-exports only `BaseError` + `ConfigError`. Both will be edited (not replaced) so the `kind`-based exit-code mapping per spec lines 168 and 169 works and so the new error classes are re-exported from the barrel. No separate migration for the existing file content is needed beyond the edits listed.
+
+### Files to create
+
+| Path | Intent |
+|---|---|
+| `src/commands/auth.ts` | Register `auth` parent command plus `login`, `logout`, `whoami` subcommands; export `register(program: Command)` per `docs/specs/0002-auth-login-logout-whoami.md:139-147`. Delegates each subcommand to a handler in `src/commands/auth/`. |
+| `src/commands/auth/login.ts` | Implement `runLogin({ appConfig, opts })`: email+token resolution, TTY/FREELO_TOKEN branching (spec lines 38-47), silent overwrite notice (Open Q4), persist-after-verify semantics (Open Q5), fail-closed on non-TTY (spec line 47). |
+| `src/commands/auth/logout.ts` | Implement `runLogout({ appConfig, opts })`: idempotent delete over keytar + fallback + `conf.profiles`; clear `currentProfile` if matching (spec lines 79-99). |
+| `src/commands/auth/whoami.ts` | Implement `runWhoami({ appConfig, opts })`: resolve profile → load token → call `getMe` → dispatch to `render(mode, result, renderWhoamiHuman)` (spec lines 103-135). |
+| `src/api/client.ts` | Wrap `undici.request` with Basic-Auth header construction, required headers (User-Agent, Accept, Content-Type on writes), pino `debug` request logging with Authorization redacted, 429/Retry-After retry loop for idempotent verbs (N=3), typed-error throwing (`FreeloApiError` / `NetworkError`); per spec lines 141-147 and 211. |
+| `src/api/users.ts` | Export `getMe(client): Promise<UserMe>` — call `GET /users/me`, parse through `UserMeEnvelopeSchema`, unwrap `.user` before returning (spec lines 203-207). |
+| `src/api/schemas/user.ts` | Declare `UserMeEnvelopeSchema` and `UserMeSchema` with `.passthrough()` on both envelope and inner user (spec lines 183-195); export inferred `UserMe` type. |
+| `src/api/schemas/error.ts` | Declare `FreeloErrorSchema` as tolerant union per Open Q9 resolution; export `normalizeErrors(body): string[]` for display. |
+| `src/api/index.ts` | Barrel re-exporting `createClient`, `getMe`, schemas — keeps `src/commands/` importing from one place. |
+| `src/config/schema.ts` | Zod schema for the `conf` store: `schemaVersion: 1`, `currentProfile: string \| null`, `profiles: Record<string, { email, apiBaseUrl }>` per spec lines 150-156 and Open Q7. |
+| `src/config/store.ts` | Construct and export the singleton `conf` instance bound to the schema; apply `schemaVersion` default of `1` on first write. |
+| `src/config/secrets.ts` | Wrap keytar (`service: 'freelo-cli'`, account = profile) with `setToken` / `getToken` / `deleteToken`; on keytar import/load failure fall back to `<confDir>/tokens.json` at mode `0600`; emit a one-time stderr warning per spec lines 157-161. |
+| `src/config/profiles.ts` | Orchestrate `loadProfile` / `saveProfile` / `deleteProfile` / `listProfiles` across `store` + `secrets`; spec lines 162-163. |
+| `src/config/app-config.ts` | Build and freeze `AppConfig` from `{ flags, env, store, defaults }` with the precedence chain in spec line 30; source `apiBaseUrl` from profile or `FREELO_API_BASE` (Open Q6). |
+| `src/config/migrations.ts` | Export `assertSupportedSchema(version)` — throws `ConfigError('corrupt-config', ...)` if `version !== 1` per Open Q7; no runner yet. |
+| `src/errors/freelo-api-error.ts` | Extend `BaseError` with `status`, `code` (synthesized from status), `requestId?`, `body?`; exit code `3` for 401, else `4`; spec lines 167 and 209. |
+| `src/errors/validation-error.ts` | Extend `BaseError` with `field`, exit code `2`; spec line 169. |
+| `src/errors/network-error.ts` | Extend `BaseError` wrapping an undici `cause`, exit code `5`; spec line 170. |
+| `src/errors/handle.ts` | Export `handleTopLevelError(err, { json, debug })` — map typed error → exit code (Open Q1 table) + stderr text or `{ error: { code, message, requestId? } }` JSON; spec lines 171 and 289. |
+| `src/ui/styles.ts` | Build the shared chalk instance that honors `--color`, `NO_COLOR`, `FORCE_COLOR`, `process.stdout.isTTY`; spec line 176. |
+| `src/ui/render.ts` | Export `render<T>(mode: 'human' \| 'json', payload: T, humanRenderer: (p: T) => string): void` — writes JSON to stdout with trailing newline or delegates to the human renderer. |
+| `src/ui/whoami.ts` | Human renderer `renderWhoamiHuman(result: WhoamiResult): string` producing the four-line output in spec lines 115-119. |
+| `src/lib/logger.ts` | Export `logger` (pino) plus `setLevel(level)`; level driven by `--verbose` / `-q` / `FREELO_LOG` at startup. |
+| `src/lib/jitter.ts` | Export `jitterMs(maxMs = 500, rng = Math.random): number` — single responsibility, injectable RNG so tests get determinism without mocking global `Math.random`. |
+| `test/api/client.test.ts` | MSW-driven coverage: 200 happy path, 401 → `FreeloApiError` (status 401), 429 with `Retry-After` honored (sleep mocked), 429 retries exhausted → `FreeloApiError` (status 429), undici network error → `NetworkError`; assert `Authorization` header not present in any pino log output. |
+| `test/api/users.test.ts` | `getMe` happy path, 401 propagation, zod rejection when envelope lacks `user.id` (malformed response). |
+| `test/config/secrets.test.ts` | Keytar stubbed via module mock: happy path; `keytar.setPassword` throws → fallback file written; assert `fs.stat` returns mode `0o600` on POSIX, skip the mode check on Windows (documented); warning-once behavior. |
+| `test/config/profiles.test.ts` | Save/load/delete roundtrip against an in-memory `conf` + stubbed secrets; missing-profile returns `undefined` from `loadProfile` and is idempotent from `deleteProfile`. |
+| `test/config/app-config.test.ts` | Precedence resolution: flag > env > `currentProfile` > `default`; `FREELO_API_BASE` overrides profile `apiBaseUrl`; resulting object is frozen. |
+| `test/errors/handle.test.ts` | Each typed error → correct exit code + stderr shape in human mode and JSON mode; `FREELO_DEBUG=1` appends stack. |
+| `test/commands/auth-login.test.ts` | TTY interactive path (stubs `@inquirer/prompts`); non-TTY without token → exit 2; `FREELO_TOKEN` path persists after verify; overwrite prints notice; bad token (401) → exit 3 with nothing persisted. |
+| `test/commands/auth-logout.test.ts` | Happy path, idempotent no-op on missing profile, keytar catastrophic error → exit 1 with cause chain. |
+| `test/commands/auth-whoami.test.ts` | No stored creds → exit 3; stored-but-rejected → exit 3 with rephrased message; human output shape; `--json` output matches `WhoamiResult` contract in spec lines 245-256. |
+| `test/fixtures/users-me.json` | Scrubbed real-response fixture — placeholder committed in Phase 3; populated from a live call before the `UserMeSchema` tightening step in the rollout below (Open Q8). |
+| `test/msw/handlers.ts` | **Modify** existing scaffold file: export a named `usersMeOk` default-success handler plus `usersMeUnauthorized`, `usersMeRateLimited`, `usersMeNetworkDown` overrides for `GET :baseUrl/users/me`. |
+| `docs/commands/auth.md` | User-facing reference for `auth login / logout / whoami` — placeholder file listed here so Phase 6 doesn't surprise-add it; actual content authored by `doc-writer`. |
+| `docs/getting-started.md` | **Modify**: insert a "Log in" section between install and `--version`, referencing `freelo auth login`. |
+| `docs/decisions/0001-codegen-vs-hand-zod.md` | Record Open Q3 resolution: hand-written zod for R01, reopen deferred to R03. Include alternatives considered and rationale. |
+| `.changeset/r01-auth.md` | `minor` bump with a one-paragraph entry naming the three new commands and the infra (HTTP client, keytar-backed config, typed errors). |
+
+### Files to modify
+
+| Path | Intent |
+|---|---|
+| `src/bin/freelo.ts` | Register global flags (spec lines 22-31), call `buildAppConfig` at startup, set pino level from `--verbose` / `-q`, invoke `registerAuth(program)`, wrap `parseAsync` with `handleTopLevelError`; replace the current bare `err.message` catch. |
+| `src/errors/config-error.ts` | Replace the flat `exitCode = 3` with a `kind`-discriminated constructor (`'missing-token' \| 'missing-profile' \| 'keychain-unavailable' \| 'corrupt-config'`); exit code derived per spec line 168. |
+| `src/errors/index.ts` | Re-export the four new error classes + `handleTopLevelError`. |
+| `docs/roadmap.md` | Align the exit-code table with `architecture.md` (Open Q1); no behavior change to the roadmap's roadmap rows, just the table. |
+
+### New dependencies
+
+**dependencies**
+
+| Name | Version (pin) | Why |
+|---|---|---|
+| `undici` | `6.x` | HTTP client for the Freelo API (pinned by `.claude/docs/tech-stack.md:38-39`). |
+| `zod` | `3.x` | Runtime validation of every API response and the `conf` schema (`tech-stack.md:40`). |
+| `conf` | `13.x` | Persistent user config; platform-correct path resolution (`tech-stack.md:41`). |
+| `keytar` | `7.x` | OS keychain secret storage; marked as `optionalDependencies` so install succeeds on hosts without libsecret, and the fallback file path activates transparently (spec lines 157-161). |
+| `@inquirer/prompts` | `7.x` | `input` + `password` prompts for `login` (`tech-stack.md:28`). |
+| `chalk` | `5.x` | Shared styles for `ui/whoami` and future renderers (`tech-stack.md:29`). |
+| `ora` | `8.x` | Spinner around the `/users/me` round-trip on human-mode logins; suppressed under `--quiet` / non-TTY (`tech-stack.md:30`). |
+| `pino` | `9.x` | Structured debug logging of HTTP calls (`tech-stack.md:44`). |
+| `pino-pretty` | `11.x` | Pretty transport loaded only when stderr is a TTY (`tech-stack.md:44`). |
+
+**cosmiconfig is deliberately deferred to R02.** R01 does not read `.freelorc` or `freelo.config.*`; introducing it now would add a dep the slice has no consumer for. Add in R02 alongside the `freelo config` surface.
+
+**devDependencies**: none beyond what `docs/specs/0001-scaffold-cli.md:136-143` already installed. `msw` (pinned at 2.7.0 in `package.json:64`) covers all HTTP mocking this slice needs. `@types/node` already declares `node:fs/promises` and `node:url`.
+
+All runtime deps are on the pre-approved list in `.claude/docs/tech-stack.md`. `keytar` is explicitly flagged as an *optional* dependency in `package.json` so the module-load failure branch (spec line 160) is reachable on real installs.
+
+### Test strategy
+
+- **Unit layer** covers pure code and renderers with no network or filesystem:
+  - `src/lib/jitter.ts` — deterministic RNG in, bounded output (0..max).
+  - `src/ui/render.ts`, `src/ui/whoami.ts`, `src/ui/styles.ts` — snapshot-free string comparisons; `--json` mode is parsed back and shape-asserted.
+  - `src/errors/handle.ts` — every typed error → exit-code + stderr-shape matrix (`test/errors/handle.test.ts`).
+  - `src/config/app-config.ts` — precedence resolution and frozen-ness (`test/config/app-config.test.ts`).
+- **Integration layer** drives the Commander program end-to-end with MSW mocking the Freelo API:
+  - `test/commands/auth-login.test.ts`, `test/commands/auth-logout.test.ts`, `test/commands/auth-whoami.test.ts` invoke `buildProgram().parseAsync([...], { from: 'user' })` with stdout/stderr captured and `process.exit` stubbed.
+  - `@inquirer/prompts` is module-mocked per test to script the TTY answers; `process.stdin.isTTY` is set explicitly.
+  - Keytar is always module-stubbed — no real native calls in any test.
+- **API layer** (`test/api/client.test.ts`, `test/api/users.test.ts`) uses MSW at the undici request layer, not fetch-adapter tricks; confirms schema-validation failures surface as `FreeloApiError`.
+- **MSW handler scope** — the default-success handler `usersMeOk` lives in `test/msw/handlers.ts` and is installed for every test; overrides are swapped in per-test via `server.use(...)`. Named overrides: `usersMeUnauthorized`, `usersMeRateLimited` (returns 429 with a `Retry-After: 1` header), `usersMeRateLimitedNoHeader` (for the jitter-only branch), `usersMeNetworkDown` (simulates a connection error).
+- **Coverage targets** per `.claude/docs/sdlc.md:94` — 80% lines overall, 90% on `src/api/` and `src/commands/`. Lenient areas: `src/bin/freelo.ts`'s `isEntryPoint` branch (unreachable from the test harness; already the case in spec 0001), `src/config/secrets.ts`'s keytar-import-throws branch on OSes where a working keytar install *does* load (exercised by stubbing `setPassword`, not the import itself).
+- **Platform coverage** — the keytar fallback path is platform-agnostic in tests because keytar is stubbed; on POSIX the fallback test asserts `fs.stat().mode & 0o777 === 0o600`, and the same assertion is skipped on Windows where `chmod` is a no-op (documented with a comment referencing Node's fs docs).
+- **Fixture strategy** — `test/fixtures/users-me.json` starts as a placeholder with a single `user.id` so the zod schema's minimum guarantee is testable; the real fixture replaces it during rollout step 6, and at that point the inner `user` object in `UserMeSchema` is tightened from `.object({ id }).passthrough()` to `.object({ id, email?, fullname?, ... }).passthrough()` per Open Q8.
+
+### Rollout order
+
+Each step is a landable slice that can pass CI independently; the whole PR is squash-merged.
+
+1. **Error taxonomy + top-level handler.** Introduce `FreeloApiError`, `ValidationError`, `NetworkError`, reshape `ConfigError` to carry `kind`, add `handleTopLevelError`, wire it into `src/bin/freelo.ts`. No new behavior yet — replaces the stub catch block. Tests: `test/errors/handle.test.ts`, updated `test/bin/version.test.ts` if the exit semantics shifted.
+2. **Config layer.** Land `schema.ts`, `store.ts`, `secrets.ts` (with keytar + 0600 fallback), `profiles.ts`, `app-config.ts`, `migrations.ts`. Tests in `test/config/`. No commands yet — pure library additions.
+3. **HTTP client + `/users/me` endpoint + schemas.** Land `src/api/client.ts`, `src/api/users.ts`, `src/api/schemas/{user,error}.ts`, `src/api/index.ts`. Tests in `test/api/`. Still no commands.
+4. **Commands.** Land `src/commands/auth.ts` + the three subcommand modules in dependency order: `login` → `whoami` → `logout`. Tests in `test/commands/`. MSW handlers added to `test/msw/handlers.ts` during this step.
+5. **Global flags wiring.** Register `--profile`, `--json`, `--color`, `--verbose`, `-q` on the root program; build `AppConfig` at startup; set pino level; call `registerAuth(program)`. Tests update `test/bin/version.test.ts` to confirm the new flags parse without breaking `--version`.
+6. **Fixture capture + `UserMeSchema` tightening.** Operator makes one real `GET /users/me` call, scrubs the response into `test/fixtures/users-me.json`, and widens the inner `user` object in `UserMeSchema`. Dependent on credentials being available — flag as the one step that blocks autonomous replay if credentials are absent.
+7. **Changeset + docs.** Add `.changeset/r01-auth.md`, `docs/commands/auth.md` (or reserve it for Phase 6), `docs/decisions/0001-codegen-vs-hand-zod.md`, and the `docs/getting-started.md` edit. Update `docs/roadmap.md`'s exit-code table.
+
+### Out-of-scope for this plan
+
+- `freelo config` command surface — lands in R02.
+- Project-level `.freelorc` / `freelo.config.ts` resolution via cosmiconfig — R02 (cosmiconfig dep deferred with it).
+- The `--force` / `--yes` / interactive confirmation helper on `login` overwrite — R13.
+- Multipart / file upload helpers — R25.
+- Any API endpoint beyond `/users/me`.
+- A visible `--api-base` flag — only the `FREELO_API_BASE` env var and profile field ship this slice (Open Q6).
+- A `conf`-schema migration runner — only the `schemaVersion` field and a corrupt-config guard ship now (Open Q7).
+- OAuth / device-code flows, token rotation, or telemetry.
+
