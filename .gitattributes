@@ -1,0 +1,20 @@
+# Normalize line endings to LF in the repo. Working-tree checkout is
+# native on each platform; contributors on Windows see CRLF locally but
+# commits always store LF. This keeps diffs clean across OSes.
+* text=auto eol=lf
+
+# Binary files — never touch.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tgz binary
+
+# Lockfiles: text, but generated — mark so GitHub collapses them in diffs.
+pnpm-lock.yaml linguist-generated=true
+package-lock.json linguist-generated=true
+yarn.lock linguist-generated=true
