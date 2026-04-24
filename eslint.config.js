@@ -49,6 +49,47 @@ export default tseslint.config(
     },
   },
   {
+    // Agent-first: human-UX dependencies must be lazy-loaded via
+    // `await import('…')` behind an `isInteractive` check so the
+    // agent cold path never pays for them.
+    // See `.claude/docs/conventions.md` §Imports.
+    files: ['src/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            '@inquirer/prompts',
+            'ora',
+            'boxen',
+            'cli-table3',
+            'chalk',
+            'pino-pretty',
+            'update-notifier',
+          ].map((name) => ({
+            name,
+            message:
+              'Human-UX dependency. Use `await import(\'' +
+              name +
+              '\')` behind an isInteractive check. See .claude/docs/conventions.md §Imports.',
+          })),
+        },
+      ],
+    },
+  },
+  {
+    // stdout/stderr are sacred for envelopes and structured errors.
+    // All output routes through `src/ui/` (renderers) and `src/bin/`
+    // (top-level error handler). Commands, API, lib, config, errors
+    // must not `console.*`.
+    // See `.claude/docs/conventions.md` §Output / UX.
+    files: ['src/**/*.ts'],
+    ignores: ['src/ui/**/*.ts', 'src/bin/**/*.ts'],
+    rules: {
+      'no-console': 'error',
+    },
+  },
+  {
     files: ['test/**/*.ts'],
     rules: {
       '@typescript-eslint/no-non-null-assertion': 'off',
