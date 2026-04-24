@@ -30,8 +30,10 @@ export async function run(argv: readonly string[]): Promise<void> {
 /**
  * True when this module is the process entry point (i.e. invoked as the
  * `freelo` binary). False when imported by tests.
+ *
+ * Exported so tests can exercise the catch branch (unresolvable argv[1]).
  */
-function isEntryPoint(): boolean {
+export function isEntryPoint(): boolean {
   const entryArg = process.argv[1];
   if (!entryArg) return false;
   try {
@@ -49,7 +51,7 @@ function isEntryPoint(): boolean {
  * narrower version still honors the agent-first contract: non-TTY callers
  * get a parseable envelope on stderr, TTY callers get a clean message.
  */
-function writeCatastrophicError(message: string): void {
+export function writeCatastrophicError(message: string): void {
   if (process.stdout.isTTY) {
     process.stderr.write(`freelo: ${message}\n`);
     return;
