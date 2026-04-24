@@ -1,0 +1,9 @@
+{
+  "result": "success",
+  "user": {
+    "id": 12345,
+    "email": "jane@example.cz",
+    "fullname": "Jane Doe",
+    "avatar_url": "https://static.freelo.io/avatars/default.png"
+  }
+}
