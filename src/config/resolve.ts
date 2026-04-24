@@ -7,17 +7,36 @@ import { VERSION } from '../lib/version.js';
 const API_BASE_DEFAULT = 'https://api.freelo.io/v1';
 const USER_AGENT = `freelo-cli/${VERSION} (+https://github.com/magic-soft/freelo-cli)`;
 
+export type BuildAppConfigFlags = {
+  output?: string;
+  color?: string;
+  profile?: string;
+  verbose?: number;
+  requestId?: string;
+  yes?: boolean;
+};
+
 export type BuildAppConfigInput = {
   env: NodeJS.ProcessEnv;
-  flags: {
-    output?: string;
-    color?: string;
-    profile?: string;
-    verbose?: number;
-    requestId?: string;
-    yes?: boolean;
-  };
+  flags: BuildAppConfigFlags;
 };
+
+/**
+ * Utility to build a flags object from Commander opts, dropping keys that are
+ * `undefined` so `exactOptionalPropertyTypes` is satisfied.
+ */
+export function pickFlags(
+  opts: Record<string, string | number | boolean | undefined>,
+): BuildAppConfigFlags {
+  const result: BuildAppConfigFlags = {};
+  if (typeof opts['output'] === 'string') result.output = opts['output'];
+  if (typeof opts['color'] === 'string') result.color = opts['color'];
+  if (typeof opts['profile'] === 'string') result.profile = opts['profile'];
+  if (typeof opts['verbose'] === 'number') result.verbose = opts['verbose'];
+  if (typeof opts['requestId'] === 'string') result.requestId = opts['requestId'];
+  if (typeof opts['yes'] === 'boolean') result.yes = opts['yes'];
+  return result;
+}
 
 /**
  * Assemble the frozen `PartialAppConfig` from flag precedence.
