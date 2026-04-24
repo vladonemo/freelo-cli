@@ -50,8 +50,14 @@ export default tseslint.config(
   },
   {
     // Agent-first: human-UX dependencies must be lazy-loaded via
-    // `await import('…')` behind an `isInteractive` check so the
-    // agent cold path never pays for them.
+    // `await import('…')` behind an isInteractive() check (from
+    // src/lib/env.ts) so the agent cold path never pays for them.
+    //
+    // `conf` and `keytar` are NOT on this list:
+    //   - `conf` is a hard dep used on the agent path for profile metadata.
+    //   - `keytar` is lazy-loaded inside src/config/tokens.ts only and is kept
+    //     off the global list so that facade can import it freely.
+    //
     // See `.claude/docs/conventions.md` §Imports.
     files: ['src/**/*.ts'],
     rules: {
@@ -69,9 +75,8 @@ export default tseslint.config(
           ].map((name) => ({
             name,
             message:
-              'Human-UX dependency. Use `await import(\'' +
-              name +
-              '\')` behind an isInteractive check. See .claude/docs/conventions.md §Imports.',
+              `Human-UX dependency. Use \`await import('${name}')\`` +
+              ' behind an isInteractive() check (src/lib/env.ts). See .claude/docs/conventions.md §Imports.',
           })),
         },
       ],
