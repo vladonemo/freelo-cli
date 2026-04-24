@@ -33,7 +33,7 @@ A triage report written to `docs/runs/<run-id>/triage.md`:
 - [ ] Touches auth flows
 - [ ] Adds a dependency
 - [ ] Removes a dependency
-- [ ] Changes --json output schema
+- [ ] Changes an envelope schema (`freelo.*/vN`) — added/removed/renamed/retyped field, or new schema
 - [ ] Changes exit codes
 - [ ] Removes/renames an existing flag
 - [x] Requires the Freelo API
@@ -59,13 +59,13 @@ A triage report written to `docs/runs/<run-id>/triage.md`:
 
 **Red** if any:
 - Touches `src/config/`, auth flows, `src/api/client.ts`, TLS/retry/redirect defaults
-- Breaking change (removed flag, changed exit code, changed `--json` schema)
+- Breaking change (removed flag, changed exit code, removed/renamed/retyped envelope field without `/v(n+1)` bump)
 - Dependency removal or major bump
 - Requirement itself is ambiguous about scope or UX
 
 **Yellow** if not Red and any:
 - New user-visible command or flag (additive)
-- New output field in `--json`
+- New field added to an envelope (backwards-compatible)
 - New non-security dependency
 - Any non-trivial behavior change
 

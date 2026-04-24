@@ -44,7 +44,7 @@ Triage assigns one on intake. Every change carries exactly one tier — when mul
 Triggers (all must hold):
 - Change touches **no** auth, config, HTTP client defaults, or release tooling
 - No new runtime dependencies
-- No breaking change to `--json` schema, exit codes, or flag names
+- No breaking change to envelope schema, exit codes, or flag names
 - Reviewer finds no Blocking items
 - Security auditor not triggered OR only Informational findings
 - Test coverage meets targets
@@ -57,7 +57,7 @@ Examples: doc edits, internal refactor, new read-only subcommand, test additions
 
 Triggers (any):
 - New user-visible command or flag (additive)
-- New output field in `--json`
+- New field added to an envelope schema (backwards-compatible)
 - New Medium-level security finding
 - New non-security dependency
 - Changeset is `minor`
@@ -69,7 +69,7 @@ Flow: full pipeline → open PR → leave for human review and merge.
 Triggers (any):
 - Touches `src/config/`, auth flows, `src/api/client.ts`, TLS/retry/redirect defaults
 - Any security auditor **Critical** finding
-- Breaking change (removed flag, changed exit code, changed `--json` schema)
+- Breaking change (removed flag, changed exit code, changed envelope schema)
 - Dependency removal or major bump
 - Changeset is `major`
 - Spec has unresolvable Open questions
@@ -111,7 +111,7 @@ Options:
 
 The human answers, `/resume` feeds the answer back into the paused phase, and the pipeline continues.
 
-**Never** pause silently — every pause has this report. The `--json` output of `/auto` includes the pause record when paused.
+**Never** pause silently — every pause has this report. When `/auto` is run with `--output json`, the pause record is included in the final envelope.
 
 ---
 

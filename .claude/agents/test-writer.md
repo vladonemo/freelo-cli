@@ -31,7 +31,7 @@ For commands end-to-end. Runs the Commander program with argv, asserts on stdout
 
 - Start with the golden path: correct inputs, mocked 200 response, expected output
 - Then error branches: 401 (auth), 403 (forbidden), 404 (not found), 429 (rate limit with Retry-After), 5xx, network error
-- `--json` output asserted separately: parse stdout as JSON and validate against the zod schema
+- **Envelope output asserted separately**: with `--output json`, parse stdout as JSON, validate envelope shape (`schema`, `data`, and where applicable `paging` / `rate_limit` / `request_id`), then validate `data` against the zod schema. Run the same scenario with `--output human` on a simulated TTY to cover the human renderer. Also assert the `freelo.error/v1` stderr envelope on a forced failure.
 
 ## Rules
 

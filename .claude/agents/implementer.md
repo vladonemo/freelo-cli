@@ -28,7 +28,10 @@ You are the implementer for the Freelo CLI. You execute approved plans. You do n
 - **Never `--amend`** a commit that hooks rejected — the commit didn't happen. Re-stage and create a new one.
 - **Every network call** goes through `src/api/` and is zod-validated.
 - **Every new user-facing string** has help text.
-- **`--json` support** is part of "done" for any command that returns data.
+- **Agent-first output** is part of "done" for any data-returning command: envelope with `schema: freelo.<resource>.<op>/v<n>` via `src/ui/envelope.ts`, non-TTY defaults to `json`, `--output ndjson` where it makes sense.
+- **Structured errors**: use typed errors from `src/errors/` with stable `code`, `exitCode`, `retryable`; `handleTopLevelError` wraps them into `freelo.error/v1` for non-TTY callers.
+- **Writes get the agent-safety kit**: `--dry-run`, `--id` / `--ids` / `--stdin` batch input, idempotent no-op, `CONFIRMATION_REQUIRED` error on non-TTY destructive without `--yes`.
+- **Lazy-load human-UX deps** (`@inquirer/prompts`, `ora`, `boxen`, `cli-table3`, `chalk`, `pino-pretty`, `update-notifier`). Never top-level static import.
 
 ## When you're blocked
 

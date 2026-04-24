@@ -1,9 +1,11 @@
 # 0001 — Scaffold the CLI
 
-**Status:** Draft
+**Status:** Shipped (2026-04-24)
 **Run:** 2026-04-24-1807-scaffold-cli
 **Owner:** orchestrator (autonomous)
 **Tier:** Yellow
+
+> **Retrospective note (2026-04-24, later same day):** this spec predates the agent-first policy adopted in `.claude/docs/architecture.md`. At scaffold time only `--version` existed, which has no structured output to envelope. The agent-first infra (versioned JSON envelope, structured error envelope, env-first auth, `--output` global flag, lazy human-UX imports, `--introspect`) lands in **roadmap slice R01** and retroactively governs everything here. See `docs/roadmap.md` for the updated R01 scope.
 
 ## Problem
 

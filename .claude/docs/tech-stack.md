@@ -4,11 +4,14 @@ The default answer to "what should we use for X?" If a choice here needs to chan
 
 ## Why these choices
 
-Goal: a CLI that feels as polished as `gh`, `stripe`, or `vercel`. That means:
-- **Fast startup** — bundled single file, lazy imports for heavy paths
-- **Great help text** — auto-generated, but styled
+Goal: a CLI that's **agent-first** (Claude, MCP tools, CI scripts drive it by default) and still feels as polished as `gh`, `stripe`, or `vercel` when a human uses it. That means:
+
+- **Agent-default output** — JSON envelope when stdout isn't a TTY, no flag needed
+- **Fast startup** — bundled single file; human-UX deps lazy-imported so agent cold paths are lean
+- **Env-first auth** — `FREELO_API_KEY` bypasses keychain entirely; zero prompts required
+- **Stable contract** — versioned envelope schemas, structured errors, introspectable command tree
 - **Cross-platform** — Linux, macOS, Windows. Tested in CI on all three.
-- **Scriptable** — every command has `--json`
+- **Great help text** — auto-generated, but styled; also machine-readable via `freelo --introspect`
 - **Boring** — mature libraries with active maintenance, no exotic experiments
 
 ## Core
@@ -22,15 +25,17 @@ Goal: a CLI that feels as polished as `gh`, `stripe`, or `vercel`. That means:
 
 ## CLI surface
 
-| Area | Choice | Why |
-|---|---|---|
-| Argument parsing | `commander` | Mature, composable, good subcommand ergonomics |
-| Interactive prompts | `@inquirer/prompts` | Modern, composable, tree-shakeable — the new official `inquirer` |
-| Colors | `chalk` v5 (ESM) | De facto standard |
-| Spinners | `ora` | Pairs naturally with chalk |
-| Tables | `cli-table3` | Good unicode handling |
-| Boxes | `boxen` | For first-run banners and upgrade notices |
-| Update notifications | `update-notifier` | Non-blocking background check |
+All human-UX libraries below are **lazy-loaded** via `await import('…')` behind an `isInteractive` check. They do not appear in the agent cold path.
+
+| Area | Choice | Why | Loaded |
+|---|---|---|---|
+| Argument parsing | `commander` | Mature, composable, good subcommand ergonomics; introspectable tree for `--introspect` | eager |
+| Interactive prompts | `@inquirer/prompts` | Modern, composable, tree-shakeable — the new official `inquirer` | lazy (TTY only) |
+| Colors | `chalk` v5 (ESM) | De facto standard | lazy (TTY + `wantsColor`) |
+| Spinners | `ora` | Pairs naturally with chalk; never attached in `json`/`ndjson` mode | lazy (TTY only) |
+| Tables | `cli-table3` | Good unicode handling; `human` output mode only | lazy (human mode) |
+| Boxes | `boxen` | For first-run banners and upgrade notices | lazy (TTY only) |
+| Update notifications | `update-notifier` | Non-blocking check; **TTY-only** — disabled when `CI=1` or non-interactive | lazy (TTY only) |
 
 ## Data / IO
 
@@ -40,8 +45,8 @@ Goal: a CLI that feels as polished as `gh`, `stripe`, or `vercel`. That means:
 | Schema validation | `zod` v3 | Runtime validation + type inference from one source |
 | Persistent config | `conf` | Stores in platform-correct location (`~/Library/Preferences/...` etc.) |
 | Project config | `cosmiconfig` | Standard for repo-level `.freelorc`, `freelo.config.ts` etc. |
-| Secret storage | `keytar` with `conf` fallback | OS keychain when available; encrypted file otherwise |
-| Logging | `pino` + `pino-pretty` | JSON by default, pretty for TTY, levels controllable via `FREELO_LOG` |
+| Secret storage | env-var first, then `keytar`, then `conf` | `FREELO_API_KEY` + `FREELO_EMAIL` env vars take precedence and **skip the keychain entirely** so headless agents (CI, Docker, Lambda) never touch OS secret stores. `FREELO_NO_KEYCHAIN=1` forces `conf`-file storage. |
+| Logging | `pino` (+ `pino-pretty` for TTY) | Default level **silent**; `-v` → info, `-vv` / `FREELO_DEBUG=1` → debug. stderr only. `pino-pretty` is lazy-loaded and attached only in TTY + `human` mode. |
 
 ## Build / Dev
 
@@ -88,3 +93,6 @@ Goal: a CLI that feels as polished as `gh`, `stripe`, or `vercel`. That means:
 - **No `inquirer` v8.** Use `@inquirer/prompts` instead.
 - **No `dotenv` as a runtime dep.** Node 20 has `--env-file`; config goes through `conf`/`cosmiconfig`.
 - **No `lodash`.** Modern JS has the primitives. If you reach for it, stop and reconsider.
+- **No YAML output.** Two structured modes (`json`, `ndjson`) are enough for agents; humans get `human` mode.
+- **No top-level imports of human-UX libs** (`chalk`, `ora`, `boxen`, `cli-table3`, `@inquirer/prompts`, `pino-pretty`, `update-notifier`). They must be lazy-loaded. Enforced by ESLint `no-restricted-imports`.
+- **No `console.log`** outside `src/ui/` and `src/bin/`. All output routes through `src/ui/envelope.ts`.

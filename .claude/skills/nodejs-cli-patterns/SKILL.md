@@ -65,7 +65,7 @@ Set the file executable in CI before publish: `chmod +x dist/freelo.js` (no-op o
 
 ## Lazy command loading
 
-Startup time matters for a CLI. For infrequent heavy commands, register a stub that dynamic-imports the real module on demand:
+Startup time matters for a CLI — especially the agent cold path. For infrequent heavy commands, register a stub that dynamic-imports the real module on demand:
 
 ```ts
 program
@@ -78,6 +78,40 @@ program
 ```
 
 Don't do this for the common-path commands — the extra import is measurable.
+
+## Lazy human-UX dependencies (mandatory)
+
+`@inquirer/prompts`, `ora`, `boxen`, `cli-table3`, `chalk`, `pino-pretty`, `update-notifier` **must not** appear in any top-level static `import`. They only exist on the human path.
+
+```ts
+// src/ui/table.ts
+export async function renderTable(rows: Row[], opts: TableOpts) {
+  const { default: CliTable3 } = await import('cli-table3');
+  const { default: chalk } = await import('chalk');
+  // ...
+}
+```
+
+Callers check `isInteractive` before reaching for a renderer that lazy-imports these. ESLint rule `no-restricted-imports` enforces the static-import ban.
+
+## TTY detection — one place
+
+```ts
+// src/lib/env.ts
+export const isInteractive = process.stdout.isTTY && !process.env.CI;
+export const wantsColor =
+  isInteractive &&
+  !process.env.NO_COLOR &&
+  process.env.FORCE_COLOR !== '0';
+
+export type OutputMode = 'auto' | 'human' | 'json' | 'ndjson';
+export function resolveOutputMode(flag: OutputMode, envOverride?: string): Exclude<OutputMode, 'auto'> {
+  if (flag === 'auto') return isInteractive ? 'human' : 'json';
+  return flag;
+}
+```
+
+Every place that needs TTY state or output mode imports from here. Don't sprinkle `process.stdout.isTTY` across the codebase.
 
 ## Signal handling
 
@@ -103,15 +137,22 @@ Every place that needs to know TTY state imports from here. Don't sprinkle `proc
 
 ## Config resolution order
 
-Highest precedence wins:
+### Non-secret settings (highest precedence wins)
 
 1. CLI flag (`--profile personal`)
-2. Env var (`FREELO_PROFILE=personal`)
+2. Env var (`FREELO_PROFILE=personal`, `FREELO_OUTPUT=json`, ...)
 3. Project config (`cosmiconfig` — `freelo.config.ts`, `.freelorc`)
 4. User config (`conf` — `~/.config/freelo-cli/config.json`)
 5. Built-in defaults
 
-Resolution happens once at startup into a frozen `AppConfig` object. Commands read from the object, never from env directly.
+### Credentials (env-first — never forces keychain on headless agents)
+
+1. CLI flag `--api-key-stdin` (read once at startup)
+2. Env vars `FREELO_API_KEY` + `FREELO_EMAIL` (or `FREELO_TOKEN`) — **skips keychain entirely** when set
+3. OS keychain via `keytar` — skipped if `FREELO_NO_KEYCHAIN=1` or if step 2 resolved
+4. `conf` file (0600 perms)
+
+Resolution happens once at startup into a frozen `AppConfig` object. Commands read from the object, never from env directly. `freelo config resolve --output json` emits the merged config (secrets redacted, each setting annotated with its source) — useful for agents debugging drift.
 
 ## HTTP client defaults
 
@@ -140,7 +181,9 @@ await fetch(url, { dispatcher: agent, signal, headers });
 logger.debug({ method, path, status, durationMs, requestId }, 'freelo api call');
 ```
 
-Human mode: `pino-pretty` transport; JSON mode in CI and when `--json` is set.
+**Default level is `silent`.** Agents get a clean stderr. `-v` → `info` (one line per API call), `-vv` / `FREELO_DEBUG=1` → `debug` (full request/response metadata + request IDs).
+
+`pino-pretty` is lazy-loaded and attached only in TTY + `human` mode. Non-TTY paths emit raw JSON lines to stderr so agents can pipe them directly to a log collector.
 
 ## Windows
 

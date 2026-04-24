@@ -1,9 +1,13 @@
 # 0002 — Auth: login / logout / whoami
 
-**Status:** Draft
+**Status:** Superseded — needs re-spec against updated R01 scope
 **Run:** 2026-04-24-1930-auth-login-logout-whoami
 **Owner:**
-**Tier:** Yellow
+**Tier:** Yellow (likely Red after re-spec — now ships envelope infra, error taxonomy, introspection-enabling `meta`, lazy-import rules)
+
+> **⚠ This spec predates the agent-first policy in `.claude/docs/architecture.md`.** It describes a global `--json` boolean flag and a per-command JSON shape. The canonical R01 slice (see `docs/roadmap.md` §R01) now ships a versioned envelope (`freelo.<resource>.<op>/v<n>`), a `--output <auto|human|json|ndjson>` global flag with TTY-aware `auto` default, env-first credential precedence that skips the keychain, a structured error envelope (`freelo.error/v1`), lazy-loaded human-UX deps, and a pairing with R02.5 for `--introspect` discoverability.
+>
+> **Do not implement this spec as-is.** Re-run `/spec R01` against the updated roadmap. The body below is kept for reference only.
 
 ## Problem
 

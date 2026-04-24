@@ -145,4 +145,4 @@ Zero tolerance. If a test is timing-dependent:
 - `chalk`'s color output (library)
 - Our types — `tsc` does that
 
-Test **our behavior**: what the user sees, what exit code they get, what `--json` emits.
+Test **our behavior**: what the user sees on TTY, what envelope agents get on non-TTY, what exit code they get, and what the stderr error envelope looks like on failure.

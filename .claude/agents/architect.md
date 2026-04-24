@@ -25,15 +25,19 @@ You do **not** write implementation code. If you're tempted to, stop and put it 
 
 A good spec:
 - Picks exact flag names and describes short and long forms
-- Includes three concrete example invocations (happy path, flag variation, error)
-- Lists every error case the user will see, with the exit code
-- Specifies the `--json` schema (usually just "the zod type Foo serialized as-is")
+- Includes three concrete example invocations — a human TTY invocation, an agent-style invocation (env-var auth + `--output json`), and an error path
+- Lists every error case the user will see, with: stable `code`, exit code, `retryable`, and `hint_next`
+- Specifies the output envelope `schema: freelo.<resource>.<op>/v<n>` name and the underlying zod type
+- For writes, specifies: `--dry-run` behavior, idempotency (what "already in state" looks like), and how batch input / NDJSON output works
+- Names which credential sources the command honors (env vars, keychain, conf) when the command touches auth
 - Calls out what's deliberately out of scope
 
 A bad spec:
 - Says "handle errors gracefully" without naming them
 - Leaves flag names as TBD
 - Mixes implementation detail into the UX section
+- Omits the envelope schema name for a data-returning command
+- Assumes a TTY — says "prompt the user" without defining the non-TTY fallback
 
 ## Plan quality bar
 

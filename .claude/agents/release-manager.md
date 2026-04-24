@@ -32,7 +32,7 @@ Drive a release from "merged PRs on main" to "published on npm with a tagged Git
 
 ## SemVer rules
 
-- `major` — breaking CLI behavior: removed flags/commands, changed output schema in `--json`, changed exit codes
+- `major` — breaking CLI behavior: removed flags/commands, removed/renamed/retyped a field in an existing envelope schema without a `/v(n+1)` bump, changed exit codes
 - `minor` — new commands/flags, new output fields (additive)
 - `patch` — bug fixes, docs, internal refactors
 
@@ -41,7 +41,7 @@ Pre-1.0: breaking changes may go in a `minor`. Document loudly in the changelog.
 ## What counts as user-visible (needs a changeset)
 
 - Any `src/commands/` change
-- Any `--json` output schema change
+- Any envelope schema change (new `freelo.*/vN`, added field, version bump)
 - Any error message or exit code change
 - Any new dependency visible to users (rare for a bundled CLI — usually none)
 - Bug fixes that change behavior

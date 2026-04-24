@@ -58,22 +58,52 @@ The client builds this from `package.json` version. Without it, Freelo may rejec
 
 - **Do not hardcode limits on the client.** The spec explicitly warns they change over time.
 - On `429 Too Many Requests`, back off and retry.
-- Our client: exponential backoff with jitter, max 3 attempts, **GETs only**. Writes surface the 429 to the caller.
+- Our client: exponential backoff with jitter, max 3 attempts, **GETs only**. Writes surface the 429 as `RateLimitedError` so the caller (or a driving agent) can decide.
+- **Rate-limit headers are captured on every response** (successful and failed) into `ApiResponse.rateLimit = { remaining, resetAt }`. The renderer forwards this into the JSON envelope's `rate_limit` field so agents can self-throttle across invocations.
 - Log every retry at `warn` with the retry count.
 
-## Error shape
+## Error shape (Freelo → our envelope)
+
+Freelo returns:
 
 ```json
 { "errors": ["Human readable reason", "Another error"] }
 ```
 
-An array of strings — not a single `message`. Our `FreeloApiError` captures the full array and joins them for display:
+An array of strings — not a single `message`. No machine-readable `code` field. Our `FreeloApiError` captures the full array and reshapes it into our stable error envelope (see `.claude/docs/architecture.md` §Error envelope):
 
 ```ts
-const FreeloErrorSchema = z.object({ errors: z.array(z.string()) });
+const FreeloErrorBodySchema = z.object({ errors: z.array(z.string()) });
+
+// FreeloApiError exposes:
+//   code:        'FREELO_API_ERROR' (stable)
+//   httpStatus:  from HTTP response
+//   requestId:   from X-Request-Id header (or our generated fallback)
+//   errors:      string[] from the body
+//   message:     errors.join('; ') or a status-derived fallback
+//   retryable:   true for 429 / 5xx, false for 4xx (except 429)
+//   hintNext:    derived from status + endpoint context
 ```
 
-Status code comes from HTTP; there's no machine-readable `code` field in the body. For distinguishing error types in code, pair status + message substring, or use the endpoint context.
+Mapping to our top-level error envelope emitted by `handleTopLevelError`:
+
+```jsonc
+{
+  "schema": "freelo.error/v1",
+  "error": {
+    "code": "FREELO_API_ERROR",
+    "message": "Forbidden",
+    "errors": ["Forbidden"],
+    "http_status": 403,
+    "request_id": "7e6f0c3e-...",
+    "retryable": false,
+    "hint_next": "Run `freelo auth whoami` to verify token access.",
+    "docs_url": "https://…"
+  }
+}
+```
+
+For distinguishing error types in code, switch on `FreeloApiError.httpStatus` and the endpoint context — never substring-match `message`.
 
 ## Currency encoding
 

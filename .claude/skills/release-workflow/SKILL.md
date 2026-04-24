@@ -35,9 +35,11 @@ Bad: `Fix JWT clock skew handling in src/config/auth.ts`.
 | Change | Bump |
 |--------|------|
 | New subcommand or flag | `minor` |
-| New field in `--json` output | `minor` |
+| New field added to an existing envelope schema | `minor` |
+| New envelope schema (`freelo.X/v1` first-time) | `minor` |
 | Bug fix, no behavior change for correct usage | `patch` |
-| Removed/renamed flag, changed `--json` schema, changed exit code | `major` (pre-1.0: `minor` + loud changelog) |
+| Removed/renamed flag, removed/renamed/retyped envelope field without `/v(n+1)` bump, changed exit code | `major` (pre-1.0: `minor` + loud changelog) |
+| Envelope version bump (`/v1 → /v2`) | `major` (pre-1.0: `minor` + loud changelog) |
 | Docs-only, internal refactor | no changeset — or `patch` if you want to cut a release anyway |
 
 ## CI workflow

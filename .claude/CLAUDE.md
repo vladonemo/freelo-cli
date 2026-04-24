@@ -75,16 +75,23 @@ Each phase has one or more specialized agents in `.claude/agents/` and a matchin
 
 ## Working agreements
 
+- **Agent-first.** The CLI is designed to be driven primarily by AI agents and CI scripts. Humans get parity via TTY detection, not the other way around. See `.claude/docs/architecture.md` §Audience for the policy.
 - **ESM only.** No CommonJS in `src/`. `package.json` has `"type": "module"`.
 - **No `any`.** If a Freelo API response is under-typed, add a `zod` schema and infer the type.
 - **Every network call is schema-validated** on the way in. Never hand a raw API response to business logic.
 - **Commands are thin.** A command file parses args, calls an API function, hands the result to a renderer. Business logic lives outside `src/commands/`.
-- **Errors are typed.** Throw `FreeloApiError`, `ConfigError`, `ValidationError` — never bare `Error`. The top-level handler in `src/bin/freelo.ts` formats them.
-- **Output respects `--json`.** Every command must support machine-readable output. Default is human-friendly.
+- **Errors are typed and structured.** Throw `FreeloApiError`, `ConfigError`, `ValidationError`, `ConfirmationError`, `NetworkError`, `RateLimitedError` — never bare `Error`. Each carries `code`, `exitCode`, `retryable`, optional `httpStatus`/`requestId`/`hintNext`. The top-level handler in `src/bin/freelo.ts` emits a human message (TTY) or a structured error envelope (non-TTY / `--output json`).
+- **Output defaults to JSON when non-TTY.** `--output auto` (the default) resolves to `json` when stdout isn't a TTY, `human` when it is. Every structured payload goes through `src/ui/envelope.ts` and carries `schema`, `data`, and — when applicable — `paging`, `rate_limit`, `request_id`.
+- **Envelope schemas are a public contract.** `freelo.<resource>.<op>/v<n>`. Field removal / rename / retype = breaking; additions = minor. Changes must be called out in the changeset.
+- **Writes are agent-safe.** Every write command supports `--dry-run`, batch input (`--id` repeatable, `--ids`, `--stdin` NDJSON), and idempotency (already-in-state returns success). Destructive ops require `--yes` or a TTY prompt; non-TTY without `--yes` fails closed with `CONFIRMATION_REQUIRED` (exit 2).
+- **Env-first auth.** `FREELO_API_KEY` + `FREELO_EMAIL` beat keychain beat `conf`. Keychain is skipped entirely when env is present or `FREELO_NO_KEYCHAIN=1`. Agents never need an interactive login.
+- **Introspectable surface.** `freelo --introspect` (and `freelo help --output json`) emit the full command tree as a versioned envelope so agents can discover flags/args programmatically.
+- **Lazy human deps.** `@inquirer/prompts`, `ora`, `boxen`, `cli-table3`, `chalk`, `pino-pretty`, `update-notifier` are `await import(...)`-loaded behind TTY checks. Agent cold paths never import them.
+- **Silent by default.** `pino` default level is silent. `-v` → info, `-vv` or `FREELO_DEBUG=1` → debug. stderr only. stdout is sacred for structured output.
 - **No telemetry** without an explicit opt-in flag. This is a user-trust boundary.
-- **Secrets** (API tokens) are stored via the OS keychain when available (`keytar`), falling back to `conf` with 0600 perms. Never logged, never printed.
+- **Secrets** (API tokens) never logged, never printed. Scrubbed from `FreeloApiError.rawBody` and request-log metadata before emission.
 - **Conventional Commits** are required — enforced by the commit-msg hook.
-- **Every user-visible change** needs a changeset entry (`pnpm changeset`).
+- **Every user-visible change** needs a changeset entry (`pnpm changeset`). Schema bumps need a dedicated changeset line.
 
 ---
 

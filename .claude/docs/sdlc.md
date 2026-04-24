@@ -106,8 +106,12 @@ A self-review before the human review. Checks:
 
 - Plan adherence
 - No `any`, no un-validated API responses, no bare `throw new Error`
-- `--json` output supported
-- Help text present and accurate
+- **Agent-first output**: every data-returning command routes through `src/ui/envelope.ts` with a declared `schema: freelo.<resource>.<op>/v<n>`; non-TTY defaults to `json`; `--output ndjson` path tested where applicable
+- **Structured errors**: thrown error classes carry `code`, `exitCode`, `retryable`, and `hintNext` where knowable
+- **Writes are agent-safe**: `--dry-run`, `--ids` / `--stdin` batch input, idempotency path, non-TTY confirmation-required error
+- **Lazy human deps**: no top-level static import of `@inquirer/prompts`, `ora`, `boxen`, `cli-table3`, `chalk`, `pino-pretty`, `update-notifier`
+- **Schema stability**: no existing envelope field removed/renamed/retyped without an `/v(n+1)` bump + changeset callout
+- Help text present and accurate; `freelo --introspect` still enumerates the new command
 - Changeset entry added
 - No secrets in fixtures
 

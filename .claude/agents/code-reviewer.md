@@ -24,11 +24,19 @@ Run this against the current branch (`git diff main...HEAD`):
 - `node:` prefix on builtin imports
 - Explicit return types on exported functions
 
-### CLI surface
-- New/changed commands support `--output json|yaml|table`
+### CLI surface (agent-first)
+- New/changed commands support `--output auto|human|json|ndjson` (default `auto`); no YAML
+- Every data-returning command emits a versioned envelope via `src/ui/envelope.ts` with `schema: freelo.<resource>.<op>/v<n>`
+- No existing envelope field removed/renamed/retyped without bumping `/v(n+1)` + a changeset line
+- Structured errors: all thrown errors extend `BaseError` with stable `code`, `exitCode`, `retryable`, `hintNext?`; `handleTopLevelError` emits `freelo.error/v1` on stderr in non-TTY / `json` mode
+- Writes are agent-safe: `--dry-run`, batch input (`--id` repeatable, `--ids`, `--stdin` NDJSON), idempotent no-op returns success with `already_in_target_state`
+- Non-TTY + destructive + no `--yes` → `CONFIRMATION_REQUIRED` error (exit 2); never hangs
+- Env-first auth: `FREELO_API_KEY` / `FREELO_EMAIL` path skips keychain; `FREELO_NO_KEYCHAIN=1` respected
+- `freelo --introspect` still enumerates the new/changed command (Commander tree → JSON envelope)
+- No top-level static imports of `@inquirer/prompts`, `ora`, `boxen`, `cli-table3`, `chalk`, `pino-pretty`, `update-notifier` — all lazy-imported behind TTY checks
 - Help text present, punctuated, professional
-- Exit codes match the scheme in `docs/architecture.md`
-- Prompts gated on `isTTY && !opts.yes`
+- Exit codes match the scheme in `.claude/docs/architecture.md`
+- Prompts gated on `isInteractive && !opts.yes`
 
 ### Tests
 - Coverage targets met (80% overall, 90% `api/` and `commands/`)
