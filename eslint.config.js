@@ -15,6 +15,8 @@ export default tseslint.config(
       // Plain-JS config files — linted below with the non-typed config.
       '*.config.js',
       'scripts/**/*.mjs',
+      // Test fixtures — these are not linted files.
+      'test/fixtures/**',
     ],
   },
   js.configs.recommended,

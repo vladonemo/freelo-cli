@@ -1,6 +1,6 @@
 export type WhoamiData = {
   profile: string;
-  profile_source: 'flag' | 'env' | 'conf' | 'default';
+  profile_source: 'flag' | 'env' | 'rc' | 'conf' | 'default';
   user_id: number;
   email: string;
   full_name?: string;
