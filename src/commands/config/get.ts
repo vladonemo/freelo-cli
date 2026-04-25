@@ -3,6 +3,7 @@ import { type GetAppConfig } from '../../config/schema.js';
 import { buildSourceMap } from '../../config/resolve.js';
 import { buildConfigListData } from '../../config/list.js';
 import { hasToken } from '../../config/has-token.js';
+import { readStore } from '../../config/store.js';
 import { buildEnvelope } from '../../ui/envelope.js';
 import { render } from '../../ui/render.js';
 import { renderConfigGetHuman } from '../../ui/human/config-get.js';
@@ -44,7 +45,17 @@ export function registerGet(
 
         const sourceMap = buildSourceMap({ env, flags: {} });
         const tokenPresent = await hasToken(appConfig.profile);
-        const listData = buildConfigListData(appConfig, sourceMap, tokenPresent);
+
+        // Retrieve email from the active profile's store record (mirrors resolve.ts §8.6.3)
+        let email: string | null = null;
+        try {
+          const store = readStore();
+          email = store.profiles[appConfig.profile]?.email ?? null;
+        } catch {
+          // Store may not exist on a fresh install — email defaults to null → ''
+        }
+
+        const listData = buildConfigListData(appConfig, sourceMap, tokenPresent, email);
         const entry = listData.keys.find((k) => k.key === key);
 
         if (!entry) {

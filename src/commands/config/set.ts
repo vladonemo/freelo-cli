@@ -74,7 +74,7 @@ export function registerSet(config: Command, getConfig: GetAppConfig): void {
             | null;
           // Coerce previous verbose to string for protocol consistency (§7 #6)
           if (writableKey === 'verbose' && typeof previousValue === 'number') {
-            previousValue = String(previousValue) as '0' | '1' | '2';
+            previousValue = String(previousValue);
           }
           setDefault(writableKey as keyof Defaults, parsedValue as Defaults[keyof Defaults]);
           envelopeScope = 'defaults';
@@ -93,7 +93,14 @@ export function registerSet(config: Command, getConfig: GetAppConfig): void {
           }
           previousValue = store.currentProfile;
           setCurrentProfile(targetProfile);
-          envelopeScope = 'defaults'; // profile key goes to currentProfile, envelope shows 'defaults'
+          // The envelope reports scope='defaults' for the 'profile' key even though the
+          // value is stored in store.currentProfile (not in store.defaults). The 'defaults'
+          // scope here means "global / not tied to a specific profile", which is the correct
+          // semantic for the caller — it's a process-wide switch, not a per-profile key.
+          // This matches the spec §2.3 union ('defaults' | 'profile') which has no third
+          // member for currentProfile; field additions would be a schema bump (CLAUDE.md).
+          // Equivalent to running `freelo config use <n>`.
+          envelopeScope = 'defaults';
         } else {
           // scope === 'profile' — apiBaseUrl
           const currentProfileName = appConfig.profile;

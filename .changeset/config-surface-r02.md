@@ -26,3 +26,7 @@ New subcommands: `config list`, `config get`, `config set`, `config unset`,
 - `freelo.config.profiles/v1`
 - `freelo.config.use/v1`
 - `freelo.config.resolve/v1`
+
+**New runtime dependency**: `cosmiconfig@^9.0.0` for project-level rc file discovery (JSON + YAML).
+
+**`ProfileSource` extended** with the new `'generated'` literal for runtime-minted values (e.g. auto-generated request IDs).

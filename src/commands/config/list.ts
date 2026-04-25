@@ -3,6 +3,7 @@ import { type GetAppConfig } from '../../config/schema.js';
 import { buildSourceMap } from '../../config/resolve.js';
 import { buildConfigListData } from '../../config/list.js';
 import { hasToken } from '../../config/has-token.js';
+import { readStore } from '../../config/store.js';
 import { buildEnvelope } from '../../ui/envelope.js';
 import { render } from '../../ui/render.js';
 import { renderConfigListHuman } from '../../ui/human/config-list.js';
@@ -28,7 +29,17 @@ export function registerList(
       try {
         const sourceMap = buildSourceMap({ env, flags: {} });
         const tokenPresent = await hasToken(appConfig.profile);
-        const data = buildConfigListData(appConfig, sourceMap, tokenPresent);
+
+        // Retrieve email from the active profile's store record (mirrors resolve.ts §8.6.3)
+        let email: string | null = null;
+        try {
+          const store = readStore();
+          email = store.profiles[appConfig.profile]?.email ?? null;
+        } catch {
+          // Store may not exist on a fresh install — that's fine, email = null → ''
+        }
+
+        const data = buildConfigListData(appConfig, sourceMap, tokenPresent, email);
 
         const envelope = buildEnvelope({
           schema: 'freelo.config.list/v1',
