@@ -273,14 +273,15 @@ describe('buildSourceMap — source attribution', () => {
     delete process.env['FREELO_DEBUG'];
   });
 
-  it('all sources are default when nothing is set', () => {
+  it('all sources are default when nothing is set (requestId is generated at runtime)', () => {
     const map = buildSourceMap({ env: {}, flags: {} });
     expect(map.profile).toBe('default');
     expect(map.output.mode).toBe('default');
     expect(map.output.color).toBe('default');
     expect(map.verbose).toBe('default');
     expect(map.apiBaseUrl).toBe('default');
-    expect(map.requestId).toBe('default');
+    // requestId without a flag is freshly minted per invocation → 'generated'
+    expect(map.requestId).toBe('generated');
   });
 
   it('profile source is flag when flag is set', () => {

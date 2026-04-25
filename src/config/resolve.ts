@@ -171,9 +171,7 @@ export function buildPartialAppConfig(input: BuildAppConfigInput): PartialAppCon
     // Check per-profile conf (need the resolved profile name to look it up)
     const store = safeReadStore();
     const profileConf = store?.profiles[profile];
-    if (profileConf?.apiBaseUrl && profileConf.apiBaseUrl !== API_BASE_DEFAULT) {
-      apiBaseUrl = profileConf.apiBaseUrl;
-    } else if (profileConf?.apiBaseUrl) {
+    if (profileConf?.apiBaseUrl) {
       apiBaseUrl = profileConf.apiBaseUrl;
     } else {
       apiBaseUrl = API_BASE_DEFAULT;
@@ -285,7 +283,10 @@ export function buildSourceMap(input: BuildAppConfigInput): SourceMap {
   }
 
   // --- requestId source ---
-  const requestIdSource: ProfileSource = flags.requestId ? 'flag' : 'default';
+  // When provided by a flag the source is 'flag'. When the ID is freshly minted
+  // at runtime (the common case) it is 'generated' — distinct from 'default'
+  // which implies a static fallback from a configuration layer.
+  const requestIdSource: ProfileSource = flags.requestId ? 'flag' : 'generated';
 
   // --- yes source ---
   const yesSource: ProfileSource = flags.yes !== undefined ? 'flag' : 'default';

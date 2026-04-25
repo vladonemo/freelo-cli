@@ -39,8 +39,11 @@ export type ConfStore = z.infer<typeof ConfStoreSchema>;
 /**
  * ProfileSource identifies where a resolved config value came from.
  * Extended in R02 with 'rc' for project-level `.freelorc.*` files.
+ * Extended in R02 review with 'generated' for runtime-minted values
+ * (e.g. request IDs that are freshly generated per invocation, not
+ * retrieved from any configuration layer).
  */
-export type ProfileSource = 'flag' | 'env' | 'rc' | 'conf' | 'default';
+export type ProfileSource = 'flag' | 'env' | 'rc' | 'conf' | 'default' | 'generated';
 
 /**
  * SourceLiteral extends ProfileSource with 'derived' — used only in the

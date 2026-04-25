@@ -24,12 +24,21 @@ export type ConfigListData = {
  *
  * `has_token` is used to derive the `apiKey` source annotation — if a token
  * exists, source is 'conf'; otherwise 'default'.
+ *
+ * `email` is threaded from the active profile's conf store record (analogous to
+ * how `resolve.ts` reads it). Callers pass `null` when no profile is configured
+ * (fresh install), which renders as `''` with source `'default'`. When the env
+ * var `FREELO_EMAIL` supplies the address, callers pass it with source `'env'`.
  */
 export function buildConfigListData(
   partial: PartialAppConfig,
   sourceMap: SourceMap,
   hasToken: boolean,
+  email: string | null,
 ): ConfigListData {
+  const emailValue = email ?? '';
+  const emailSource: ProfileSource = email ? 'conf' : 'default';
+
   const keys: ConfigKeyEntry[] = [
     // --- Writable (alphabetical) ---
     {
@@ -71,9 +80,8 @@ export function buildConfigListData(
     },
     {
       key: 'email',
-      // email is not in PartialAppConfig; shows as empty string by default
-      value: '',
-      source: 'default',
+      value: emailValue,
+      source: emailSource,
       writable: false,
     },
     {
