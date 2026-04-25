@@ -49,6 +49,10 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 - `freelo config set <key> <value>` — Set a configuration key. Writable keys: output, color, profile, apiBaseUrl, verbose. Read-only keys (email, apiKey) must be updated via 'freelo auth login'.
 - `freelo config unset <key>` — Remove a configuration key from the user conf store. Read-only keys cannot be unset via 'config'; use 'freelo auth logout' for credentials.
 - `freelo config use <profile>` — Switch the active profile. The profile must already exist (created via 'freelo auth login'). No network call is made — use auth whoami to verify credentials afterward.
+
+### help
+
+- `freelo help [commandPath...]` — Print the command tree as JSON (--output json) or as the same text as --help (default).
 <!-- END AUTOGEN COMMANDS -->
 
 The block above is generated from `freelo --introspect` by `scripts/check-readme.mjs` and verified in CI. Run `pnpm fix:readme` to refresh it after adding or changing a command.
