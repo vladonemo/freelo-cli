@@ -12,6 +12,7 @@ import { ValidationError } from '../../errors/validation-error.js';
 import { ConfigError } from '../../errors/config-error.js';
 import { readStdinToString } from '../../lib/stdin.js';
 import { isInteractive } from '../../lib/env.js';
+import { validateEmail, validateApiKey } from './validators.js';
 
 export const meta = {
   outputSchema: 'freelo.auth.login/v1',
@@ -72,11 +73,7 @@ export function registerLogin(
           if (!opts.email) {
             email = await input({
               message: 'Freelo account email:',
-              validate: (v: string) => {
-                if (!v.trim()) return 'Email is required.';
-                if (!/.+@.+\..+/.test(v)) return 'Enter a valid email address.';
-                return true;
-              },
+              validate: validateEmail,
             });
           } else {
             email = opts.email;
@@ -88,7 +85,7 @@ export function registerLogin(
           apiKey = await password({
             message: 'Freelo API token:',
             mask: '*',
-            validate: (v: string) => (v.trim() ? true : 'API token is required.'),
+            validate: validateApiKey,
           });
 
           spinner.start();
