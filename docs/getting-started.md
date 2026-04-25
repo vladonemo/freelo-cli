@@ -173,4 +173,6 @@ See [`freelo --introspect`](./commands/introspect.md) for the envelope shape and
 
 ## Next steps
 
-See [`docs/roadmap.md`](./roadmap.md) for the full incremental delivery plan.
+See [`docs/roadmap.md`](./roadmap.md) for the full incremental delivery plan, or
+[`README.md`](../README.md#commands) for the always-current command list (auto-generated
+from `freelo --introspect` and verified in CI).
