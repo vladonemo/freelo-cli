@@ -11,6 +11,10 @@ concurrency:
 env:
   HUSKY: 0
 
+permissions:
+  id-token: write # Required for OIDC
+  contents: read
+
 jobs:
   release:
     name: release
