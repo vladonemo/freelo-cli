@@ -6,6 +6,11 @@ export default defineConfig({
     globals: false,
     include: ['test/**/*.test.ts', 'src/**/*.test.ts'],
     setupFiles: ['./test/setup.ts'],
+    // 15s instead of vitest's 5s default. Subprocess-spawning tests on
+    // Windows + Node 20 occasionally land within ~30ms of the 5s mark
+    // due to slow runner cold-start; the work itself completes in well
+    // under a second. Per-test cap, doesn't slow fast tests down.
+    testTimeout: 15_000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
