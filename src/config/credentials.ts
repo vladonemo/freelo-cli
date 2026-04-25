@@ -14,6 +14,8 @@ export type ResolvedCredentials = {
 export type ResolveCredentialsOptions = {
   profile: string;
   apiBaseUrl: string;
+  /** Env snapshot taken once at startup. Never read live process.env here. */
+  env: Readonly<Record<string, string | undefined>>;
   /** API key provided from stdin (--api-key-stdin). Takes highest precedence. */
   stdinApiKey?: string;
   /** Email provided via --email flag or CLI opts. */
@@ -33,23 +35,23 @@ export type ResolveCredentialsOptions = {
 export async function resolveCredentials(
   opts: ResolveCredentialsOptions,
 ): Promise<ResolvedCredentials> {
-  const { profile, apiBaseUrl, stdinApiKey, emailFlag } = opts;
+  const { profile, apiBaseUrl, stdinApiKey, emailFlag, env } = opts;
 
   // 1. stdin key
   if (stdinApiKey !== undefined && stdinApiKey !== '') {
     // email must be provided; caller validates this before calling us.
-    const email = emailFlag ?? process.env['FREELO_EMAIL'] ?? '';
+    const email = emailFlag ?? env['FREELO_EMAIL'] ?? '';
     return { email, apiKey: stdinApiKey, apiBaseUrl, source: 'stdin' };
   }
 
   // 2. env
-  const envKey = process.env['FREELO_API_KEY'];
-  const envEmail = process.env['FREELO_EMAIL'];
+  const envKey = env['FREELO_API_KEY'];
+  const envEmail = env['FREELO_EMAIL'];
   if (envKey && envEmail) {
     return {
       email: emailFlag ?? envEmail,
       apiKey: envKey,
-      apiBaseUrl: process.env['FREELO_API_BASE'] ?? apiBaseUrl,
+      apiBaseUrl: env['FREELO_API_BASE'] ?? apiBaseUrl,
       source: 'env',
     };
   }

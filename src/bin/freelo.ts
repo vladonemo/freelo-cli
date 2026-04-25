@@ -47,28 +47,32 @@ export function buildProgram(): Command {
     .option('--request-id <uuid>', 'Override the auto-generated request ID (UUID v4).')
     .option('-y, --yes', 'Skip confirmation prompts for destructive operations.');
 
-  // Auth subcommand — dynamically imported to keep cold-start lean.
-  // The actual register() call is synchronous; the import is hoisted at build
-  // time by tsup. We do a static import at the top of the commands file.
-  // For now, register synchronously from the commands module.
-  // (Registered after global flags so subcommands inherit them.)
-
   return program;
 }
 
 /**
- * Resolve the current `PartialAppConfig` from parsed Commander options.
- * Exported so tests can call it without a full parse.
+ * Resolve the current `PartialAppConfig` from parsed Commander options and
+ * the given env snapshot. Exported so tests can call it without a full parse.
+ *
+ * Always pass an explicit `env` argument — use `process.env` at the call
+ * site (typically `run()`), never read it inside command modules.
  */
-export function resolveConfig(program: Command): PartialAppConfig {
+export function resolveConfig(
+  program: Command,
+  env: Readonly<Record<string, string | undefined>>,
+): PartialAppConfig {
   const opts = program.opts<Record<string, string | number | boolean | undefined>>();
   return buildPartialAppConfig({
-    env: process.env,
+    env,
     flags: pickFlags(opts),
   });
 }
 
 export async function run(argv: readonly string[]): Promise<void> {
+  // Capture env snapshot once at startup. Nothing below this line reads
+  // process.env directly — they all receive `env` as a parameter.
+  const env: Readonly<Record<string, string | undefined>> = Object.freeze({ ...process.env });
+
   // Register auth commands before parsing.
   const { register: registerAuth } = await import('../commands/auth.js');
   const program = buildProgram();
@@ -76,7 +80,24 @@ export async function run(argv: readonly string[]): Promise<void> {
   // process.exit. This keeps the process alive for tests and gives us a typed
   // error to inspect (Commander exit codes map to e.exitCode).
   program.exitOverride();
-  registerAuth(program);
+
+  // Build AppConfig exactly once, immediately after the program is set up
+  // (before parsing so global flag defaults are available).
+  // We parse just the root-level flags here using Commander's parseOptions so
+  // that --output, --profile, etc. are resolved before command actions run.
+  // Commander stores defaults immediately; a full parse would require commands
+  // to be registered first. Instead we call parseOptions on a fresh instance
+  // to extract global flags, then pass the resolved config to register().
+  const rootProgram = buildProgram();
+  try {
+    rootProgram.exitOverride();
+    rootProgram.parseOptions(argv.slice(2));
+  } catch {
+    // Ignore parse errors here — the real parse below will surface them.
+  }
+  const appConfig = resolveConfig(rootProgram, env);
+
+  registerAuth(program, appConfig, env);
 
   try {
     await program.parseAsync(argv as string[]);
@@ -94,10 +115,10 @@ export async function run(argv: readonly string[]): Promise<void> {
       if (isHelpOrVersion) return;
     }
 
-    // Genuine error — resolve output mode from parsed opts if possible.
+    // Genuine error — use the already-resolved appConfig output mode.
     let mode: 'human' | 'json' | 'ndjson';
     try {
-      mode = resolveConfig(program).output.mode;
+      mode = appConfig.output.mode;
     } catch {
       mode = resolveOutputMode('auto');
     }

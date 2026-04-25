@@ -1,5 +1,5 @@
 import { type Command } from 'commander';
-import { buildPartialAppConfig, pickFlags } from '../../config/resolve.js';
+import { type PartialAppConfig } from '../../config/schema.js';
 import { resolveCredentials } from '../../config/credentials.js';
 import { createHttpClient } from '../../api/client.js';
 import { getUsersMe } from '../../api/users.js';
@@ -26,18 +26,15 @@ function mapSource(source: 'stdin' | 'env' | 'keytar' | 'conf-fallback'): Profil
   }
 }
 
-export function registerWhoami(auth: Command): void {
+export function registerWhoami(
+  auth: Command,
+  appConfig: PartialAppConfig,
+  env: Readonly<Record<string, string | undefined>>,
+): void {
   auth
     .command('whoami')
     .description('Show the currently authenticated user.')
-    .action(async (_opts: unknown, cmd: Command) => {
-      const globalOpts =
-        cmd.parent?.parent?.opts<Record<string, string | number | boolean | undefined>>() ?? {};
-      const appConfig = buildPartialAppConfig({
-        env: process.env,
-        flags: pickFlags(globalOpts),
-      });
-
+    .action(async () => {
       const mode = appConfig.output.mode;
       const profile = appConfig.profile;
 
@@ -45,6 +42,7 @@ export function registerWhoami(auth: Command): void {
         const creds = await resolveCredentials({
           profile,
           apiBaseUrl: appConfig.apiBaseUrl,
+          env,
         });
 
         const client = createHttpClient({

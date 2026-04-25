@@ -95,7 +95,7 @@ describe('agent-path cold-start smoke', () => {
       return true;
     });
     vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    vi.spyOn(process, 'exit').mockImplementation((_code?: number) => {
+    vi.spyOn(process, 'exit').mockImplementation((_code?: string | number | null) => {
       throw new Error(`EXIT:${_code ?? 0}`);
     });
 
@@ -120,7 +120,7 @@ describe('agent-path cold-start smoke', () => {
       return true;
     });
     vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    vi.spyOn(process, 'exit').mockImplementation((_code?: number) => {
+    vi.spyOn(process, 'exit').mockImplementation((_code?: string | number | null) => {
       throw new Error(`EXIT:${_code ?? 0}`);
     });
 
@@ -141,7 +141,7 @@ describe('agent-path cold-start smoke', () => {
   it('does not activate @inquirer/prompts on the whoami agent path', async () => {
     vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    vi.spyOn(process, 'exit').mockImplementation((_code?: number) => {
+    vi.spyOn(process, 'exit').mockImplementation((_code?: string | number | null) => {
       throw new Error(`EXIT:${_code ?? 0}`);
     });
 
@@ -163,7 +163,7 @@ describe('agent-path cold-start smoke', () => {
   it('does not activate ora on the whoami agent path', async () => {
     vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    vi.spyOn(process, 'exit').mockImplementation((_code?: number) => {
+    vi.spyOn(process, 'exit').mockImplementation((_code?: string | number | null) => {
       throw new Error(`EXIT:${_code ?? 0}`);
     });
 

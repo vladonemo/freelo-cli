@@ -24,8 +24,8 @@ function captureOutput() {
     stderr.push(String(chunk));
     return true;
   });
-  const exitSpy = vi.spyOn(process, 'exit').mockImplementation((_code?: number) => {
-    const code = _code ?? 0;
+  const exitSpy = vi.spyOn(process, 'exit').mockImplementation((_code?: string | number | null) => {
+    const code = Number(_code ?? 0);
     // Only capture the FIRST exit code — subsequent calls may be from
     // the outer run() try/catch re-catching the mock's thrown Error.
     if (firstExitCode === undefined) firstExitCode = code;
@@ -392,7 +392,7 @@ describe('auth whoami — human mode on TTY', () => {
       return true;
     });
     vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    vi.spyOn(process, 'exit').mockImplementation((_code?: number) => {
+    vi.spyOn(process, 'exit').mockImplementation((_code?: string | number | null) => {
       throw new Error(`EXIT:${_code ?? 0}`);
     });
 

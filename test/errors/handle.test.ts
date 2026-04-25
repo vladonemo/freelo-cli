@@ -17,7 +17,8 @@ import { RateLimitedError } from '../../src/errors/rate-limited-error.js';
 
 describe('handleTopLevelError — human mode', () => {
   let stderrWrites: string[] = [];
-  let exitSpy: ReturnType<typeof vi.spyOn>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let exitSpy: ReturnType<typeof vi.spyOn<any, any>>;
   let savedDebug: string | undefined;
 
   beforeEach(() => {
@@ -26,7 +27,7 @@ describe('handleTopLevelError — human mode', () => {
       stderrWrites.push(String(chunk));
       return true;
     });
-    exitSpy = vi.spyOn(process, 'exit').mockImplementation((_code?: number) => {
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation((_code?: string | number | null) => {
       throw new Error(`process.exit(${_code ?? ''})`);
     });
     savedDebug = process.env['FREELO_DEBUG'];
@@ -105,7 +106,7 @@ describe('handleTopLevelError — json mode', () => {
       stdoutWrites.push(String(chunk));
       return true;
     });
-    vi.spyOn(process, 'exit').mockImplementation((_code?: number) => {
+    vi.spyOn(process, 'exit').mockImplementation((_code?: string | number | null) => {
       throw new Error(`process.exit(${_code ?? ''})`);
     });
   });
@@ -195,7 +196,7 @@ describe('handleTopLevelError — non-BaseError becomes INTERNAL_ERROR', () => {
       stderrWrites.push(String(chunk));
       return true;
     });
-    vi.spyOn(process, 'exit').mockImplementation((_code?: number) => {
+    vi.spyOn(process, 'exit').mockImplementation((_code?: string | number | null) => {
       throw new Error(`process.exit(${_code ?? ''})`);
     });
   });
@@ -236,7 +237,7 @@ describe('handleTopLevelError — non-BaseError becomes INTERNAL_ERROR', () => {
 describe('handleTopLevelError — AbortError routes to exit 130', () => {
   beforeEach(() => {
     vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    vi.spyOn(process, 'exit').mockImplementation((_code?: number) => {
+    vi.spyOn(process, 'exit').mockImplementation((_code?: string | number | null) => {
       throw new Error(`process.exit(${_code ?? ''})`);
     });
   });
@@ -272,7 +273,7 @@ describe('handleTopLevelError — ndjson mode behaves like json', () => {
       stderrWrites.push(String(chunk));
       return true;
     });
-    vi.spyOn(process, 'exit').mockImplementation((_code?: number) => {
+    vi.spyOn(process, 'exit').mockImplementation((_code?: string | number | null) => {
       throw new Error(`process.exit(${_code ?? ''})`);
     });
   });

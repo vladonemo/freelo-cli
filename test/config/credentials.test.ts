@@ -71,6 +71,7 @@ describe('resolveCredentials — stdin takes highest precedence', () => {
     const result = await resolveCredentials({
       profile: 'default',
       apiBaseUrl: API_BASE,
+      env: { FREELO_API_KEY: 'sk-env-key', FREELO_EMAIL: 'env@example.com' },
       stdinApiKey: 'sk-stdin-key',
       emailFlag: 'stdin@example.com',
     });
@@ -104,9 +105,6 @@ describe('resolveCredentials — env takes precedence over keytar', () => {
   });
 
   it('uses env vars when both FREELO_API_KEY and FREELO_EMAIL are set', async () => {
-    process.env['FREELO_API_KEY'] = 'sk-env-key';
-    process.env['FREELO_EMAIL'] = 'env@example.com';
-
     const keytar = await import('keytar');
     vi.mocked(keytar.getPassword).mockResolvedValue('sk-keytar-key');
 
@@ -114,6 +112,7 @@ describe('resolveCredentials — env takes precedence over keytar', () => {
     const result = await resolveCredentials({
       profile: 'default',
       apiBaseUrl: API_BASE,
+      env: { FREELO_API_KEY: 'sk-env-key', FREELO_EMAIL: 'env@example.com' },
     });
 
     expect(result.apiKey).toBe('sk-env-key');
@@ -124,13 +123,11 @@ describe('resolveCredentials — env takes precedence over keytar', () => {
   });
 
   it('uses emailFlag over FREELO_EMAIL when both are set and they match', async () => {
-    process.env['FREELO_API_KEY'] = 'sk-env-key';
-    process.env['FREELO_EMAIL'] = 'env@example.com';
-
     const { resolveCredentials } = await import('../../src/config/credentials.js');
     const result = await resolveCredentials({
       profile: 'default',
       apiBaseUrl: API_BASE,
+      env: { FREELO_API_KEY: 'sk-env-key', FREELO_EMAIL: 'env@example.com' },
       emailFlag: 'env@example.com',
     });
 
@@ -171,6 +168,7 @@ describe('resolveCredentials — keytar over conf-fallback', () => {
     const result = await resolveCredentials({
       profile: 'default',
       apiBaseUrl: API_BASE,
+      env: {},
     });
 
     expect(result.apiKey).toBe('sk-keytar-token');
@@ -207,15 +205,15 @@ describe('resolveCredentials — missing credentials throws ConfigError', () => 
     const { resolveCredentials } = await import('../../src/config/credentials.js');
     // Import ConfigError from the same module registry (post-resetModules)
     const { ConfigError: CE } = await import('../../src/errors/config-error.js');
-    await expect(resolveCredentials({ profile: 'default', apiBaseUrl: API_BASE })).rejects.toThrow(
-      CE,
-    );
+    await expect(
+      resolveCredentials({ profile: 'default', apiBaseUrl: API_BASE, env: {} }),
+    ).rejects.toThrow(CE);
   });
 
   it('throws ConfigError with missing-token kind', async () => {
     const { resolveCredentials } = await import('../../src/config/credentials.js');
     try {
-      await resolveCredentials({ profile: 'default', apiBaseUrl: API_BASE });
+      await resolveCredentials({ profile: 'default', apiBaseUrl: API_BASE, env: {} });
       expect.fail('should have thrown');
     } catch (err) {
       expect((err as { kind?: { kind: string } }).kind?.kind).toBe('missing-token');
@@ -225,7 +223,7 @@ describe('resolveCredentials — missing credentials throws ConfigError', () => 
   it('ConfigError has exitCode 3', async () => {
     const { resolveCredentials } = await import('../../src/config/credentials.js');
     try {
-      await resolveCredentials({ profile: 'myprofile', apiBaseUrl: API_BASE });
+      await resolveCredentials({ profile: 'myprofile', apiBaseUrl: API_BASE, env: {} });
     } catch (err) {
       expect((err as { exitCode?: number }).exitCode).toBe(3);
     }

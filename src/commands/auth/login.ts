@@ -1,5 +1,5 @@
 import { type Command } from 'commander';
-import { buildPartialAppConfig, pickFlags } from '../../config/resolve.js';
+import { type PartialAppConfig } from '../../config/schema.js';
 import { createHttpClient } from '../../api/client.js';
 import { getUsersMe } from '../../api/users.js';
 import { writeProfile, setCurrentProfile, readStore } from '../../config/store.js';
@@ -18,22 +18,17 @@ export const meta = {
   destructive: false,
 } as const;
 
-const API_BASE_DEFAULT = 'https://api.freelo.io/v1';
-
-export function registerLogin(auth: Command): void {
+export function registerLogin(
+  auth: Command,
+  appConfig: PartialAppConfig,
+  env: Readonly<Record<string, string | undefined>>,
+): void {
   auth
     .command('login')
     .description('Store credentials for a Freelo profile and verify them.')
     .option('--email <address>', 'Freelo account email address.')
     .option('--api-key-stdin', 'Read the API key from stdin (no echo). Requires --email.')
-    .action(async (opts: { email?: string; apiKeyStdin?: boolean }, cmd: Command) => {
-      const globalOpts =
-        cmd.parent?.parent?.opts<Record<string, string | number | boolean | undefined>>() ?? {};
-      const appConfig = buildPartialAppConfig({
-        env: process.env,
-        flags: pickFlags(globalOpts),
-      });
-
+    .action(async (opts: { email?: string; apiKeyStdin?: boolean }) => {
       const mode = appConfig.output.mode;
       const profile = appConfig.profile;
 
@@ -53,8 +48,7 @@ export function registerLogin(auth: Command): void {
           }
         }
 
-        const hasEnv =
-          Boolean(process.env['FREELO_API_KEY']) && Boolean(process.env['FREELO_EMAIL']);
+        const hasEnv = Boolean(env['FREELO_API_KEY']) && Boolean(env['FREELO_EMAIL']);
         const interactive = isInteractive() && !opts.apiKeyStdin && !hasEnv;
 
         let email: string;
@@ -64,14 +58,14 @@ export function registerLogin(auth: Command): void {
           email = opts.email!;
           apiKey = stdinApiKey;
         } else if (hasEnv) {
-          email = opts.email ?? process.env['FREELO_EMAIL']!;
-          if (opts.email && opts.email !== process.env['FREELO_EMAIL']) {
+          email = opts.email ?? env['FREELO_EMAIL']!;
+          if (opts.email && opts.email !== env['FREELO_EMAIL']) {
             throw new ValidationError(
-              `--email '${opts.email}' does not match FREELO_EMAIL '${process.env['FREELO_EMAIL']}'.`,
+              `--email '${opts.email}' does not match FREELO_EMAIL '${env['FREELO_EMAIL']}'.`,
               { field: '--email' },
             );
           }
-          apiKey = process.env['FREELO_API_KEY']!;
+          apiKey = env['FREELO_API_KEY']!;
         } else if (interactive) {
           const { input, password } = await import('@inquirer/prompts');
 
@@ -99,7 +93,7 @@ export function registerLogin(auth: Command): void {
 
           spinner.start();
 
-          const apiBaseUrl = process.env['FREELO_API_BASE'] ?? API_BASE_DEFAULT;
+          const apiBaseUrl = env['FREELO_API_BASE'] ?? appConfig.apiBaseUrl;
           const client = createHttpClient({
             email,
             apiKey,
@@ -145,7 +139,7 @@ export function registerLogin(auth: Command): void {
         }
 
         // Shared path for env + stdin.
-        const apiBaseUrl = process.env['FREELO_API_BASE'] ?? API_BASE_DEFAULT;
+        const apiBaseUrl = env['FREELO_API_BASE'] ?? appConfig.apiBaseUrl;
         const client = createHttpClient({
           email,
           apiKey,
