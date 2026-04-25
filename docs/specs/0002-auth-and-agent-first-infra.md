@@ -534,7 +534,7 @@ The CLI synthesizes `FreeloApiError.code` from the HTTP status (these are **CLI 
 
 | Header | When | Citation / rationale |
 |---|---|---|
-| `User-Agent: freelo-cli/<version> (+https://github.com/magic-soft/freelo-cli)` | Every request | Required by `info.description`: *"Each request must include a `User-Agent` HTTP header."* — `docs/api/freelo-api.yaml:9`. Reinforced by `.claude/skills/freelo-api/SKILL.md` §Required headers. `<version>` is read from `package.json`. |
+| `User-Agent: freelo-cli/<version> (+https://github.com/vladonemo/freelo-cli)` | Every request | Required by `info.description`: *"Each request must include a `User-Agent` HTTP header."* — `docs/api/freelo-api.yaml:9`. Reinforced by `.claude/skills/freelo-api/SKILL.md` §Required headers. `<version>` is read from `package.json`. |
 | `Content-Type: application/json; charset=utf-8` | Write requests (`POST`/`PUT`/`PATCH`) | `info.description`: *"The API only supports JSON format in UTF-8 encoding."* — `docs/api/freelo-api.yaml:17-18`. R01 has no writes; listed for completeness. |
 | `Accept: application/json` | Every request (safe) | Not mandated by the spec, but the API is JSON-only (`docs/api/freelo-api.yaml:17-18`). Safe to send. |
 | `Authorization: Basic …` | Every request | From the `basicAuth` security scheme — `docs/api/freelo-api.yaml:4759-4763`. |

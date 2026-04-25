@@ -8,16 +8,16 @@
     "project-management",
     "tasks"
   ],
-  "homepage": "https://github.com/magic-soft/freelo-cli#readme",
+  "homepage": "https://github.com/vladonemo/freelo-cli#readme",
   "bugs": {
-    "url": "https://github.com/magic-soft/freelo-cli/issues"
+    "url": "https://github.com/vladonemo/freelo-cli/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/magic-soft/freelo-cli.git"
+    "url": "git+https://github.com/vladonemo/freelo-cli.git"
   },
   "license": "MIT",
-  "author": "Magic Soft",
+  "author": "vladonemo",
   "type": "module",
   "bin": {
     "freelo": "./dist/freelo.js"

@@ -5,7 +5,7 @@ import { type PartialAppConfig, type ProfileSource } from './schema.js';
 import { VERSION } from '../lib/version.js';
 
 const API_BASE_DEFAULT = 'https://api.freelo.io/v1';
-const USER_AGENT = `freelo-cli/${VERSION} (+https://github.com/magic-soft/freelo-cli)`;
+const USER_AGENT = `freelo-cli/${VERSION} (+https://github.com/vladonemo/freelo-cli)`;
 
 export type BuildAppConfigFlags = {
   output?: string;
