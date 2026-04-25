@@ -710,6 +710,10 @@ Plus a `normalizeErrors(body): string[]` helper that flattens both shapes for di
 
 Each line ends with a **Recommendation** so the reviewer can tick it quickly.
 
+### Phase 4 addendum — Q14 (test-writer finding, 2026-04-24)
+
+14. **`scrubSecrets` did not redact camelCase `apiKey`.** `src/errors/redact.ts` declared `SECRET_KEYS = new Set([..., 'apiKey', ...])` but the lookup is `SECRET_KEYS.has(k.toLowerCase())`. `'apiKey'.toLowerCase() === 'apikey'`, which was not present in the set, so any object key literally spelled `apiKey` (the spelling used by `AppConfig`, `Credentials`, `client.ts`'s `#apiKey`, and `tokens.ts`) escaped redaction. **Resolution (2026-04-24, Phase-3 amendment authorized by user):** entry in `SECRET_KEYS` changed from `'apiKey'` to `'apikey'` so the lowercased lookup matches every casing (`apiKey`, `APIKEY`, `ApiKey`, `apikey`). `test/errors/redact.test.ts` flipped from a "documents current behavior" assertion to a positive `'[redacted]'` assertion plus a case-insensitive sweep. Closed.
+
 1. **Exit-code reconciliation.** `architecture.md` §Exit codes and the R01 bullet in the roadmap both say `6 = rate-limited`. An older table elsewhere in the roadmap may still say `5`. Confirm `architecture.md` wins; update any lagging roadmap text in the same PR. **Recommendation:** adopt `6`, patch roadmap in-PR.
 
 2. **Login persistence when `FREELO_API_KEY` is set.** When the operator runs `login` with env credentials, do we persist to keytar/fallback (convenience) or stay stateless (verify-only, no writes)? **Recommendation:** persist. The operator explicitly ran `login`; `whoami` already covers the verify-only case.

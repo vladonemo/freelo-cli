@@ -7,7 +7,7 @@ export const SECRET_KEYS: ReadonlySet<string> = new Set([
   'email',
   'password',
   'api_key',
-  'apiKey',
+  'apikey',
   'token',
 ]);
 
