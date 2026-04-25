@@ -16,8 +16,23 @@ export default defineConfig({
         functions: 80,
         branches: 75,
         statements: 80,
-        // Per-file targets for high-value directories.
-        // vitest's perFile thresholds apply when you specify include patterns.
+        // Per-directory targets for high-value layers.
+        // Vitest v2 treats any non-standard string key as a glob pattern.
+        // lines/statements are set to the SDLC target (90%); branches/functions
+        // reflect the current coverage floor for the interactive paths in login.ts
+        // that require TTY prompts (validate callbacks) — raise when those are tested.
+        'src/api/**': {
+          lines: 90,
+          functions: 80,
+          branches: 80,
+          statements: 90,
+        },
+        'src/commands/**': {
+          lines: 90,
+          functions: 70,
+          branches: 65,
+          statements: 90,
+        },
       },
     },
   },
