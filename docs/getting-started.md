@@ -147,6 +147,30 @@ freelo config resolve --show-source --output json
 - [`freelo config use`](./commands/config-use.md) — switch the active profile.
 - [`freelo config resolve`](./commands/config-resolve.md) — full merged config with per-leaf source annotation.
 
+## Agent discovery — `freelo --introspect`
+
+Agents and CI scripts that drive the CLI need to know what commands exist, what flags they take, and what envelope schema each one returns. Don't parse `--help` — call **`freelo --introspect`** instead. It walks the live program tree and emits a single `freelo.introspect/v1` envelope with every command, flag, argument, output schema, and `destructive` boolean.
+
+```bash
+$ freelo --introspect | jq '.data.commands[].name'
+"auth login"
+"auth logout"
+"auth whoami"
+"config get"
+"config list"
+…
+```
+
+The same payload is also reachable via the agent-friendly alias `freelo help --output json` (full) or `freelo help <command> --output json` (scoped).
+
+Use it to:
+
+- Generate tool-use manifests for MCP servers or Claude Code tool registries.
+- Diff the surface between CLI versions in your build pipeline.
+- Auto-generate per-command argument schemas in your agent harness.
+
+See [`freelo --introspect`](./commands/introspect.md) for the envelope shape and concrete recipes.
+
 ## Next steps
 
 See [`docs/roadmap.md`](./roadmap.md) for the full incremental delivery plan.
