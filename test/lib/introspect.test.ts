@@ -44,7 +44,7 @@ function makeProgram(): Command {
     .option('-v, --verbose', 'verbose toggle')
     .option('--name [name]', 'optional name')
     .option('--tags <tag...>', 'list of tags')
-    .option('--count <n>', 'numeric', 5);
+    .option('--count <n>', 'numeric', (v) => Number.parseInt(v, 10), 5);
   attachMeta(whoami, { outputSchema: 'freelo.auth.whoami/v1', destructive: false });
 
   // Argument-bearing leaf.
