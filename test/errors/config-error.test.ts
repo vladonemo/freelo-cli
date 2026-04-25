@@ -101,3 +101,35 @@ describe('ConfigError — caller-provided hintNext overrides default', () => {
     expect(err.hintNext).toBe('custom hint here');
   });
 });
+
+describe('ConfigError — corrupt-rc kind', () => {
+  it('has code CONFIG_ERROR', () => {
+    const err = new ConfigError('bad rc', { kind: 'corrupt-rc', path: '/repo/.freelorc.yaml' });
+    expect(err.code).toBe('CONFIG_ERROR');
+  });
+
+  it('has exitCode 2 (user-correctable)', () => {
+    const err = new ConfigError('bad rc', { kind: 'corrupt-rc', path: '/repo/.freelorc.yaml' });
+    expect(err.exitCode).toBe(2);
+  });
+
+  it('is not retryable', () => {
+    const err = new ConfigError('bad rc', { kind: 'corrupt-rc', path: '/repo/.freelorc.yaml' });
+    expect(err.retryable).toBe(false);
+  });
+
+  it('includes the file path in hintNext', () => {
+    const err = new ConfigError('bad rc', { kind: 'corrupt-rc', path: '/repo/.freelorc.yaml' });
+    expect(err.hintNext).toContain('/repo/.freelorc.yaml');
+  });
+
+  it('hintNext mentions auth login and rc file', () => {
+    const err = new ConfigError('bad rc', { kind: 'corrupt-rc', path: '/repo/.freelorc.yaml' });
+    expect(err.hintNext).toContain('auth login');
+  });
+
+  it('exposes the kind discriminant', () => {
+    const err = new ConfigError('bad rc', { kind: 'corrupt-rc', path: '/repo/.freelorc.yaml' });
+    expect(err.kind.kind).toBe('corrupt-rc');
+  });
+});

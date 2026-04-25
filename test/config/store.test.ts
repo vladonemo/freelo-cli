@@ -59,9 +59,10 @@ describe('config/store — round-trip', () => {
   it('returns default store on first read when no config exists', async () => {
     const { readStore } = await import('../../src/config/store.js');
     const store = readStore();
-    expect(store.schemaVersion).toBe(1);
+    expect(store.schemaVersion).toBe(2);
     expect(store.currentProfile).toBeNull();
     expect(store.profiles).toEqual({});
+    expect(store.defaults).toEqual({});
   });
 
   it('writes and reads back a profile round-trip', async () => {
@@ -113,6 +114,43 @@ describe('config/store — round-trip', () => {
     const { setCurrentProfile, readStore } = await import('../../src/config/store.js');
     setCurrentProfile(null);
     expect(readStore().currentProfile).toBeNull();
+  });
+
+  it('setDefault writes to the defaults map and readStore returns it', async () => {
+    const { setDefault, readStore } = await import('../../src/config/store.js');
+    setDefault('output', 'json');
+    expect(readStore().defaults.output).toBe('json');
+  });
+
+  it('unsetDefault removes the key and returns the previous value', async () => {
+    const { setDefault, unsetDefault, readStore } = await import('../../src/config/store.js');
+    setDefault('color', 'never');
+    const { previous } = unsetDefault('color');
+    expect(previous).toBe('never');
+    expect(readStore().defaults.color).toBeUndefined();
+  });
+
+  it('unsetDefault on an already-unset key returns undefined as previous', async () => {
+    const { unsetDefault } = await import('../../src/config/store.js');
+    const { previous } = unsetDefault('output');
+    expect(previous).toBeUndefined();
+  });
+
+  it('setProfileApiBaseUrl updates the profile apiBaseUrl', async () => {
+    const { writeProfile, setProfileApiBaseUrl, readStore } = await import(
+      '../../src/config/store.js'
+    );
+    writeProfile('ci', { email: 'ci@example.com', apiBaseUrl: 'https://api.freelo.io/v1' });
+    setProfileApiBaseUrl('ci', 'https://staging.freelo.io/v1');
+    expect(readStore().profiles['ci']?.apiBaseUrl).toBe('https://staging.freelo.io/v1');
+  });
+
+  it('setProfileApiBaseUrl throws ConfigError missing-profile when profile does not exist', async () => {
+    const { setProfileApiBaseUrl } = await import('../../src/config/store.js');
+    const { ConfigError } = await import('../../src/errors/config-error.js');
+    expect(() => setProfileApiBaseUrl('nonexistent', 'https://staging.freelo.io/v1')).toThrow(
+      ConfigError,
+    );
   });
 });
 
@@ -172,6 +210,114 @@ describe('config/store — corrupt config', () => {
         'corrupt-config',
       );
     }
+  });
+});
+
+describe('config/store — v1→v2 migration', () => {
+  it('migrateV1toV2 returns v2-shaped object from a v1 input', async () => {
+    const { migrateV1toV2 } = await import('../../src/config/store.js');
+    const v1 = {
+      schemaVersion: 1,
+      currentProfile: 'default',
+      profiles: { default: { email: 'a@b.com', apiBaseUrl: 'https://api.freelo.io/v1' } },
+    };
+    const result = migrateV1toV2(v1) as Record<string, unknown>;
+    expect(result['schemaVersion']).toBe(2);
+    expect(result['defaults']).toEqual({});
+    // Original fields preserved
+    expect(result['currentProfile']).toBe('default');
+  });
+
+  it('migrateV1toV2 is a no-op on a v2 input', async () => {
+    const { migrateV1toV2 } = await import('../../src/config/store.js');
+    const v2 = {
+      schemaVersion: 2,
+      currentProfile: null,
+      profiles: {},
+      defaults: { output: 'json' },
+    };
+    const result = migrateV1toV2(v2);
+    expect(result).toEqual(v2);
+  });
+
+  it('migrateV1toV2 is a no-op on non-object input', async () => {
+    const { migrateV1toV2 } = await import('../../src/config/store.js');
+    expect(migrateV1toV2(null)).toBeNull();
+    expect(migrateV1toV2(undefined)).toBeUndefined();
+    expect(migrateV1toV2(42)).toBe(42);
+  });
+});
+
+describe('config/store — v1 on disk is migrated in memory without writing back', () => {
+  let testDir: string;
+  let confData: Record<string, unknown>;
+  let writeCalled: boolean;
+
+  beforeEach(async () => {
+    testDir = join(
+      tmpdir(),
+      `freelo-v1-migration-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    await mkdir(testDir, { recursive: true });
+    writeCalled = false;
+
+    // Conf mock pre-populated with v1 store data
+    confData = {
+      schemaVersion: 1,
+      currentProfile: null,
+      profiles: {},
+    };
+
+    vi.doMock('conf', () => {
+      const ConfMock = vi.fn().mockImplementation(() => ({
+        get path() {
+          return join(testDir, 'config.json');
+        },
+        has: (key: string) => key in confData,
+        get store() {
+          return { ...confData };
+        },
+        set store(val: Record<string, unknown>) {
+          writeCalled = true;
+          confData = { ...val };
+        },
+      }));
+      return { default: ConfMock };
+    });
+
+    vi.resetModules();
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    try {
+      await rm(testDir, { recursive: true, force: true });
+    } catch {
+      // ignore
+    }
+  });
+
+  it('readStore returns v2-shaped object from v1 on-disk data', async () => {
+    const { readStore } = await import('../../src/config/store.js');
+    const store = readStore();
+    expect(store.schemaVersion).toBe(2);
+    expect(store.defaults).toEqual({});
+  });
+
+  it('readStore does NOT write back after migration (read-only-on-read)', async () => {
+    const { readStore } = await import('../../src/config/store.js');
+    readStore();
+    expect(writeCalled).toBe(false);
+  });
+
+  it('subsequent writeStore persists v2 shape', async () => {
+    const { readStore, writeStore } = await import('../../src/config/store.js');
+    const store = readStore();
+    writeStore(store);
+    expect(writeCalled).toBe(true);
+    expect(confData['schemaVersion']).toBe(2);
+    expect(confData['defaults']).toEqual({});
   });
 });
 
