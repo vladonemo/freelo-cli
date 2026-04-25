@@ -19,7 +19,10 @@ function readPackageVersion(): string {
   const raw = readFileSync(pkgPath, 'utf8');
   const parsed = JSON.parse(raw) as { version?: unknown };
   if (typeof parsed.version !== 'string' || parsed.version.length === 0) {
-    throw new ConfigError('package.json is missing a version string');
+    throw new ConfigError('package.json is missing a version string', {
+      kind: 'corrupt-config',
+      path: pkgPath,
+    });
   }
   return parsed.version;
 }

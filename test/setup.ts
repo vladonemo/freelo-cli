@@ -1,12 +1,8 @@
 import { afterAll, afterEach, beforeAll } from 'vitest';
-import { setupServer } from 'msw/node';
-import { handlers } from './msw/handlers.js';
+import { server } from './msw/handlers.js';
 
-// Shared MSW server. Empty handler list in the initial scaffold —
-// future API tests register handlers here or add per-test overrides via
-// `server.use(...)`.
-export const server = setupServer(...handlers);
-
+// Shared MSW server. Tests register per-suite handlers via server.use(...)
+// or use the exported factory helpers in test/msw/handlers.ts.
 beforeAll(() => {
   server.listen({ onUnhandledRequest: 'error' });
 });

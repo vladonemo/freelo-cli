@@ -46,7 +46,16 @@
     "prepare": "node ./scripts/prepare-husky.mjs"
   },
   "dependencies": {
-    "commander": "12.1.0"
+    "@inquirer/prompts": "7.5.2",
+    "chalk": "5.4.1",
+    "commander": "12.1.0",
+    "conf": "13.1.0",
+    "keytar": "7.9.0",
+    "ora": "8.2.0",
+    "pino": "9.6.0",
+    "pino-pretty": "13.0.0",
+    "undici": "^7.24.0",
+    "zod": "3.24.2"
   },
   "devDependencies": {
     "@changesets/cli": "2.27.10",

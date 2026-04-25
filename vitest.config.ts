@@ -10,21 +10,29 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'lcov'],
       include: ['src/**/*.ts'],
-      exclude: [
-        'src/**/*.d.ts',
-        'src/**/index.ts',
-        // Abstract placeholder — first concrete subclass (added by the
-        // errors spec) will bring it under coverage.
-        'src/errors/**',
-      ],
+      exclude: ['src/**/*.d.ts', 'src/**/index.ts'],
       thresholds: {
-        // Pragmatic scaffold thresholds. The first user-visible feature
-        // (auth/login) will raise these to the SDLC target of 80 % lines,
-        // 90 % on src/api and src/commands.
-        lines: 60,
-        functions: 60,
-        branches: 30,
-        statements: 60,
+        lines: 80,
+        functions: 80,
+        branches: 75,
+        statements: 80,
+        // Per-directory targets for high-value layers.
+        // Vitest v2 treats any non-standard string key as a glob pattern.
+        // lines/statements are set to the SDLC target (90%); branches/functions
+        // reflect the current coverage floor for the interactive paths in login.ts
+        // that require TTY prompts (validate callbacks) — raise when those are tested.
+        'src/api/**': {
+          lines: 90,
+          functions: 80,
+          branches: 80,
+          statements: 90,
+        },
+        'src/commands/**': {
+          lines: 90,
+          functions: 90,
+          branches: 85,
+          statements: 90,
+        },
       },
     },
   },
