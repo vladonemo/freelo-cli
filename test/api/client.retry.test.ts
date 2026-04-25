@@ -10,7 +10,7 @@ const TEST_OPTS = {
   email: 'test@example.cz',
   apiKey: 'sk-test-key',
   apiBaseUrl: API_BASE,
-  userAgent: `freelo-cli/${VERSION} (+https://github.com/magic-soft/freelo-cli)`,
+  userAgent: `freelo-cli/${VERSION} (+https://github.com/vladonemo/freelo-cli)`,
 };
 
 /**
