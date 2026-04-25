@@ -42,6 +42,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
+    "check:readme": "node scripts/check-readme.mjs",
+    "fix:readme": "node scripts/check-readme.mjs --write",
     "changeset": "changeset",
     "prepare": "node ./scripts/prepare-husky.mjs"
   },

@@ -136,6 +136,8 @@ User-facing documentation lives in `docs/` (rendered by VitePress later). Every 
 
 Generated `--help` output should read cleanly on its own — docs supplement, they don't replace help text.
 
+The published `README.md` carries an autogen Commands block between `<!-- BEGIN AUTOGEN COMMANDS -->` / `<!-- END AUTOGEN COMMANDS -->` markers. It is verified in CI by `pnpm check:readme`, which compares the committed block against a freshly rendered one from `dist/freelo.js --introspect`. **doc-writer must run `pnpm fix:readme` whenever a spec adds, removes, renames, or re-describes a public command**, and commit the regenerated block in the same PR. Never delete the marker block; if the CLI has no commands, the block stays empty between the markers.
+
 ---
 
 ## Phase 7 — Ship
