@@ -53,6 +53,10 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 ### help
 
 - `freelo help [commandPath...]` — Print the command tree as JSON (--output json) or as the same text as --help (default).
+
+### projects
+
+- `freelo projects list` — List projects in the chosen scope. Default scope is 'owned'.
 <!-- END AUTOGEN COMMANDS -->
 
 The block above is generated from `freelo --introspect` by `scripts/check-readme.mjs` and verified in CI. Run `pnpm fix:readme` to refresh it after adding or changing a command.
