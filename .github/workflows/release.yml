@@ -43,9 +43,12 @@ jobs:
 
       - run: pnpm build
 
-      # Opens / updates a "Version Packages" PR. Publishes when that PR
-      # is merged AND NPM_TOKEN is configured. Until secrets are set
-      # (deferred), the publish step is effectively a no-op.
+      # Opens / updates a "Version Packages" PR. When that PR is merged
+      # and there are no remaining changesets, publishes to npm via OIDC
+      # (Trusted Publishers — see https://docs.npmjs.com/trusted-publishers).
+      # The `id-token: write` permission above is what npm verifies against
+      # the registered Trusted Publisher for `freelo-cli`. No NPM_TOKEN
+      # secret is required.
       - name: changesets
         uses: changesets/action@v1
         with:
@@ -55,4 +58,4 @@ jobs:
           title: 'chore(release): version packages'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: 'true'
