@@ -46,7 +46,11 @@ export function buildProgram(): Command {
       0,
     )
     .option('--request-id <uuid>', 'Override the auto-generated request ID (UUID v4).')
-    .option('-y, --yes', 'Skip confirmation prompts for destructive operations.');
+    .option('-y, --yes', 'Skip confirmation prompts for destructive operations.')
+    .option(
+      '--introspect',
+      'Print the full command tree as a single JSON envelope (agent discovery).',
+    );
 
   return program;
 }
@@ -93,6 +97,7 @@ export async function run(argv: readonly string[]): Promise<void> {
   // Register commands before parsing.
   const { register: registerAuth } = await import('../commands/auth.js');
   const { register: registerConfig } = await import('../commands/config.js');
+  const { registerHelp } = await import('../commands/help.js');
   const program = buildProgram();
   // Use exitOverride so Commander throws CommanderError instead of calling
   // process.exit. This keeps the process alive for tests and gives us a typed
@@ -123,6 +128,29 @@ export async function run(argv: readonly string[]): Promise<void> {
 
   registerAuth(program, getAppConfig, env);
   registerConfig(program, getAppConfig, env);
+  registerHelp(program, getAppConfig);
+
+  // Root-level `--introspect` short-circuits before any subcommand action.
+  // Commander invokes the action when no subcommand matches, so we register
+  // a default action that emits the envelope when --introspect is set, and
+  // otherwise prints the standard help text.
+  program.action(async () => {
+    const opts = program.opts<{ introspect?: boolean; requestId?: string }>();
+    if (opts.introspect) {
+      const { buildIntrospectData } = await import('../lib/introspect.js');
+      const { buildEnvelope } = await import('../ui/envelope.js');
+      const data = buildIntrospectData(program, VERSION);
+      const envelope = buildEnvelope({
+        schema: 'freelo.introspect/v1',
+        data,
+        ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+      });
+      process.stdout.write(`${JSON.stringify(envelope)}\n`);
+      return;
+    }
+    // No subcommand and no --introspect: print help and exit 0.
+    program.outputHelp();
+  });
 
   try {
     await program.parseAsync(argv as string[]);
