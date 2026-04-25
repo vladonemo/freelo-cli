@@ -1,0 +1,22 @@
+{
+  "total": 75,
+  "count": 25,
+  "page": 0,
+  "per_page": 25,
+  "data": {
+    "projects": [
+      {
+        "id": 1,
+        "name": "Project 1",
+        "date_add": "2026-01-01T08:00:00+01:00",
+        "owner": { "id": 9, "fullname": "Owner Name" },
+        "state": { "id": 1, "state": "active" },
+        "minutes_budget": 600,
+        "budget": { "amount": "10000", "currency": "CZK" },
+        "real_minutes_spent": 120,
+        "real_cost": { "amount": "2000", "currency": "CZK" }
+      },
+      { "id": 2, "name": "Project 2", "state": { "id": 2, "state": "archived" } }
+    ]
+  }
+}
