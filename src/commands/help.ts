@@ -16,11 +16,28 @@
 import { type Command } from 'commander';
 import { type GetAppConfig } from '../config/schema.js';
 import { buildEnvelope } from '../ui/envelope.js';
-import { buildIntrospectData, filterByPath, type IntrospectData } from '../lib/introspect.js';
+import {
+  attachMeta,
+  buildIntrospectData,
+  filterByPath,
+  type CommandMeta,
+  type IntrospectData,
+} from '../lib/introspect.js';
 import { VERSION } from '../lib/version.js';
 import { ValidationError } from '../errors/validation-error.js';
 import { handleTopLevelError } from '../errors/handle.js';
 import { resolveOutputMode } from '../lib/env.js';
+
+/**
+ * `freelo help`'s structured output IS the introspect envelope, so the leaf's
+ * `output_schema` is `freelo.introspect/v1`. The self-referential entry is
+ * intentional — agents walking `data.commands` get a complete tool catalog
+ * that includes `help` as a discoverable command. (Spec 0008.)
+ */
+export const meta: CommandMeta = {
+  outputSchema: 'freelo.introspect/v1',
+  destructive: false,
+};
 
 export function registerHelp(program: Command, getConfig: GetAppConfig): void {
   // Commander's program has a default helpCommand; replacing it cleanly is
@@ -29,7 +46,7 @@ export function registerHelp(program: Command, getConfig: GetAppConfig): void {
   // primary human entry.
   program.helpCommand(false);
 
-  program
+  const helpCmd = program
     .command('help [commandPath...]')
     .description(
       'Print the command tree as JSON (--output json) or as the same text as --help (default).',
@@ -77,10 +94,11 @@ export function registerHelp(program: Command, getConfig: GetAppConfig): void {
       }
     });
 
-  // The help subcommand itself has no schema/output. It either prints help
-  // (a side effect) or emits the introspect envelope. We do not attach
-  // `meta` here — it would muddy the introspect output (recursive entry
-  // for the help command itself).
+  // Attach meta so the introspect walker emits `help` as a leaf command.
+  // Its structured output is the introspect envelope itself — a self-
+  // referential, contract-correct entry that completes the tool catalog
+  // for agents walking `data.commands`. (Spec 0008.)
+  attachMeta(helpCmd, meta);
 }
 
 /**

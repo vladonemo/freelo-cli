@@ -79,6 +79,7 @@ config resolve
 config set
 config unset
 config use
+help
 ```
 
 ### Build a tool-use manifest for an MCP server
@@ -156,6 +157,6 @@ When a new command lands, the golden test in `test/ui/introspect.test.ts` will f
 
 ## Notes
 
-- The `help` subcommand itself is **not** included in the introspect output — it has no `output_schema` and is purely an alias. Agents should call `--introspect` to enumerate, never `help` (which would loop).
+- The `help` subcommand **is** included in the introspect output — its `output_schema` is `freelo.introspect/v1` (the entry is self-referential because `freelo help --output json` emits exactly that envelope). Agents walking `data.commands` therefore see a complete tool catalog.
 - `--output ndjson` is rejected on `freelo help` for v1. Use `--output json`.
 - The output never contains secrets (no tokens, no email addresses) — only command metadata.

@@ -78,10 +78,17 @@ describe('freelo.introspect/v1 — envelope shape (golden)', () => {
     }
   });
 
-  it('does not emit the help command itself as an introspect entry (no meta)', async () => {
+  it('emits the help command as a self-referential introspect entry (Spec 0008)', async () => {
     const program = await buildLiveProgram();
     const data = buildIntrospectData(program, '0.0.0');
-    expect(data.commands.find((c) => c.name === 'help')).toBeUndefined();
+    const help = data.commands.find((c) => c.name === 'help');
+    expect(help).toBeDefined();
+    expect(help?.output_schema).toBe('freelo.introspect/v1');
+    expect(help?.destructive).toBe(false);
+    expect(help?.flags).toEqual([]);
+    expect(help?.args).toEqual([
+      { name: 'commandPath', required: false, variadic: true, description: '' },
+    ]);
   });
 });
 

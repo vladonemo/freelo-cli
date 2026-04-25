@@ -140,6 +140,21 @@
       "name": "config use",
       "output_schema": "freelo.config.use/v1",
     },
+    {
+      "args": [
+        {
+          "description": "",
+          "name": "commandPath",
+          "required": false,
+          "variadic": true,
+        },
+      ],
+      "description": "Print the command tree as JSON (--output json) or as the same text as --help (default).",
+      "destructive": false,
+      "flags": [],
+      "name": "help",
+      "output_schema": "freelo.introspect/v1",
+    },
   ],
   "version": "GOLDEN-VERSION",
 }
