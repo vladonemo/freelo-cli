@@ -50,6 +50,7 @@
   "dependencies": {
     "@inquirer/prompts": "7.5.2",
     "chalk": "5.4.1",
+    "cli-table3": "0.6.5",
     "commander": "12.1.0",
     "conf": "13.1.0",
     "cosmiconfig": "^9.0.0",

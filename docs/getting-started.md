@@ -67,6 +67,51 @@ Email:       jane@acme.cz
 API base:    https://api.freelo.io/v1
 ```
 
+## Listing projects
+
+After `freelo auth whoami` confirms credentials, the most natural next
+step is `freelo projects list`. The default scope (`owned`) is the fastest
+happy path — one round trip, no pagination concerns.
+
+```bash
+freelo projects list --output json
+```
+
+```json
+{
+  "schema": "freelo.projects.list/v1",
+  "data": {
+    "entity_shape": "with_tasklists",
+    "scope": "owned",
+    "projects": [
+      {
+        "id": 42,
+        "name": "Site redesign",
+        "date_add": "2026-01-15T10:00:00+01:00",
+        "tasklists": [{ "id": 101, "name": "Backlog" }]
+      }
+    ]
+  },
+  "paging": { "page": 0, "per_page": 1, "total": 1, "next_cursor": null },
+  "rate_limit": { "remaining": 99, "reset_at": null },
+  "request_id": "..."
+}
+```
+
+Agents follow `paging.next_cursor` for paginated scopes:
+
+```bash
+freelo projects list --scope all --cursor 1 --output json
+freelo projects list --scope all --all --output ndjson
+```
+
+`--all` plus `--output ndjson` streams one envelope per page, so an agent
+can resume from `paging.next_cursor` after a network blip without losing
+the work it has already committed. See
+[`freelo projects list`](./commands/projects-list.md) for the full
+reference, including `--fields` projection and the mid-stream error
+protocol.
+
 ## Auth reference
 
 - [`freelo auth login`](./commands/auth-login.md) — store and verify credentials.

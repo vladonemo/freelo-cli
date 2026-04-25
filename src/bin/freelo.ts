@@ -97,6 +97,7 @@ export async function run(argv: readonly string[]): Promise<void> {
   // Register commands before parsing.
   const { register: registerAuth } = await import('../commands/auth.js');
   const { register: registerConfig } = await import('../commands/config.js');
+  const { register: registerProjects } = await import('../commands/projects.js');
   const { registerHelp } = await import('../commands/help.js');
   const program = buildProgram();
   // Use exitOverride so Commander throws CommanderError instead of calling
@@ -128,6 +129,7 @@ export async function run(argv: readonly string[]): Promise<void> {
 
   registerAuth(program, getAppConfig, env);
   registerConfig(program, getAppConfig, env);
+  registerProjects(program, getAppConfig, env);
   registerHelp(program, getAppConfig);
 
   // Root-level `--introspect` short-circuits before any subcommand action.

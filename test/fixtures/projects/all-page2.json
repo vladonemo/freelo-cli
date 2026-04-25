@@ -1,0 +1,9 @@
+{
+  "total": 75,
+  "count": 25,
+  "page": 2,
+  "per_page": 25,
+  "data": {
+    "projects": [{ "id": 51, "name": "Project 51", "state": { "id": 1, "state": "active" } }]
+  }
+}

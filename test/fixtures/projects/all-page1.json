@@ -1,0 +1,12 @@
+{
+  "total": 75,
+  "count": 25,
+  "page": 1,
+  "per_page": 25,
+  "data": {
+    "projects": [
+      { "id": 26, "name": "Project 26", "state": { "id": 1, "state": "active" } },
+      { "id": 27, "name": "Project 27", "state": { "id": 1, "state": "active" } }
+    ]
+  }
+}
