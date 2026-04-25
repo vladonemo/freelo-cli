@@ -9,7 +9,12 @@
  *   - Flags map to the right `type` strings (boolean, string, string?, string[], number).
  *   - Args carry name/required/variadic/description.
  *   - Auto-generated --help / --version flags are filtered out.
- *   - filterByPath finds an existing leaf and returns undefined for a miss.
+ *   - filterByPath:
+ *     · returns a single-entry array for an exact leaf match
+ *     · returns every leaf under a parent-group prefix
+ *     · returns an empty array for an unknown or partial-token path
+ *     · trims whitespace from the requested path
+ *     · returns the full list when given an empty path
  */
 
 import { describe, expect, it } from 'vitest';
@@ -183,22 +188,48 @@ describe('buildIntrospectData', () => {
 });
 
 describe('filterByPath', () => {
-  it('finds a leaf by space-joined path', () => {
+  it('finds a leaf by space-joined path (returns single-entry array)', () => {
     const program = makeProgram();
     const data = buildIntrospectData(program, '0.0.1');
-    const match = filterByPath(data.commands, 'auth login');
-    expect(match?.name).toBe('auth login');
+    const matches = filterByPath(data.commands, 'auth login');
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.name).toBe('auth login');
   });
 
-  it('returns undefined for an unknown path', () => {
+  it('returns every leaf under a parent group (subtree match)', () => {
     const program = makeProgram();
     const data = buildIntrospectData(program, '0.0.1');
-    expect(filterByPath(data.commands, 'auth nope')).toBeUndefined();
+    const matches = filterByPath(data.commands, 'auth');
+    const names = matches.map((c) => c.name).sort();
+    expect(names).toEqual(['auth login', 'auth logout']);
+  });
+
+  it('returns an empty array for an unknown path', () => {
+    const program = makeProgram();
+    const data = buildIntrospectData(program, '0.0.1');
+    expect(filterByPath(data.commands, 'auth nope')).toEqual([]);
+  });
+
+  it('does not match a partial token (segment boundary required)', () => {
+    const program = makeProgram();
+    const data = buildIntrospectData(program, '0.0.1');
+    // 'auth lo' is a prefix of 'auth login' as a string but not as a path —
+    // the next char after the prefix must be a space.
+    expect(filterByPath(data.commands, 'auth lo')).toEqual([]);
   });
 
   it('trims whitespace from the requested path', () => {
     const program = makeProgram();
     const data = buildIntrospectData(program, '0.0.1');
-    expect(filterByPath(data.commands, '  auth login  ')?.name).toBe('auth login');
+    const matches = filterByPath(data.commands, '  auth login  ');
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.name).toBe('auth login');
+  });
+
+  it('empty path returns all commands', () => {
+    const program = makeProgram();
+    const data = buildIntrospectData(program, '0.0.1');
+    expect(filterByPath(data.commands, '').length).toBe(data.commands.length);
+    expect(filterByPath(data.commands, '   ').length).toBe(data.commands.length);
   });
 });

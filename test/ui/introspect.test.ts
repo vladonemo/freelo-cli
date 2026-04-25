@@ -174,6 +174,39 @@ describe('freelo --introspect — bin integration', () => {
     expect(env.data.commands[0]!.name).toBe('auth login');
   });
 
+  it('`freelo help auth --output json` returns all leaves under the auth subtree', async () => {
+    const { stdout } = await runCmd(['help', 'auth', '--output', 'json']);
+    const env = JSON.parse(stdout.split('\n').filter((l) => l.trim().length > 0)[0]!) as {
+      data: { commands: Array<{ name: string }> };
+    };
+    const names = env.data.commands.map((c) => c.name);
+    expect(names).toEqual(['auth login', 'auth logout', 'auth whoami']);
+    // Every entry must live under the requested subtree.
+    for (const c of env.data.commands) {
+      expect(c.name === 'auth' || c.name.startsWith('auth ')).toBe(true);
+    }
+  });
+
+  it('`freelo help config --output json` returns all leaves under the config subtree', async () => {
+    const { stdout } = await runCmd(['help', 'config', '--output', 'json']);
+    const env = JSON.parse(stdout.split('\n').filter((l) => l.trim().length > 0)[0]!) as {
+      data: { commands: Array<{ name: string }> };
+    };
+    const names = env.data.commands.map((c) => c.name);
+    expect(names).toEqual([
+      'config get',
+      'config list',
+      'config profiles',
+      'config resolve',
+      'config set',
+      'config unset',
+      'config use',
+    ]);
+    for (const c of env.data.commands) {
+      expect(c.name === 'config' || c.name.startsWith('config ')).toBe(true);
+    }
+  });
+
   it('`freelo help --output human` delegates to Commander outputHelp() (no JSON envelope)', async () => {
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
