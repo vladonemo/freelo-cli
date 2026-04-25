@@ -29,8 +29,8 @@ export default defineConfig({
         },
         'src/commands/**': {
           lines: 90,
-          functions: 70,
-          branches: 65,
+          functions: 90,
+          branches: 85,
           statements: 90,
         },
       },
