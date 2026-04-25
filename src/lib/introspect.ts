@@ -182,16 +182,28 @@ export function buildIntrospectData(program: Command, version: string): Introspe
 }
 
 /**
- * Filter the full introspect output to a single command path.
- * Used by `freelo help <cmd> --output json`.
+ * Filter the full introspect output to a command path.
+ * Used by `freelo help <cmd...> --output json`.
  *
- * Path is space-separated (`'auth login'`, `'config set'`).
- * Returns `undefined` when no command matches.
+ * Path is space-separated (`'auth login'`, `'config'`, `'config set'`).
+ *
+ * Matches in two ways, so both leaves and parent groups resolve:
+ *   - `c.name === wanted` (leaf, e.g. `'auth login'` for path `'auth login'`).
+ *   - `c.name.startsWith(wanted + ' ')` (parent group: every leaf under
+ *     that subtree, e.g. all `'config '` leaves for path `'config'`).
+ *
+ * Partial token matches do NOT count: `'auth lo'` does not match
+ * `'auth login'` because the next character must be a space (segment
+ * boundary).
+ *
+ * Returns the filtered array. An empty array means no match — callers
+ * should treat that as the unknown-command-path error.
  */
 export function filterByPath(
   commands: readonly IntrospectCommand[],
   path: string,
-): IntrospectCommand | undefined {
+): IntrospectCommand[] {
   const wanted = path.trim();
-  return commands.find((c) => c.name === wanted);
+  if (wanted === '') return [...commands];
+  return commands.filter((c) => c.name === wanted || c.name.startsWith(`${wanted} `));
 }

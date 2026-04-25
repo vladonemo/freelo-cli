@@ -107,14 +107,20 @@ function resolveCommandForHelp(program: Command, path: readonly string[]): Comma
 }
 
 /**
- * Filter the full introspect data to the named path. Empty path returns the
- * full data unmodified. Unknown path → `ValidationError`.
+ * Filter the full introspect data to the named path.
+ *
+ * Empty path returns the full data unmodified. A leaf path returns just that
+ * leaf. A parent-group path (e.g. `'config'`) returns every leaf under that
+ * subtree (e.g. `config get`, `config list`, …) — matching what humans expect
+ * from `freelo help config --output json`.
+ *
+ * Unknown path → `ValidationError`.
  */
 function filterToPath(data: IntrospectData, path: readonly string[]): IntrospectData {
   if (path.length === 0) return data;
   const wanted = path.join(' ');
-  const match = filterByPath(data.commands, wanted);
-  if (!match) {
+  const matches = filterByPath(data.commands, wanted);
+  if (matches.length === 0) {
     throw new ValidationError(`Unknown command '${wanted}'.`, {
       field: 'commandPath',
       value: wanted,
@@ -123,6 +129,6 @@ function filterToPath(data: IntrospectData, path: readonly string[]): Introspect
   }
   return {
     version: data.version,
-    commands: [match],
+    commands: matches,
   };
 }

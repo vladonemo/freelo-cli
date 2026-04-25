@@ -8,6 +8,7 @@ Programmatically enumerate the entire CLI surface — every command, flag, argum
 freelo --introspect
 freelo help                                # auto-resolves to JSON when stdout is not a TTY
 freelo help --output json
+freelo help <parent> --output json         # scope to a parent group's subtree, e.g. `freelo help config --output json`
 freelo help <command...> --output json     # scope to a single leaf, e.g. `freelo help auth login --output json`
 freelo help                                # human help text on a TTY (alias for `freelo --help`)
 freelo help <command...>                   # human help text scoped to one command on a TTY
@@ -91,6 +92,32 @@ $ freelo --introspect > .mcp/freelo-tools.json
 ```bash
 $ freelo --introspect | jq '.data.commands[] | select(.destructive) | .name'
 ```
+
+### Scoped help — by parent group
+
+Pass a parent-group name and you get every leaf under that subtree, in one
+envelope. Useful when an agent wants to enumerate the operations on one
+resource without parsing the whole tree.
+
+```bash
+$ freelo help config --output json | jq -r '.data.commands[].name'
+config get
+config list
+config profiles
+config resolve
+config set
+config unset
+config use
+
+$ freelo help auth --output json | jq -r '.data.commands[].name'
+auth login
+auth logout
+auth whoami
+```
+
+The match is exact on path-segment boundaries — `freelo help auth lo` is **not**
+a partial-token match for `auth login`; it errors with `VALIDATION_ERROR` like
+any other unknown path.
 
 ### Inspect a single command
 
