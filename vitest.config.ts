@@ -10,21 +10,14 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'lcov'],
       include: ['src/**/*.ts'],
-      exclude: [
-        'src/**/*.d.ts',
-        'src/**/index.ts',
-        // Abstract placeholder — first concrete subclass (added by the
-        // errors spec) will bring it under coverage.
-        'src/errors/**',
-      ],
+      exclude: ['src/**/*.d.ts', 'src/**/index.ts'],
       thresholds: {
-        // Pragmatic scaffold thresholds. The first user-visible feature
-        // (auth/login) will raise these to the SDLC target of 80 % lines,
-        // 90 % on src/api and src/commands.
-        lines: 60,
-        functions: 60,
-        branches: 30,
-        statements: 60,
+        lines: 80,
+        functions: 80,
+        branches: 75,
+        statements: 80,
+        // Per-file targets for high-value directories.
+        // vitest's perFile thresholds apply when you specify include patterns.
       },
     },
   },
