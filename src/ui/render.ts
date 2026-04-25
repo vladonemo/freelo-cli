@@ -26,3 +26,21 @@ export function render<T>(
   // json, ndjson, auto (fallback)
   process.stdout.write(`${JSON.stringify(envelope)}\n`);
 }
+
+/**
+ * Async variant of `render` for commands whose human renderer is async
+ * (e.g. lazy-loads `cli-table3`). JSON / ndjson paths are unchanged — they
+ * never await.
+ */
+export async function renderAsync<T>(
+  mode: ResolvedOutputMode | 'auto',
+  envelope: Envelope<T>,
+  humanRenderer: (data: T) => Promise<string>,
+): Promise<void> {
+  if (mode === 'human') {
+    const output = await humanRenderer(envelope.data);
+    process.stdout.write(output.endsWith('\n') ? output : `${output}\n`);
+    return;
+  }
+  process.stdout.write(`${JSON.stringify(envelope)}\n`);
+}
