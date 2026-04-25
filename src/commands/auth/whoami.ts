@@ -1,5 +1,5 @@
 import { type Command } from 'commander';
-import { type PartialAppConfig } from '../../config/schema.js';
+import { type PartialAppConfig, type GetAppConfig } from '../../config/schema.js';
 import { resolveCredentials } from '../../config/credentials.js';
 import { createHttpClient } from '../../api/client.js';
 import { getUsersMe } from '../../api/users.js';
@@ -28,13 +28,14 @@ function mapSource(source: 'stdin' | 'env' | 'keytar' | 'conf-fallback'): Profil
 
 export function registerWhoami(
   auth: Command,
-  appConfig: PartialAppConfig,
+  getConfig: GetAppConfig,
   env: Readonly<Record<string, string | undefined>>,
 ): void {
   auth
     .command('whoami')
     .description('Show the currently authenticated user.')
     .action(async () => {
+      const appConfig: PartialAppConfig = getConfig();
       const mode = appConfig.output.mode;
       const profile = appConfig.profile;
 

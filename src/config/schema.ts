@@ -45,3 +45,10 @@ export type AppConfig = Readonly<{
  * Used by `buildAppConfig` before `resolveCredentials` is called.
  */
 export type PartialAppConfig = Omit<AppConfig, 'email' | 'apiKey'>;
+
+/**
+ * A zero-argument function that returns the resolved `PartialAppConfig`.
+ * Safe to call only from within a Commander action handler — i.e. after the
+ * `preAction` hook in `src/bin/freelo.ts` has fired.
+ */
+export type GetAppConfig = () => PartialAppConfig;

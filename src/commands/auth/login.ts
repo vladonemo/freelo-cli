@@ -1,5 +1,5 @@
 import { type Command } from 'commander';
-import { type PartialAppConfig } from '../../config/schema.js';
+import { type PartialAppConfig, type GetAppConfig } from '../../config/schema.js';
 import { createHttpClient } from '../../api/client.js';
 import { getUsersMe } from '../../api/users.js';
 import { writeProfile, setCurrentProfile, readStore } from '../../config/store.js';
@@ -21,7 +21,7 @@ export const meta = {
 
 export function registerLogin(
   auth: Command,
-  appConfig: PartialAppConfig,
+  getConfig: GetAppConfig,
   env: Readonly<Record<string, string | undefined>>,
 ): void {
   auth
@@ -30,6 +30,7 @@ export function registerLogin(
     .option('--email <address>', 'Freelo account email address.')
     .option('--api-key-stdin', 'Read the API key from stdin (no echo). Requires --email.')
     .action(async (opts: { email?: string; apiKeyStdin?: boolean }) => {
+      const appConfig: PartialAppConfig = getConfig();
       const mode = appConfig.output.mode;
       const profile = appConfig.profile;
 

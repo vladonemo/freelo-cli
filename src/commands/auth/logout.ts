@@ -1,5 +1,5 @@
 import { type Command } from 'commander';
-import { type PartialAppConfig } from '../../config/schema.js';
+import { type PartialAppConfig, type GetAppConfig } from '../../config/schema.js';
 import { removeProfile, readStore } from '../../config/store.js';
 import { deleteToken } from '../../config/tokens.js';
 import { buildEnvelope } from '../../ui/envelope.js';
@@ -12,11 +12,12 @@ export const meta = {
   destructive: false,
 } as const;
 
-export function registerLogout(auth: Command, appConfig: PartialAppConfig): void {
+export function registerLogout(auth: Command, getConfig: GetAppConfig): void {
   auth
     .command('logout')
     .description('Remove stored credentials for a Freelo profile.')
     .action(async () => {
+      const appConfig: PartialAppConfig = getConfig();
       const mode = appConfig.output.mode;
       const profile = appConfig.profile;
 

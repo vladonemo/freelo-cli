@@ -81,23 +81,24 @@ export async function run(argv: readonly string[]): Promise<void> {
   // error to inspect (Commander exit codes map to e.exitCode).
   program.exitOverride();
 
-  // Build AppConfig exactly once, immediately after the program is set up
-  // (before parsing so global flag defaults are available).
-  // We parse just the root-level flags here using Commander's parseOptions so
-  // that --output, --profile, etc. are resolved before command actions run.
-  // Commander stores defaults immediately; a full parse would require commands
-  // to be registered first. Instead we call parseOptions on a fresh instance
-  // to extract global flags, then pass the resolved config to register().
-  const rootProgram = buildProgram();
-  try {
-    rootProgram.exitOverride();
-    rootProgram.parseOptions(argv.slice(2));
-  } catch {
-    // Ignore parse errors here — the real parse below will surface them.
-  }
-  const appConfig = resolveConfig(rootProgram, env);
+  // AppConfig is resolved lazily in the preAction hook, which fires exactly
+  // once per command invocation — after global flags are parsed, but before any
+  // subcommand action runs. This avoids building a throwaway rootProgram just
+  // to read global flag defaults, and (critically) means --version and --help
+  // exit before preAction ever fires, so they never trigger a second print.
+  let appConfig: PartialAppConfig | undefined;
+  const getAppConfig = (): PartialAppConfig => {
+    if (!appConfig) {
+      throw new Error('BUG: getAppConfig() called before preAction hook fired');
+    }
+    return appConfig;
+  };
 
-  registerAuth(program, appConfig, env);
+  program.hook('preAction', () => {
+    appConfig = resolveConfig(program, env);
+  });
+
+  registerAuth(program, getAppConfig, env);
 
   try {
     await program.parseAsync(argv as string[]);
@@ -115,10 +116,11 @@ export async function run(argv: readonly string[]): Promise<void> {
       if (isHelpOrVersion) return;
     }
 
-    // Genuine error — use the already-resolved appConfig output mode.
+    // Genuine error — use the already-resolved appConfig output mode if
+    // available (preAction fired), otherwise fall back to env-based resolution.
     let mode: 'human' | 'json' | 'ndjson';
     try {
-      mode = appConfig.output.mode;
+      mode = appConfig?.output.mode ?? resolveOutputMode('auto');
     } catch {
       mode = resolveOutputMode('auto');
     }
