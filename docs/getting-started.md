@@ -73,6 +73,80 @@ API base:    https://api.freelo.io/v1
 - [`freelo auth logout`](./commands/auth-logout.md) — remove stored credentials.
 - [`freelo auth whoami`](./commands/auth-whoami.md) — check the active account.
 
+## Project-level config (`.freelorc`)
+
+Drop a `.freelorc` file at the root of a repository to set per-project defaults. The CLI discovers it automatically by walking up from the current directory — no flag required.
+
+Supported filenames, in discovery order:
+
+1. `.freelorc` (JSON content)
+2. `.freelorc.json`
+3. `.freelorc.yaml`
+4. `.freelorc.yml`
+
+JS and TypeScript config files (`freelo.config.js`, `.mjs`, `.ts`) are deliberately not loaded. Loading user code on every CLI invocation is a security surface the CLI does not take on.
+
+**JSON example** — pin a project to the `ci` profile and use NDJSON output:
+
+```json
+{ "profile": "ci", "output": "ndjson" }
+```
+
+**YAML example** — set verbosity for a noisy debugging session:
+
+```yaml
+output: json
+verbose: 1
+```
+
+The rc file accepts: `output`, `color`, `profile`, `apiBaseUrl`, `verbose`. Unknown keys are rejected with a `CONFIG_ERROR` (exit 2). Credentials (`apiKey`, `email`) are rejected by design — store those with `freelo auth login`.
+
+**Precedence** (highest to lowest): flag > env > rc > conf > default.
+
+The rc layer sits between environment variables and the user conf store. An environment variable always wins over the rc file; a value in the rc file wins over anything stored via `freelo config set`.
+
+## Debugging config drift with `freelo config resolve`
+
+When a CLI invocation behaves unexpectedly, `freelo config resolve --show-source` shows the merged effective configuration with the source of every leaf:
+
+```bash
+freelo config resolve --show-source --output json
+```
+
+```json
+{
+  "schema": "freelo.config.resolve/v1",
+  "data": {
+    "profile": { "value": "ci", "source": "env" },
+    "profileSource": { "value": "env", "source": "derived" },
+    "email": { "value": "agent@acme.cz", "source": "conf" },
+    "apiKey": { "value": "[redacted]", "source": "conf" },
+    "has_token": { "value": true, "source": "derived" },
+    "apiBaseUrl": { "value": "https://api.freelo.io/v1", "source": "default" },
+    "output": {
+      "mode": { "value": "json", "source": "rc" },
+      "color": { "value": "auto", "source": "default" }
+    },
+    "verbose": { "value": 0, "source": "default" },
+    "yes": { "value": false, "source": "default" },
+    "requestId": { "value": "...", "source": "flag" }
+  },
+  "request_id": "..."
+}
+```
+
+`source: "rc"` on `output.mode` tells you a `.freelorc.*` file is overriding the stored default. `has_token: false` means the active profile has no stored token — run `freelo auth login` to restore it. This check requires no network call.
+
+## Config reference
+
+- [`freelo config list`](./commands/config-list.md) — all keys with values and sources.
+- [`freelo config get`](./commands/config-get.md) — read a single key.
+- [`freelo config set`](./commands/config-set.md) — write a writable key.
+- [`freelo config unset`](./commands/config-unset.md) — revert a key to its default.
+- [`freelo config profiles`](./commands/config-profiles.md) — list all profiles.
+- [`freelo config use`](./commands/config-use.md) — switch the active profile.
+- [`freelo config resolve`](./commands/config-resolve.md) — full merged config with per-leaf source annotation.
+
 ## Next steps
 
 See [`docs/roadmap.md`](./roadmap.md) for the full incremental delivery plan.
