@@ -20,6 +20,9 @@ importers:
       conf:
         specifier: 13.1.0
         version: 13.1.0
+      cosmiconfig:
+        specifier: ^9.0.0
+        version: 9.0.1(typescript@5.7.2)
       keytar:
         specifier: 7.9.0
         version: 7.9.0

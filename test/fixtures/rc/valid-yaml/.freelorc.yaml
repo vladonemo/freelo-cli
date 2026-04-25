@@ -1,0 +1,2 @@
+output: ndjson
+verbose: 1

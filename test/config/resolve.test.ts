@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildPartialAppConfig } from '../../src/config/resolve.js';
+import { buildPartialAppConfig, buildSourceMap } from '../../src/config/resolve.js';
 
 /**
  * Tests for buildPartialAppConfig — precedence for each flag/env axis.
@@ -172,5 +172,158 @@ describe('buildPartialAppConfig — yes flag', () => {
   it('sets yes to true when flag is passed', () => {
     const config = buildPartialAppConfig({ env: {}, flags: { yes: true } });
     expect(config.yes).toBe(true);
+  });
+});
+
+describe('buildPartialAppConfig — rc layer precedence', () => {
+  it('rc overrides conf for profile', () => {
+    const config = buildPartialAppConfig({
+      env: {},
+      flags: {},
+      rc: { profile: 'rc-profile' },
+    });
+    expect(config.profile).toBe('rc-profile');
+    expect(config.profileSource).toBe('rc');
+  });
+
+  it('env beats rc for profile', () => {
+    const config = buildPartialAppConfig({
+      env: { FREELO_PROFILE: 'env-profile' },
+      flags: {},
+      rc: { profile: 'rc-profile' },
+    });
+    expect(config.profile).toBe('env-profile');
+    expect(config.profileSource).toBe('env');
+  });
+
+  it('flag beats env beats rc for profile', () => {
+    const config = buildPartialAppConfig({
+      env: { FREELO_PROFILE: 'env-profile' },
+      flags: { profile: 'flag-profile' },
+      rc: { profile: 'rc-profile' },
+    });
+    expect(config.profile).toBe('flag-profile');
+    expect(config.profileSource).toBe('flag');
+  });
+
+  it('rc overrides default for output', () => {
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
+    const config = buildPartialAppConfig({
+      env: {},
+      flags: {},
+      rc: { output: 'human' },
+    });
+    expect(config.output.mode).toBe('human');
+  });
+
+  it('env beats rc for output', () => {
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
+    const config = buildPartialAppConfig({
+      env: { FREELO_OUTPUT: 'ndjson' },
+      flags: {},
+      rc: { output: 'human' },
+    });
+    expect(config.output.mode).toBe('ndjson');
+  });
+
+  it('rc overrides default for color', () => {
+    const config = buildPartialAppConfig({
+      env: {},
+      flags: {},
+      rc: { color: 'never' },
+    });
+    expect(config.output.color).toBe('never');
+  });
+
+  it('rc overrides default for verbose', () => {
+    const config = buildPartialAppConfig({
+      env: {},
+      flags: {},
+      rc: { verbose: 2 },
+    });
+    expect(config.verbose).toBe(2);
+  });
+
+  it('rc overrides default for apiBaseUrl', () => {
+    const config = buildPartialAppConfig({
+      env: {},
+      flags: {},
+      rc: { apiBaseUrl: 'https://staging.freelo.io/v1' },
+    });
+    expect(config.apiBaseUrl).toBe('https://staging.freelo.io/v1');
+  });
+
+  it('env beats rc for apiBaseUrl', () => {
+    const config = buildPartialAppConfig({
+      env: { FREELO_API_BASE: 'https://env.freelo.io/v1' },
+      flags: {},
+      rc: { apiBaseUrl: 'https://rc.freelo.io/v1' },
+    });
+    expect(config.apiBaseUrl).toBe('https://env.freelo.io/v1');
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
+  });
+});
+
+describe('buildSourceMap — source attribution', () => {
+  afterEach(() => {
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
+    delete process.env['FREELO_DEBUG'];
+  });
+
+  it('all sources are default when nothing is set (requestId is generated at runtime)', () => {
+    const map = buildSourceMap({ env: {}, flags: {} });
+    expect(map.profile).toBe('default');
+    expect(map.output.mode).toBe('default');
+    expect(map.output.color).toBe('default');
+    expect(map.verbose).toBe('default');
+    expect(map.apiBaseUrl).toBe('default');
+    // requestId without a flag is freshly minted per invocation → 'generated'
+    expect(map.requestId).toBe('generated');
+  });
+
+  it('profile source is flag when flag is set', () => {
+    const map = buildSourceMap({ env: {}, flags: { profile: 'ci' } });
+    expect(map.profile).toBe('flag');
+  });
+
+  it('profile source is env when env is set', () => {
+    const map = buildSourceMap({ env: { FREELO_PROFILE: 'staging' }, flags: {} });
+    expect(map.profile).toBe('env');
+  });
+
+  it('profile source is rc when rc is set', () => {
+    const map = buildSourceMap({ env: {}, flags: {}, rc: { profile: 'rc-profile' } });
+    expect(map.profile).toBe('rc');
+  });
+
+  it('output.mode source is rc when rc sets output', () => {
+    const map = buildSourceMap({ env: {}, flags: {}, rc: { output: 'json' } });
+    expect(map.output.mode).toBe('rc');
+  });
+
+  it('verbose source is env when FREELO_DEBUG=1', () => {
+    const map = buildSourceMap({ env: { FREELO_DEBUG: '1' }, flags: {} });
+    expect(map.verbose).toBe('env');
+  });
+
+  it('verbose source is flag when flags.verbose is set', () => {
+    const map = buildSourceMap({ env: {}, flags: { verbose: 1 } });
+    expect(map.verbose).toBe('flag');
+  });
+
+  it('verbose source is rc when rc sets verbose', () => {
+    const map = buildSourceMap({ env: {}, flags: {}, rc: { verbose: 2 } });
+    expect(map.verbose).toBe('rc');
+  });
+
+  it('requestId source is flag when requestId flag is set', () => {
+    const map = buildSourceMap({
+      env: {},
+      flags: { requestId: '550e8400-e29b-41d4-a716-446655440000' },
+    });
+    expect(map.requestId).toBe('flag');
   });
 });

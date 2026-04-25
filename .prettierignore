@@ -8,3 +8,4 @@ docs/api/freelo-api.yaml
 docs/runs/
 docs/decisions/
 docs/specs/
+test/fixtures/

@@ -9,7 +9,8 @@ export type ConfigErrorKind =
   | { kind: 'missing-token'; profile: string }
   | { kind: 'missing-profile'; profile: string }
   | { kind: 'keychain-unavailable'; path: string }
-  | { kind: 'corrupt-config'; path: string };
+  | { kind: 'corrupt-config'; path: string }
+  | { kind: 'corrupt-rc'; path: string };
 
 type ConfigErrorCode = 'AUTH_MISSING' | 'CONFIG_ERROR';
 
@@ -43,6 +44,12 @@ function resolveFields(kindData: ConfigErrorKind): {
         exitCode: 1,
         hintNext: `Delete or repair the config file at ${kindData.path} and run 'freelo auth login' again.`,
       };
+    case 'corrupt-rc':
+      return {
+        code: 'CONFIG_ERROR',
+        exitCode: 2,
+        hintNext: `Remove disallowed keys; tokens are stored via 'auth login', not in the rc file. Edit ${kindData.path}.`,
+      };
   }
 }
 
@@ -53,6 +60,7 @@ function resolveFields(kindData: ConfigErrorKind): {
  * The `kind` discriminant determines the exact exit code:
  *   - `missing-token` / `missing-profile` → exit 3 (`AUTH_MISSING`)
  *   - `corrupt-config` / `keychain-unavailable` → exit 1 (`CONFIG_ERROR`)
+ *   - `corrupt-rc` → exit 2 (`CONFIG_ERROR`) — user-correctable rc file error
  *
  * Not retryable: retrying won't fix a missing credential or a malformed config.
  */

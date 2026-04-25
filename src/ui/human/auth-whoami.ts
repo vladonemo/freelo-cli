@@ -1,6 +1,8 @@
+import { type ProfileSource } from '../../config/schema.js';
+
 export type WhoamiData = {
   profile: string;
-  profile_source: 'flag' | 'env' | 'conf' | 'default';
+  profile_source: ProfileSource;
   user_id: number;
   email: string;
   full_name?: string;

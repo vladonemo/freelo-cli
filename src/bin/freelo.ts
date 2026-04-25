@@ -5,6 +5,7 @@ import { VERSION } from '../lib/version.js';
 import { handleTopLevelError } from '../errors/handle.js';
 import { buildPartialAppConfig, pickFlags } from '../config/resolve.js';
 import { type PartialAppConfig } from '../config/schema.js';
+import { type RcConfig } from '../config/rc-schema.js';
 import { resolveOutputMode } from '../lib/env.js';
 
 /**
@@ -60,12 +61,15 @@ export function buildProgram(): Command {
 export function resolveConfig(
   program: Command,
   env: Readonly<Record<string, string | undefined>>,
+  rc?: RcConfig,
 ): PartialAppConfig {
   const opts = program.opts<Record<string, string | number | boolean | undefined>>();
-  return buildPartialAppConfig({
+  const input: Parameters<typeof buildPartialAppConfig>[0] = {
     env,
     flags: pickFlags(opts),
-  });
+  };
+  if (rc !== undefined) input.rc = rc;
+  return buildPartialAppConfig(input);
 }
 
 export async function run(argv: readonly string[]): Promise<void> {
@@ -73,8 +77,22 @@ export async function run(argv: readonly string[]): Promise<void> {
   // process.env directly — they all receive `env` as a parameter.
   const env: Readonly<Record<string, string | undefined>> = Object.freeze({ ...process.env });
 
-  // Register auth commands before parsing.
+  // Load the rc file synchronously once at startup. A corrupt rc file is
+  // propagated as a ConfigError (exit 2) via handleTopLevelError.
+  let rc: RcConfig | undefined;
+  let rcLoadError: unknown;
+  try {
+    const { loadRcSync } = await import('../config/rc-loader.js');
+    const rcResult = loadRcSync(process.cwd());
+    rc = rcResult?.config;
+  } catch (err: unknown) {
+    // Stash the error; we'll surface it after output mode is resolved.
+    rcLoadError = err;
+  }
+
+  // Register commands before parsing.
   const { register: registerAuth } = await import('../commands/auth.js');
+  const { register: registerConfig } = await import('../commands/config.js');
   const program = buildProgram();
   // Use exitOverride so Commander throws CommanderError instead of calling
   // process.exit. This keeps the process alive for tests and gives us a typed
@@ -95,10 +113,16 @@ export async function run(argv: readonly string[]): Promise<void> {
   };
 
   program.hook('preAction', () => {
-    appConfig = resolveConfig(program, env);
+    appConfig = resolveConfig(program, env, rc);
+
+    // Surface a stashed rc load error now that we know the output mode.
+    if (rcLoadError !== undefined) {
+      handleTopLevelError(rcLoadError, appConfig.output.mode);
+    }
   });
 
   registerAuth(program, getAppConfig, env);
+  registerConfig(program, getAppConfig, env);
 
   try {
     await program.parseAsync(argv as string[]);

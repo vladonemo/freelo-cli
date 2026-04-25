@@ -1,23 +1,56 @@
 import { z } from 'zod';
 
 /**
+ * Global defaults stored at the top level of the conf store.
+ * Writable via `config set output/color/verbose`.
+ * `.strict()` so unexpected keys surface as corrupt-config.
+ */
+export const DefaultsSchema = z
+  .object({
+    output: z.enum(['auto', 'human', 'json', 'ndjson']).optional(),
+    color: z.enum(['auto', 'never', 'always']).optional(),
+    verbose: z.union([z.literal(0), z.literal(1), z.literal(2)]).optional(),
+  })
+  .strict();
+
+export type Defaults = z.infer<typeof DefaultsSchema>;
+
+/**
  * Shape of the on-disk conf store. `.strict()` because we control the writer
  * and unexpected fields on read indicate corruption.
+ *
+ * schemaVersion 2 adds the top-level `defaults` map.
+ * Migrated from v1 by `migrateV1toV2` in store.ts.
  */
 export const ConfStoreSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
     currentProfile: z.string().nullable(),
     profiles: z.record(
       z.string(),
       z.object({ email: z.string(), apiBaseUrl: z.string() }).strict(),
     ),
+    defaults: DefaultsSchema,
   })
   .strict();
 
 export type ConfStore = z.infer<typeof ConfStoreSchema>;
 
-export type ProfileSource = 'flag' | 'env' | 'conf' | 'default';
+/**
+ * ProfileSource identifies where a resolved config value came from.
+ * Extended in R02 with 'rc' for project-level `.freelorc.*` files.
+ * Extended in R02 review with 'generated' for runtime-minted values
+ * (e.g. request IDs that are freshly generated per invocation, not
+ * retrieved from any configuration layer).
+ */
+export type ProfileSource = 'flag' | 'env' | 'rc' | 'conf' | 'default' | 'generated';
+
+/**
+ * SourceLiteral extends ProfileSource with 'derived' — used only in the
+ * `config resolve --show-source` envelope for the `profileSource` field itself
+ * (which has no further source to attribute).
+ */
+export type SourceLiteral = ProfileSource | 'derived';
 
 /**
  * Frozen in-memory configuration assembled by `buildAppConfig` at startup.

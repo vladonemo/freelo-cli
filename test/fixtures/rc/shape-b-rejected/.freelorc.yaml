@@ -1,0 +1,7 @@
+profile: ci
+profiles:
+  ci:
+    output: json
+    color: never
+  default:
+    output: human
