@@ -35,6 +35,7 @@ Code style and patterns. ESLint + Prettier catch most mechanical things; this do
 ## API client
 
 - Every response through a zod schema. No exceptions.
+- **Optional response fields are also nullable.** Every `.optional()` field on an inbound API response schema chains `.nullable().optional()`. Freelo uses `null` and absent interchangeably on the wire and we don't enforce a distinction it doesn't enforce. (Spec 0010, decision log entry 1.)
 - Endpoints go in `src/api/<resource>.ts` as plain async functions. No classes.
 - Functions take a typed params object, not positional args (except a single-id lookup).
 - Pagination helpers live next to the endpoint that needs them.

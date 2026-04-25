@@ -39,6 +39,47 @@ describe('ProjectWithTasklistsSchema', () => {
   it('rejects when name is missing', () => {
     expect(() => ProjectWithTasklistsSchema.parse({ id: 1 })).toThrow();
   });
+
+  it('accepts client: null (real Freelo response shape)', () => {
+    const out = ProjectWithTasklistsSchema.parse({ id: 1, name: 'X', client: null });
+    expect(out.client).toBeNull();
+  });
+
+  it('accepts tasklists: null', () => {
+    const out = ProjectWithTasklistsSchema.parse({ id: 1, name: 'X', tasklists: null });
+    expect(out.tasklists).toBeNull();
+  });
+
+  it('accepts date_add / date_edited_at: null', () => {
+    const out = ProjectWithTasklistsSchema.parse({
+      id: 1,
+      name: 'X',
+      date_add: null,
+      date_edited_at: null,
+    });
+    expect(out.date_add).toBeNull();
+    expect(out.date_edited_at).toBeNull();
+  });
+
+  it('accepts a Client with all string fields nullable', () => {
+    const input = {
+      id: 1,
+      name: 'X',
+      client: {
+        id: 7,
+        email: null,
+        name: null,
+        company: null,
+        company_id: null,
+        company_tax_id: null,
+        street: null,
+        town: null,
+        zip: null,
+      },
+    };
+    const out = ProjectWithTasklistsSchema.parse(input);
+    expect(out.client).toEqual(input.client);
+  });
 });
 
 describe('ProjectFullSchema', () => {
@@ -66,6 +107,27 @@ describe('ProjectFullSchema', () => {
     expect(() =>
       ProjectFullSchema.parse({ id: 1, name: 'X', state: { id: 99, state: 'bogus' } }),
     ).toThrow();
+  });
+
+  it('accepts every previously-optional complex field as null', () => {
+    const input = {
+      id: 1,
+      name: 'X',
+      date_add: null,
+      date_edited_at: null,
+      owner: null,
+      state: null,
+      minutes_budget: null,
+      budget: null,
+      real_minutes_spent: null,
+      real_cost: null,
+    };
+    const out = ProjectFullSchema.parse(input);
+    expect(out.owner).toBeNull();
+    expect(out.state).toBeNull();
+    expect(out.budget).toBeNull();
+    expect(out.real_cost).toBeNull();
+    expect(out.real_minutes_spent).toBeNull();
   });
 });
 

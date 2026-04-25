@@ -27,14 +27,14 @@ const TasklistBasicSchema = z.object({
 const ClientSchema = z
   .object({
     id: z.number().int(),
-    email: z.string().optional(),
-    name: z.string().optional(),
-    company: z.string().optional(),
-    company_id: z.string().optional(),
-    company_tax_id: z.string().optional(),
-    street: z.string().optional(),
-    town: z.string().optional(),
-    zip: z.string().optional(),
+    email: z.string().nullable().optional(),
+    name: z.string().nullable().optional(),
+    company: z.string().nullable().optional(),
+    company_id: z.string().nullable().optional(),
+    company_tax_id: z.string().nullable().optional(),
+    street: z.string().nullable().optional(),
+    town: z.string().nullable().optional(),
+    zip: z.string().nullable().optional(),
   })
   .passthrough();
 
@@ -43,15 +43,23 @@ const CurrencySchema = z.object({
   currency: z.enum(['CZK', 'EUR', 'USD']),
 });
 
-/** Entity returned by `/projects`, `/invited-projects`, `/archived-projects`, `/template-projects`. */
+/**
+ * Entity returned by `/projects`, `/invited-projects`, `/archived-projects`,
+ * `/template-projects`.
+ *
+ * Every optional field is also `.nullable()` per `.claude/docs/conventions.md`
+ * — Freelo uses `null` and absent interchangeably and the wire shape is
+ * documented loosely. `.nullable().optional()` accepts both `undefined`
+ * (absent) and `null` (returned-as-null).
+ */
 export const ProjectWithTasklistsSchema = z
   .object({
     id: z.number().int(),
     name: z.string(),
-    date_add: z.string().optional(),
-    date_edited_at: z.string().optional(),
-    tasklists: z.array(TasklistBasicSchema).optional(),
-    client: ClientSchema.optional(),
+    date_add: z.string().nullable().optional(),
+    date_edited_at: z.string().nullable().optional(),
+    tasklists: z.array(TasklistBasicSchema).nullable().optional(),
+    client: ClientSchema.nullable().optional(),
   })
   .passthrough();
 
@@ -60,14 +68,14 @@ export const ProjectFullSchema = z
   .object({
     id: z.number().int(),
     name: z.string(),
-    date_add: z.string().optional(),
-    date_edited_at: z.string().optional(),
-    owner: UserBasicSchema.optional(),
-    state: StateSchema.optional(),
+    date_add: z.string().nullable().optional(),
+    date_edited_at: z.string().nullable().optional(),
+    owner: UserBasicSchema.nullable().optional(),
+    state: StateSchema.nullable().optional(),
     minutes_budget: z.number().int().nullable().optional(),
-    budget: CurrencySchema.optional(),
-    real_minutes_spent: z.number().int().optional(),
-    real_cost: CurrencySchema.optional(),
+    budget: CurrencySchema.nullable().optional(),
+    real_minutes_spent: z.number().int().nullable().optional(),
+    real_cost: CurrencySchema.nullable().optional(),
   })
   .passthrough();
 
