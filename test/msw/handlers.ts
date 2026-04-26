@@ -431,6 +431,100 @@ export const tasklistsHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo tasklists show <id>` (R06, spec 0016).
+ *
+ * Two endpoints:
+ *   - `GET /tasklist/{id}` — `TasklistDetail` (single object)
+ *   - `GET /project/{pid}/tasklist/{tid}/assignable-workers` — bare `UserBasic[]` (NOT paginated)
+ */
+export const tasklistShowHandlers = {
+  /** `GET /tasklist/{id}` — 200 with the supplied detail body. */
+  detailOk(tasklistId: number, body: Record<string, unknown>): RequestHandler {
+    return http.get(`${API_BASE}/tasklist/${tasklistId}`, () => HttpResponse.json(body));
+  },
+
+  /** `GET /tasklist/{id}` — 404. */
+  detailNotFound(tasklistId: number): RequestHandler {
+    return http.get(`${API_BASE}/tasklist/${tasklistId}`, () =>
+      HttpResponse.json({ errors: ['Tasklist not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `GET /tasklist/{id}` — 403. */
+  detailForbidden(tasklistId: number): RequestHandler {
+    return http.get(`${API_BASE}/tasklist/${tasklistId}`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** `GET /tasklist/{id}` — 401. */
+  detailUnauthorized(tasklistId: number): RequestHandler {
+    return http.get(`${API_BASE}/tasklist/${tasklistId}`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `GET /tasklist/{id}` — 5xx. */
+  detailServerError(tasklistId: number, status = 500): RequestHandler {
+    return http.get(`${API_BASE}/tasklist/${tasklistId}`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /**
+   * `GET /project/{pid}/tasklist/{tid}/assignable-workers` — 200 with the
+   * supplied bare `UserBasic[]` array. Spec 0016 §2 / decision 1: the
+   * endpoint returns an array directly, no pagination wrapper.
+   */
+  assignableWorkersOk(
+    projectId: number,
+    tasklistId: number,
+    items: Array<{ id: number; fullname?: string | null }>,
+  ): RequestHandler {
+    return http.get(
+      `${API_BASE}/project/${projectId}/tasklist/${tasklistId}/assignable-workers`,
+      () => HttpResponse.json(items),
+    );
+  },
+
+  /** Same endpoint — 404. */
+  assignableWorkersNotFound(projectId: number, tasklistId: number): RequestHandler {
+    return http.get(
+      `${API_BASE}/project/${projectId}/tasklist/${tasklistId}/assignable-workers`,
+      () => HttpResponse.json({ errors: ['Not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** Same endpoint — 403. */
+  assignableWorkersForbidden(projectId: number, tasklistId: number): RequestHandler {
+    return http.get(
+      `${API_BASE}/project/${projectId}/tasklist/${tasklistId}/assignable-workers`,
+      () => HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** Same endpoint — 5xx. */
+  assignableWorkersServerError(
+    projectId: number,
+    tasklistId: number,
+    status = 500,
+  ): RequestHandler {
+    return http.get(
+      `${API_BASE}/project/${projectId}/tasklist/${tasklistId}/assignable-workers`,
+      () => HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** Same endpoint — wrong shape (object wrapper instead of bare array). */
+  assignableWorkersMalformed(projectId: number, tasklistId: number): RequestHandler {
+    return http.get(
+      `${API_BASE}/project/${projectId}/tasklist/${tasklistId}/assignable-workers`,
+      () => HttpResponse.json({ data: { workers: [{ id: 9, fullname: 'Owner' }] } }),
+    );
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
