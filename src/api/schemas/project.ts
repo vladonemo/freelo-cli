@@ -14,10 +14,12 @@ const StateSchema = z.object({
   state: z.enum(['active', 'archived', 'finished', 'deleted', 'template']),
 });
 
-const UserBasicSchema = z.object({
+export const UserBasicSchema = z.object({
   id: z.number().int(),
   fullname: z.string(),
 });
+
+export type UserBasic = z.infer<typeof UserBasicSchema>;
 
 const TasklistBasicSchema = z.object({
   id: z.number().int(),
@@ -179,3 +181,92 @@ export const INNER_KEY_BY_SCOPE: Readonly<Record<Exclude<ProjectsScope, 'owned'>
     templates: 'template_projects',
     all: 'projects',
   });
+
+/* ------------------------------------------------------------------------- *
+ *  R04 — `freelo projects show <id>` (spec 0013)
+ *
+ *  ProjectDetail extends ProjectFull with embedded `tasklists` (each carrying
+ *  embedded `tasks[]`) and embedded `workers` (each with optional `hour_rate`).
+ *  See OpenAPI :4969-5024.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Lightweight task summary embedded in a tasklist. Per OpenAPI :4982-5004.
+ *
+ * Every optional field is `.nullable().optional()` per the project's
+ * conventions: Freelo serializes null and absent interchangeably.
+ */
+const TaskBriefSchema = z
+  .object({
+    id: z.number().int(),
+    name: z.string(),
+    due_date: z.string().nullable().optional(),
+    due_date_end: z.string().nullable().optional(),
+    worker: UserBasicSchema.nullable().optional(),
+    parent_task_id: z.number().int().nullable().optional(),
+  })
+  .passthrough();
+
+/** Tasklist with embedded tasks (used only inside ProjectDetail). */
+const TasklistWithTasksSchema = z
+  .object({
+    id: z.number().int(),
+    name: z.string(),
+    tasks: z.array(TaskBriefSchema).nullable().optional(),
+  })
+  .passthrough();
+
+/**
+ * Hourly-rate object embedded in `ProjectDetail.workers[*].hour_rate`.
+ * Per OpenAPI :5014-5023. The whole object is nullable per the spec.
+ */
+const HourRateSchema = z
+  .object({
+    amount: z.number().int(),
+    currency: z.string(),
+    is_fixed: z.boolean(),
+  })
+  .passthrough();
+
+/**
+ * Worker as embedded in `ProjectDetail.workers`. Richer than `UserBasic`
+ * because it carries `hour_rate`. Used only inside ProjectDetail; the
+ * `/project/{id}/workers` paginated endpoint returns `UserBasic[]` with no
+ * hour_rate (per OpenAPI :609-619).
+ */
+const WorkerWithHourRateSchema = z
+  .object({
+    id: z.number().int(),
+    fullname: z.string(),
+    hour_rate: HourRateSchema.nullable().optional(),
+  })
+  .passthrough();
+
+/**
+ * `GET /project/{id}` response shape — extends `ProjectFull` with embedded
+ * `tasklists` and `workers`. Built via `.extend()` to preserve every field
+ * already validated by ProjectFullSchema (id, name, owner, state, budget, …).
+ *
+ * `.passthrough()` retained so any field Freelo adds in the future is not
+ * silently dropped when an agent reads `data.project`.
+ */
+export const ProjectDetailSchema = ProjectFullSchema.extend({
+  tasklists: z.array(TasklistWithTasksSchema).nullable().optional(),
+  workers: z.array(WorkerWithHourRateSchema).nullable().optional(),
+}).passthrough();
+
+export type ProjectDetail = z.infer<typeof ProjectDetailSchema>;
+
+/**
+ * Schema for the `data` payload of the `freelo.projects.show/v1` envelope.
+ *
+ * `data.project` is always present (the `/project/{id}` call is mandatory).
+ * `data.workers` is present only when `--with workers` was passed; absent
+ * otherwise. See spec 0013 §3.2.
+ */
+export const ProjectShowDataSchema = z.object({
+  project: ProjectDetailSchema,
+  workers: z.array(UserBasicSchema).optional(),
+});
+
+export type ProjectShowData = z.infer<typeof ProjectShowDataSchema>;

@@ -194,6 +194,114 @@ export const projectsHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo projects show <id>` (R04, spec 0013).
+ *
+ * Two endpoints:
+ *   - `GET /project/{id}` — `ProjectDetail` (single object)
+ *   - `GET /project/{id}/workers?p=N` — paginated `UserBasic[]`
+ */
+export const projectShowHandlers = {
+  /** `GET /project/{id}` — 200 with the supplied detail body. */
+  detailOk(projectId: number, body: Record<string, unknown>): RequestHandler {
+    return http.get(`${API_BASE}/project/${projectId}`, () => HttpResponse.json(body));
+  },
+
+  /** `GET /project/{id}` — 404. */
+  detailNotFound(projectId: number): RequestHandler {
+    return http.get(`${API_BASE}/project/${projectId}`, () =>
+      HttpResponse.json({ errors: ['Project not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `GET /project/{id}` — 403. */
+  detailForbidden(projectId: number): RequestHandler {
+    return http.get(`${API_BASE}/project/${projectId}`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** `GET /project/{id}` — 401. */
+  detailUnauthorized(projectId: number): RequestHandler {
+    return http.get(`${API_BASE}/project/${projectId}`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `GET /project/{id}` — 5xx. */
+  detailServerError(projectId: number, status = 500): RequestHandler {
+    return http.get(`${API_BASE}/project/${projectId}`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /**
+   * `GET /project/{id}/workers?p=N` — paginated. `pages` is keyed by 0-indexed
+   * page number; missing pages return an empty page using the last-known
+   * `per_page` and `total` (mirrors the past-end behaviour of `pagedOk`).
+   */
+  workersPaged(projectId: number, pages: Record<number, PagedFixture>): RequestHandler {
+    return http.get(`${API_BASE}/project/${projectId}/workers`, ({ request }) => {
+      const u = new URL(request.url);
+      const p = Number(u.searchParams.get('p') ?? '0');
+      const known = Object.keys(pages)
+        .map(Number)
+        .sort((a, b) => a - b);
+      const lastKnown = known[known.length - 1] ?? 0;
+      const fixture = pages[p];
+      if (fixture !== undefined) return HttpResponse.json(fixture);
+      const ref = pages[lastKnown];
+      if (!ref) {
+        return HttpResponse.json({
+          total: 0,
+          count: 0,
+          page: p,
+          per_page: 25,
+          data: { workers: [] },
+        });
+      }
+      return HttpResponse.json({
+        total: ref.total,
+        count: 0,
+        page: p,
+        per_page: ref.per_page,
+        data: { workers: [] },
+      });
+    });
+  },
+
+  /** `GET /project/{id}/workers` — 5xx for any page (not parameterised). */
+  workersServerError(projectId: number, status = 500): RequestHandler {
+    return http.get(`${API_BASE}/project/${projectId}/workers`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /**
+   * Mid-stream `--with workers` failure: succeeds for `p < failPage`, errors
+   * at `p === failPage`. Used to drive the partial-result code path in
+   * `fetchAllPages`.
+   */
+  workersMidStreamError(opts: {
+    projectId: number;
+    pages: Record<number, PagedFixture>;
+    failPage: number;
+    status?: number;
+  }): RequestHandler {
+    const { projectId, pages, failPage, status = 500 } = opts;
+    return http.get(`${API_BASE}/project/${projectId}/workers`, ({ request }) => {
+      const u = new URL(request.url);
+      const p = Number(u.searchParams.get('p') ?? '0');
+      if (p === failPage) {
+        return HttpResponse.json({ errors: ['mid-stream'] }, { status });
+      }
+      const fixture = pages[p];
+      if (fixture !== undefined) return HttpResponse.json(fixture);
+      return HttpResponse.json({ errors: ['unexpected'] }, { status: 500 });
+    });
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));

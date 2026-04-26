@@ -4,8 +4,12 @@ import {
   ProjectsBareArraySchema,
   ProjectFullSchema,
   ProjectWithTasklistsSchema,
+  ProjectDetailSchema,
+  UserBasicSchema,
   type ProjectFull,
   type ProjectWithTasklists,
+  type ProjectDetail,
+  type UserBasic,
 } from './schemas/project.js';
 import { type NormalizedPage, normalizePaginated, synthesizeUnpaginated } from './pagination.js';
 
@@ -109,5 +113,57 @@ export async function getTemplateProjects(
     ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
   });
   const page = normalizePaginated(raw.data, 'template_projects', ProjectWithTasklistsSchema);
+  return { page, raw };
+}
+
+/* ------------------------------------------------------------------------- *
+ *  R04 — `freelo projects show <id>` (spec 0013)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * `GET /project/{id}` — returns the rich `ProjectDetail` shape (extends
+ * ProjectFull with embedded `tasklists[*].tasks[]` and `workers[*]` carrying
+ * each worker's `hour_rate`). Not paginated; one round-trip per call.
+ *
+ * Spec 0013 §4.3.
+ */
+export async function getProjectDetail(
+  client: HttpClient,
+  projectId: number,
+  opts: FetchOpts,
+): Promise<ApiResponse<ProjectDetail>> {
+  return client.request({
+    method: 'GET',
+    path: `/project/${projectId}`,
+    schema: ProjectDetailSchema,
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+}
+
+/**
+ * `GET /project/{id}/workers?p=N` — paginated; inner key `workers`, items
+ * are `UserBasic` (id + fullname only — no `hour_rate` here, that lives on
+ * `ProjectDetail.workers`).
+ *
+ * Reuses R03's `normalizePaginated` to produce the standard
+ * `NormalizedPage<UserBasic>` shape so the command can drive `fetchAllPages`
+ * without bespoke pagination logic.
+ *
+ * Spec 0013 §4.3.
+ */
+export async function getProjectWorkers(
+  client: HttpClient,
+  projectId: number,
+  opts: FetchPagedOpts,
+): Promise<{ page: NormalizedPage<UserBasic>; raw: ApiResponse<unknown> }> {
+  const raw = await client.request({
+    method: 'GET',
+    path: `/project/${projectId}/workers?p=${opts.page}`,
+    schema: z.unknown(),
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+  const page = normalizePaginated(raw.data, 'workers', UserBasicSchema);
   return { page, raw };
 }
