@@ -49,18 +49,60 @@ function buildErrorEnvelopeInternal(err: BaseError): ErrorEnvelope {
  *   Assertion failed: !(handle->flags & UV_HANDLE_CLOSING),
  *     file src\\win\\async.c, line 76
  *
- * `.close()` waits for in-flight requests to finish and tears down the pool
- * cleanly. By the time we reach `handleTopLevelError` we have nothing in
- * flight (the error envelope has already been written), so this resolves
- * promptly. Best-effort: any failure is swallowed so it cannot mask the
- * original exit code.
+ * Round-2 fix (spec 0015 §3, R05.5): the prior `.close()` (graceful) was
+ * insufficient on Windows — the assertion still fires on any zod-validation
+ * failure exit. We now use `.destroy()` (forceful) bounded by a short
+ * timeout race. Forceful is fine on the error path: by the time we run
+ * here the error envelope has already been written and we have nothing
+ * worth saving in flight.
+ *
+ * Best-effort: any failure is swallowed so it cannot mask the original
+ * exit code.
  */
+const DRAIN_TIMEOUT_MS = 250;
+
 export async function drainDispatcher(): Promise<void> {
   try {
-    await getGlobalDispatcher().close();
+    const dispatcher = getGlobalDispatcher();
+    const destroyPromise = dispatcher.destroy();
+    const timeoutPromise = new Promise<void>((resolve) => {
+      const t = setTimeout(resolve, DRAIN_TIMEOUT_MS);
+      // Do not keep the loop alive solely for this timer.
+      t.unref?.();
+    });
+    await Promise.race([destroyPromise, timeoutPromise]);
   } catch {
     // best-effort cleanup; never mask the original exit code
   }
+}
+
+/**
+ * Defer `process.exit(code)` to the next event-loop tick, then await it.
+ *
+ * On Windows, the synchronous-exit-after-await pattern is what trips
+ * `UV_HANDLE_CLOSING`: undici's `dispatcher.destroy()` resolves while
+ * libuv has scheduled but not yet run the close callbacks for keep-alive
+ * sockets. `setImmediate` lets the loop drain those callbacks before
+ * the synchronous exit. On macOS/Linux this is a sub-millisecond no-op
+ * but the universal application keeps the code simple.
+ *
+ * In production, `process.exit` ends the process before the promise can
+ * resolve, so the typed `Promise<never>` return is honored. In tests,
+ * `process.exit` is mocked to throw — that throw propagates out of the
+ * setImmediate callback into the awaited promise, causing it to reject.
+ * Tests can use `await expect(handleTopLevelError(...)).rejects.toThrow()`.
+ */
+export function exitDeferred(code: number): Promise<never> {
+  return new Promise<never>((_resolve, reject) => {
+    setImmediate(() => {
+      try {
+        process.exit(code);
+      } catch (err) {
+        // Only reachable when process.exit is mocked (test environment).
+        reject(err as Error);
+      }
+    });
+  });
 }
 
 /**
@@ -76,7 +118,7 @@ export async function handleTopLevelError(err: unknown, mode: OutputMode): Promi
   // SIGINT: abort-shaped error → exit 130 regardless of mode.
   if (isAbortError(err)) {
     await drainDispatcher();
-    process.exit(130);
+    return exitDeferred(130);
   }
 
   // Normalise to a BaseError.
@@ -114,5 +156,5 @@ export async function handleTopLevelError(err: unknown, mode: OutputMode): Promi
   }
 
   await drainDispatcher();
-  process.exit(typed.exitCode);
+  return exitDeferred(typed.exitCode);
 }
