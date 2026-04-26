@@ -82,7 +82,7 @@ export function registerWhoami(
 
       render(mode, envelope, renderWhoamiHuman);
     } catch (err: unknown) {
-      handleTopLevelError(err, mode);
+      await handleTopLevelError(err, mode);
     }
   });
 }

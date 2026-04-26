@@ -169,7 +169,7 @@ export function registerList(
         renderProjectsListHuman(d, requested ? { displayFields: requested } : {}),
       );
     } catch (err: unknown) {
-      handleTopLevelError(err, mode);
+      await handleTopLevelError(err, mode);
     }
   });
 }

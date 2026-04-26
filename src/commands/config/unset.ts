@@ -31,7 +31,7 @@ export function registerUnset(config: Command, getConfig: GetAppConfig): void {
         "use 'freelo auth logout' for credentials.",
     );
   attachMeta(unsetCmd, meta);
-  unsetCmd.action((key: string) => {
+  unsetCmd.action(async (key: string) => {
     const appConfig = getConfig();
     const mode = appConfig.output.mode;
 
@@ -126,7 +126,7 @@ export function registerUnset(config: Command, getConfig: GetAppConfig): void {
 
       render(mode, envelope, renderConfigUnsetHuman);
     } catch (err: unknown) {
-      handleTopLevelError(err, mode);
+      await handleTopLevelError(err, mode);
     }
   });
 }

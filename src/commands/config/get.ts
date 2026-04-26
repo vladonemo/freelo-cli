@@ -75,7 +75,7 @@ export function registerGet(
 
       render(mode, envelope, renderConfigGetHuman);
     } catch (err: unknown) {
-      handleTopLevelError(err, mode);
+      await handleTopLevelError(err, mode);
     }
   });
 }

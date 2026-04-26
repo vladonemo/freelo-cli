@@ -16,7 +16,7 @@ export const meta: CommandMeta = {
 export function registerProfiles(config: Command, getConfig: GetAppConfig): void {
   const profilesCmd = config.command('profiles').description('List all configured profiles.');
   attachMeta(profilesCmd, meta);
-  profilesCmd.action(() => {
+  profilesCmd.action(async () => {
     const appConfig = getConfig();
     const mode = appConfig.output.mode;
 
@@ -44,7 +44,7 @@ export function registerProfiles(config: Command, getConfig: GetAppConfig): void
 
       render(mode, envelope, renderConfigProfilesHuman);
     } catch (err: unknown) {
-      handleTopLevelError(err, mode);
+      await handleTopLevelError(err, mode);
     }
   });
 }

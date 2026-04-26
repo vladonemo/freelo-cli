@@ -30,7 +30,7 @@ export function registerSet(config: Command, getConfig: GetAppConfig): void {
         "Read-only keys (email, apiKey) must be updated via 'freelo auth login'.",
     );
   attachMeta(setCmd, meta);
-  setCmd.action((key: string, rawValue: string) => {
+  setCmd.action(async (key: string, rawValue: string) => {
     const appConfig = getConfig();
     const mode = appConfig.output.mode;
 
@@ -140,7 +140,7 @@ export function registerSet(config: Command, getConfig: GetAppConfig): void {
 
       render(mode, envelope, renderConfigSetHuman);
     } catch (err: unknown) {
-      handleTopLevelError(err, mode);
+      await handleTopLevelError(err, mode);
     }
   });
 }

@@ -45,7 +45,7 @@ export function registerLogout(auth: Command, getConfig: GetAppConfig): void {
       });
       render(mode, envelope, renderLogoutHuman);
     } catch (err: unknown) {
-      handleTopLevelError(err, mode);
+      await handleTopLevelError(err, mode);
     }
   });
 }

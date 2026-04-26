@@ -2,7 +2,7 @@ import { pathToFileURL } from 'node:url';
 import { realpathSync } from 'node:fs';
 import { Command } from 'commander';
 import { VERSION } from '../lib/version.js';
-import { handleTopLevelError } from '../errors/handle.js';
+import { drainDispatcher, handleTopLevelError } from '../errors/handle.js';
 import { buildPartialAppConfig, pickFlags } from '../config/resolve.js';
 import { type PartialAppConfig } from '../config/schema.js';
 import { type RcConfig } from '../config/rc-schema.js';
@@ -118,12 +118,12 @@ export async function run(argv: readonly string[]): Promise<void> {
     return appConfig;
   };
 
-  program.hook('preAction', () => {
+  program.hook('preAction', async () => {
     appConfig = resolveConfig(program, env, rc);
 
     // Surface a stashed rc load error now that we know the output mode.
     if (rcLoadError !== undefined) {
-      handleTopLevelError(rcLoadError, appConfig.output.mode);
+      await handleTopLevelError(rcLoadError, appConfig.output.mode);
     }
   });
 
@@ -178,7 +178,7 @@ export async function run(argv: readonly string[]): Promise<void> {
     } catch {
       mode = resolveOutputMode('auto');
     }
-    handleTopLevelError(err, mode);
+    await handleTopLevelError(err, mode);
   }
   // The auth command actions call handleTopLevelError themselves when they
   // catch — this outer try/catch is a last-resort backstop.
@@ -228,14 +228,19 @@ export function writeCatastrophicError(message: string): void {
 
 if (isEntryPoint()) {
   // Register SIGINT handler before parsing; abort any in-flight request.
+  // Drain undici's keep-alive pool before exit so libuv doesn't crash on
+  // Windows (UV_HANDLE_CLOSING). Fire-and-forget — Ctrl-C must stay snappy.
   process.on('SIGINT', () => {
     abortController.abort();
-    process.exit(130);
+    void drainDispatcher().finally(() => {
+      process.exit(130);
+    });
   });
 
-  run(process.argv).catch((err: unknown) => {
+  run(process.argv).catch(async (err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
     writeCatastrophicError(message);
+    await drainDispatcher();
     process.exit(1);
   });
 }
