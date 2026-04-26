@@ -311,25 +311,31 @@ describe('handleTopLevelError — drains undici dispatcher before exit (libuv fi
    *   Assertion failed: !(handle->flags & UV_HANDLE_CLOSING),
    *     file src\\win\\async.c, line 76
    *
-   * The fix calls `getGlobalDispatcher().close()` before `process.exit` so
-   * keep-alive sockets are torn down cleanly. The crash itself can't be
-   * reproduced in the test runner (it requires a real Windows libuv +
-   * real undici sockets); we verify the call ordering as a proxy.
+   * Round-2 fix (spec 0015 §3, R05.5): the prior `.close()` (graceful) was
+   * incomplete on Windows. We now call `getGlobalDispatcher().destroy()`
+   * (forceful) bounded by a 250 ms timeout race, then defer
+   * `process.exit` via `setImmediate` so libuv has one event-loop tick to
+   * finalize close callbacks before the synchronous exit.
+   *
+   * The full Windows-only crash can't be reproduced inside the test
+   * runner. The unit test below verifies the call ordering as a proxy;
+   * the real condition (no `UV_HANDLE_CLOSING` in stderr on Windows) is
+   * asserted by `test/integration/windows-libuv-exit.test.ts`.
    */
-  let closeSpy: ReturnType<typeof vi.fn>;
+  let destroySpy: ReturnType<typeof vi.fn>;
   let exitOrder: string[];
 
   beforeEach(() => {
     exitOrder = [];
 
-    closeSpy = vi.fn(() => {
-      exitOrder.push('dispatcher.close');
+    destroySpy = vi.fn(() => {
+      exitOrder.push('dispatcher.destroy');
       return Promise.resolve();
     });
 
     vi.mocked(getGlobalDispatcher).mockReturnValue({
-      close: closeSpy,
-      // The handler only calls .close(); nothing else needs to be present.
+      destroy: destroySpy,
+      // The handler only calls .destroy(); nothing else needs to be present.
     } as unknown as ReturnType<typeof getGlobalDispatcher>);
 
     vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
@@ -343,29 +349,44 @@ describe('handleTopLevelError — drains undici dispatcher before exit (libuv fi
     vi.restoreAllMocks();
   });
 
-  it('calls getGlobalDispatcher().close() before process.exit on a typed error', async () => {
+  it('calls getGlobalDispatcher().destroy() before process.exit on a typed error', async () => {
     const err = new ValidationError('bad input');
-    await expect(handleTopLevelError(err, 'json')).rejects.toThrow();
-    expect(closeSpy).toHaveBeenCalledOnce();
-    expect(exitOrder).toEqual(['dispatcher.close', 'process.exit(2)']);
+    await expect(handleTopLevelError(err, 'json')).rejects.toThrow('process.exit(2)');
+    expect(destroySpy).toHaveBeenCalledOnce();
+    expect(exitOrder).toEqual(['dispatcher.destroy', 'process.exit(2)']);
   });
 
   it('drains the dispatcher before exit on the SIGINT/AbortError path', async () => {
     const abort = new Error('aborted');
     abort.name = 'AbortError';
-    await expect(handleTopLevelError(abort, 'json')).rejects.toThrow();
-    expect(closeSpy).toHaveBeenCalledOnce();
-    expect(exitOrder).toEqual(['dispatcher.close', 'process.exit(130)']);
+    await expect(handleTopLevelError(abort, 'json')).rejects.toThrow('process.exit(130)');
+    expect(destroySpy).toHaveBeenCalledOnce();
+    expect(exitOrder).toEqual(['dispatcher.destroy', 'process.exit(130)']);
   });
 
-  it('still exits cleanly when dispatcher.close() rejects', async () => {
-    closeSpy.mockImplementationOnce(() => {
-      exitOrder.push('dispatcher.close.rejected');
-      return Promise.reject(new Error('close failed'));
+  it('still exits cleanly when dispatcher.destroy() rejects', async () => {
+    destroySpy.mockImplementationOnce(() => {
+      exitOrder.push('dispatcher.destroy.rejected');
+      return Promise.reject(new Error('destroy failed'));
     });
     const err = new ValidationError('bad input');
-    // The original exit code must survive the close() rejection.
+    // The original exit code must survive the destroy() rejection.
     await expect(handleTopLevelError(err, 'json')).rejects.toThrow('process.exit(2)');
-    expect(exitOrder).toEqual(['dispatcher.close.rejected', 'process.exit(2)']);
+    expect(exitOrder).toEqual(['dispatcher.destroy.rejected', 'process.exit(2)']);
+  });
+
+  it('exits even when dispatcher.destroy() hangs past the timeout (250 ms race)', async () => {
+    // Simulate a hung destroy() — never resolves. The timeout race must
+    // fire so the CLI does not hang on exit.
+    destroySpy.mockImplementationOnce(() => {
+      exitOrder.push('dispatcher.destroy.started');
+      return new Promise<void>(() => {}); // never resolves
+    });
+    const err = new ValidationError('bad input');
+    // Race resolves via the 250 ms setTimeout. We use real timers so the
+    // race actually fires; the test takes ~250 ms but is deterministic.
+    await expect(handleTopLevelError(err, 'json')).rejects.toThrow('process.exit(2)');
+    expect(exitOrder).toContain('dispatcher.destroy.started');
+    expect(exitOrder).toContain('process.exit(2)');
   });
 });

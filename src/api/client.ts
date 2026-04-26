@@ -1,5 +1,5 @@
 import { type Logger } from 'pino';
-import { type ZodSchema } from 'zod';
+import { type ZodTypeAny, type z } from 'zod';
 import { FreeloApiError } from '../errors/freelo-api-error.js';
 import { NetworkError } from '../errors/network-error.js';
 import { RateLimitedError } from '../errors/rate-limited-error.js';
@@ -26,11 +26,17 @@ export type HttpClientOptions = {
   signal?: AbortSignal;
 };
 
-export type RequestOptions<T> = {
+/**
+ * Request options. `S` is the zod schema type; `T` is its inferred output
+ * (post-transform). Using `z.input<S>` and `z.output<S>` separately lets
+ * schemas with `.transform(...)` (e.g. `CurrencySchema` widening string|number
+ * to canonical string) work without forcing input == output.
+ */
+export type RequestOptions<S extends ZodTypeAny> = {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   path: string;
   body?: unknown;
-  schema: ZodSchema<T>;
+  schema: S;
   signal?: AbortSignal;
   requestId?: string;
 };
@@ -91,7 +97,7 @@ export class HttpClient {
     this.#signal = opts.signal;
   }
 
-  async request<T>(opts: RequestOptions<T>): Promise<ApiResponse<T>> {
+  async request<S extends ZodTypeAny>(opts: RequestOptions<S>): Promise<ApiResponse<z.output<S>>> {
     const { method, path, body, schema } = opts;
     // Resolve optional fields to non-undefined for exactOptionalPropertyTypes.
     const requestId = opts.requestId;
@@ -116,7 +122,7 @@ export class HttpClient {
     if (body !== undefined) fetchInit.body = JSON.stringify(body);
     if (signal !== undefined) fetchInit.signal = signal;
 
-    const attempt = async (attemptNum: number): Promise<ApiResponse<T>> => {
+    const attempt = async (attemptNum: number): Promise<ApiResponse<z.output<S>>> => {
       let response: Response;
       try {
         response = await fetch(url, fetchInit);
@@ -224,7 +230,10 @@ export class HttpClient {
         );
       }
 
-      return { data: parsed.data, rateLimit, requestId: requestId ?? '' };
+      // parsed.data is z.output<S> by construction (safeParse on schema S).
+      // ESLint flags it as `any` because the inner attempt closure widens T.
+      const data = parsed.data as z.output<S>;
+      return { data, rateLimit, requestId: requestId ?? '' };
     };
 
     return attempt(1);

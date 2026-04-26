@@ -2,7 +2,7 @@ import { pathToFileURL } from 'node:url';
 import { realpathSync } from 'node:fs';
 import { Command } from 'commander';
 import { VERSION } from '../lib/version.js';
-import { drainDispatcher, handleTopLevelError } from '../errors/handle.js';
+import { drainDispatcher, exitDeferred, handleTopLevelError } from '../errors/handle.js';
 import { buildPartialAppConfig, pickFlags } from '../config/resolve.js';
 import { type PartialAppConfig } from '../config/schema.js';
 import { type RcConfig } from '../config/rc-schema.js';
@@ -232,10 +232,12 @@ if (isEntryPoint()) {
   // Register SIGINT handler before parsing; abort any in-flight request.
   // Drain undici's keep-alive pool before exit so libuv doesn't crash on
   // Windows (UV_HANDLE_CLOSING). Fire-and-forget — Ctrl-C must stay snappy.
+  // Exit is deferred to the next event-loop tick so libuv can finalize
+  // socket-close callbacks (spec 0015 §3, R05.5 round-2 fix).
   process.on('SIGINT', () => {
     abortController.abort();
     void drainDispatcher().finally(() => {
-      process.exit(130);
+      void exitDeferred(130);
     });
   });
 
@@ -243,6 +245,6 @@ if (isEntryPoint()) {
     const message = err instanceof Error ? err.message : String(err);
     writeCatastrophicError(message);
     await drainDispatcher();
-    process.exit(1);
+    await exitDeferred(1);
   });
 }

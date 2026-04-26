@@ -1,4 +1,4 @@
-import { z, type ZodSchema } from 'zod';
+import { z, type ZodSchema, type ZodTypeAny } from 'zod';
 
 /**
  * Zod schemas for the project entity variants and the per-endpoint paginated
@@ -14,9 +14,18 @@ const StateSchema = z.object({
   state: z.enum(['active', 'archived', 'finished', 'deleted', 'template']),
 });
 
+/**
+ * Minimal user object embedded in many response shapes (project owner,
+ * task worker, …).
+ *
+ * `fullname` is `.nullable().optional()` — Freelo can return user objects
+ * without a fullname (deleted users, externally-invited users in pending
+ * state, system actors). Renderers fall back to `String(id)` for the
+ * human label. See spec 0015 §1 (R05.5 Bug #1).
+ */
 export const UserBasicSchema = z.object({
   id: z.number().int(),
-  fullname: z.string(),
+  fullname: z.string().nullable().optional(),
 });
 
 export type UserBasic = z.infer<typeof UserBasicSchema>;
@@ -40,8 +49,26 @@ const ClientSchema = z
   })
   .passthrough();
 
+/**
+ * Money amount embedded in `ProjectFull.budget`, `ProjectFull.real_cost`,
+ * and the equivalent fields on `TasklistFull` (see `tasklist.ts`).
+ *
+ * Live Freelo API returns `amount` as either a string (e.g. `"2000"`)
+ * or a number (e.g. `2000` or `15000.5`) depending on the endpoint —
+ * sometimes per record on the same response. We accept both and
+ * **normalize to string** at parse time so the public envelope contract
+ * (`Currency.amount: string`) stays stable. See spec 0015 §2 and
+ * decision 1 (R05.5 Bug #2).
+ *
+ * `NaN` and `Infinity` are rejected — they aren't real amounts.
+ */
 const CurrencySchema = z.object({
-  amount: z.string(),
+  amount: z
+    .union([z.string(), z.number()])
+    .refine((v) => typeof v === 'string' || (Number.isFinite(v) && !Number.isNaN(v)), {
+      message: 'amount must be a finite number or a string',
+    })
+    .transform((v) => String(v)),
   currency: z.enum(['CZK', 'EUR', 'USD']),
 });
 
@@ -98,15 +125,15 @@ export const ProjectsBareArraySchema = z.array(ProjectWithTasklistsSchema);
  * Different endpoints use different inner keys (`projects`, `invited_projects`,
  * `archived_projects`, `template_projects`) — see spec §2.2.
  */
-export function paginatedProjectsWrapperSchema<T>(
+export function paginatedProjectsWrapperSchema<S extends ZodTypeAny>(
   innerKey: string,
-  itemSchema: ZodSchema<T>,
+  itemSchema: S,
 ): ZodSchema<{
   total: number;
   count: number;
   page: number;
   per_page: number;
-  data: Record<string, T[]>;
+  data: Record<string, z.output<S>[]>;
 }> {
   return z.object({
     total: z.number().int(),
@@ -121,7 +148,7 @@ export function paginatedProjectsWrapperSchema<T>(
     count: number;
     page: number;
     per_page: number;
-    data: Record<string, T[]>;
+    data: Record<string, z.output<S>[]>;
   }>;
 }
 
@@ -219,12 +246,16 @@ const TasklistWithTasksSchema = z
 /**
  * Hourly-rate object embedded in `ProjectDetail.workers[*].hour_rate`.
  * Per OpenAPI :5014-5023. The whole object is nullable per the spec.
+ *
+ * Each field is `.nullable().optional()` — partial-rate records have been
+ * observed in live data (per spec 0015 §1, decision 3). The whole
+ * `HourRate` is also wrapped `.nullable().optional()` on its parent.
  */
 const HourRateSchema = z
   .object({
-    amount: z.number().int(),
-    currency: z.string(),
-    is_fixed: z.boolean(),
+    amount: z.number().int().nullable().optional(),
+    currency: z.string().nullable().optional(),
+    is_fixed: z.boolean().nullable().optional(),
   })
   .passthrough();
 
@@ -237,7 +268,7 @@ const HourRateSchema = z
 const WorkerWithHourRateSchema = z
   .object({
     id: z.number().int(),
-    fullname: z.string(),
+    fullname: z.string().nullable().optional(),
     hour_rate: HourRateSchema.nullable().optional(),
   })
   .passthrough();

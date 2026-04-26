@@ -1,0 +1,35 @@
+{
+  "total": 3,
+  "count": 3,
+  "page": 0,
+  "per_page": 25,
+  "data": {
+    "projects": [
+      {
+        "id": 235826,
+        "name": "Project with numeric real_cost",
+        "owner": { "id": 9, "fullname": "Owner Name" },
+        "state": { "id": 1, "state": "active" },
+        "minutes_budget": 600,
+        "budget": { "amount": 50000, "currency": "CZK" },
+        "real_minutes_spent": 120,
+        "real_cost": { "amount": 2000, "currency": "CZK" }
+      },
+      {
+        "id": 235827,
+        "name": "Project with fractional real_cost",
+        "owner": { "id": 9, "fullname": "Owner Name" },
+        "state": { "id": 1, "state": "active" },
+        "real_cost": { "amount": 15000.5, "currency": "EUR" }
+      },
+      {
+        "id": 235828,
+        "name": "Project with mixed string/number on the same record",
+        "owner": { "id": 17 },
+        "state": { "id": 1, "state": "active" },
+        "budget": { "amount": "100000", "currency": "CZK" },
+        "real_cost": { "amount": 9999, "currency": "CZK" }
+      }
+    ]
+  }
+}

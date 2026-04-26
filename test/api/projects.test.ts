@@ -112,6 +112,47 @@ describe('getAllProjects', () => {
     const client = makeClient();
     await expect(getAllProjects(client, { page: 0 })).rejects.toThrow();
   });
+
+  it('R05.5 — parses /all-projects with numeric real_cost.amount and budget.amount', async () => {
+    // Reproducer for R05.5 Bug #2: live Freelo returns Currency.amount as
+    // a number for real_cost / budget. The schema must accept both shapes
+    // and normalize to string in the parsed envelope. See spec 0015 §2.
+    const fixture = await loadFixture<{
+      total: number;
+      count: number;
+      page: number;
+      per_page: number;
+      data: Record<string, unknown[]>;
+    }>('all-with-numeric-amounts.json');
+    server.use(projectsHandlers.pagedOk('all', { 0: fixture }));
+
+    const client = makeClient();
+    const out = await getAllProjects(client, { page: 0 });
+    expect(out.page.data).toHaveLength(3);
+
+    const records = out.page.data as Array<{
+      id: number;
+      budget?: { amount: string; currency: string } | null;
+      real_cost?: { amount: string; currency: string } | null;
+      owner?: { id: number; fullname?: string | null } | null;
+    }>;
+
+    // Numeric amounts come back as strings (Bug #2 normalization).
+    expect(records[0]?.real_cost?.amount).toBe('2000');
+    expect(records[0]?.budget?.amount).toBe('50000');
+    expect(typeof records[0]?.real_cost?.amount).toBe('string');
+
+    // Fractional preserved as decimal string.
+    expect(records[1]?.real_cost?.amount).toBe('15000.5');
+
+    // Mixed shapes within the same response — both normalize to string.
+    expect(records[2]?.budget?.amount).toBe('100000'); // already a string
+    expect(records[2]?.real_cost?.amount).toBe('9999'); // was a number
+
+    // Bug #1 — owner with id only (no fullname) parses cleanly.
+    expect(records[2]?.owner?.id).toBe(17);
+    expect(records[2]?.owner?.fullname).toBeUndefined();
+  });
 });
 
 describe('getInvitedProjects / getArchivedProjects / getTemplateProjects', () => {

@@ -19,8 +19,26 @@ const StateSchema = z.object({
   state: z.enum(['active', 'archived', 'finished', 'deleted', 'template']),
 });
 
+/**
+ * Money amount embedded in `TasklistFull.budget` and `TasklistFull.real_cost`.
+ *
+ * Live Freelo API returns `amount` as either a string or a number depending
+ * on the endpoint and record. We accept both and **normalize to string**
+ * so the public envelope contract (`Currency.amount: string`) stays stable.
+ * See spec 0015 §2 and decision 1 (R05.5 Bug #2).
+ *
+ * Mirrors `CurrencySchema` in `src/api/schemas/project.ts`. Pulling these
+ * into a shared module is deferred to a follow-up refactor.
+ *
+ * `NaN` and `Infinity` are rejected — they aren't real amounts.
+ */
 const CurrencySchema = z.object({
-  amount: z.string(),
+  amount: z
+    .union([z.string(), z.number()])
+    .refine((v) => typeof v === 'string' || (Number.isFinite(v) && !Number.isNaN(v)), {
+      message: 'amount must be a finite number or a string',
+    })
+    .transform((v) => String(v)),
   currency: z.enum(['CZK', 'EUR', 'USD']),
 });
 
