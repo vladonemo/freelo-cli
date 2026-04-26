@@ -41,7 +41,7 @@ Exit 0 means the credentials are valid. From here every subsequent command picks
 
 ## First run: humans
 
-On a TTY, run `freelo auth login`. The command prompts for your email and API key, verifies them against the Freelo API, and stores the credentials in your OS keychain (or a `0600` fallback file on systems without one).
+On a TTY, run `freelo auth login`. The command prompts for your email and API key, verifies them against the Freelo API, and stores the credentials in `tokens.json` (mode `0600`) inside the platform-appropriate config directory.
 
 ```bash
 freelo auth login

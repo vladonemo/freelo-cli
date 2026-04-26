@@ -23,15 +23,14 @@ freelo auth whoami [--profile <name>]
 Credentials are resolved from the first available source:
 
 1. `FREELO_API_KEY` + `FREELO_EMAIL` env vars (both must be set; one alone falls through).
-2. OS keychain via keytar. Set `FREELO_NO_KEYCHAIN=1` to skip keytar and use the file fallback.
-3. `conf`-backed fallback file (`tokens.json`).
+2. `tokens.json` (mode `0600`) inside the platform-appropriate config directory.
 
 The resolved source is reported in the envelope as `profile_source`:
 
 | `profile_source` | Meaning                                                                                                                      |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `env`            | Credentials came from `FREELO_API_KEY` / `FREELO_EMAIL` env vars (or `--api-key-stdin`, though that is not a `whoami` flow). |
-| `conf`           | Credentials came from the stored profile (keytar or fallback file).                                                          |
+| `conf`           | Credentials came from the stored profile in `tokens.json`.                                                                   |
 
 If no source is available, the command fails with `AUTH_MISSING` (exit 3).
 
