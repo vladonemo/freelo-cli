@@ -294,6 +294,24 @@ Lessons learned from real autonomous runs. Each entry is a class-of-failure and 
 
 **Rule:** `main` branch protection requires all 7 CI status checks (matrix + `check README autogen`). Configured 2026-04-26. If branch protection is ever disabled, that's a red flag — escalate before merging anything.
 
+### 6. Inline mid-flow PRs must branch from `main`, not current HEAD
+
+**Trigger:** PR #35 (a small `docs/release-admin-merge-exception` skill update) was created with `git checkout -b docs/release-admin-merge-exception` while local HEAD was on `feat/tasklists-show` — the R06 orchestrator's branch. PR #35's tree therefore carried R06's content + the skill edit. PR #34 (Version Packages → 0.9.0) merged in between PR #35's open and merge, deleting the consumed changeset on `main`. When PR #35 squash-merged onto post-#34 `main`, it **re-introduced** the deleted changeset. `changesets-action` then opened PR #36 (Version Packages → 0.10.0) and shipped a no-op `0.10.0` to npm — byte-identical content to `0.9.0`, just a version-history doppelgänger.
+
+**Why it matters:** Autonomous runs spawn agents that switch branches on the shared working tree. After the orchestrator finishes, local HEAD is typically NOT on `main`. Branching from "wherever I am" silently inherits the agent's branch — sometimes harmless, sometimes (as here) it bridges deleted-state changes back into a future merge.
+
+**Rule:** Before opening any inline PR mid-session — especially small docs/chore edits during or after an autonomous run — **always sync to `main` first**:
+
+```bash
+git checkout main
+git pull --ff-only origin main
+git checkout -b <new-branch>
+```
+
+Never trust `git checkout -b <new-branch>` alone after agent activity. If two PRs touch the `.changeset/` directory near in time, the merge order is load-bearing — verify the second-merging PR's diff against post-first-merge `main` before enabling auto-merge.
+
+Cost of the mistake here was minor (cosmetic version-history noise; `0.10.0 == 0.9.0` content). Cost in a worse scenario could be republishing already-deleted changesets, double-billing minor bumps, or accidentally consuming a NEW changeset that was added between the two PRs.
+
 ---
 
 ## Rollback
