@@ -112,23 +112,11 @@ describe('config-flow: fresh-install config list', () => {
       return { default: ConfMock };
     });
 
-    vi.doMock('keytar', () => ({
-      default: {
-        getPassword: vi.fn().mockResolvedValue(null),
-        setPassword: vi.fn(),
-        deletePassword: vi.fn(),
-      },
-      getPassword: vi.fn().mockResolvedValue(null),
-      setPassword: vi.fn(),
-      deletePassword: vi.fn(),
-    }));
-
     // Point cwd at testDir so no rc file is discovered
     vi.spyOn(process, 'cwd').mockReturnValue(testDir);
 
     vi.resetModules();
 
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
   });
@@ -136,7 +124,6 @@ describe('config-flow: fresh-install config list', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     vi.resetModules();
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
     try {
@@ -221,22 +208,10 @@ describe('config-flow: config set / config get round-trip', () => {
       return { default: ConfMock };
     });
 
-    vi.doMock('keytar', () => ({
-      default: {
-        getPassword: vi.fn().mockResolvedValue(null),
-        setPassword: vi.fn(),
-        deletePassword: vi.fn(),
-      },
-      getPassword: vi.fn().mockResolvedValue(null),
-      setPassword: vi.fn(),
-      deletePassword: vi.fn(),
-    }));
-
     vi.spyOn(process, 'cwd').mockReturnValue(testDir);
 
     vi.resetModules();
 
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
   });
@@ -244,7 +219,6 @@ describe('config-flow: config set / config get round-trip', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     vi.resetModules();
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
     try {
@@ -312,20 +286,8 @@ describe('config-flow: env-layer verbose via FREELO_DEBUG flows through to confi
       return { default: ConfMock };
     });
 
-    vi.doMock('keytar', () => ({
-      default: {
-        getPassword: vi.fn().mockResolvedValue(null),
-        setPassword: vi.fn(),
-        deletePassword: vi.fn(),
-      },
-      getPassword: vi.fn().mockResolvedValue(null),
-      setPassword: vi.fn(),
-      deletePassword: vi.fn(),
-    }));
-
     vi.resetModules();
 
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     process.env['FREELO_DEBUG'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
@@ -334,7 +296,6 @@ describe('config-flow: env-layer verbose via FREELO_DEBUG flows through to confi
   afterEach(async () => {
     vi.restoreAllMocks();
     vi.resetModules();
-    delete process.env['FREELO_NO_KEYCHAIN'];
     delete process.env['FREELO_DEBUG'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
@@ -457,22 +418,10 @@ describe('config-flow: non-TTY stdout defaults to JSON', () => {
       return { default: ConfMock };
     });
 
-    vi.doMock('keytar', () => ({
-      default: {
-        getPassword: vi.fn().mockResolvedValue(null),
-        setPassword: vi.fn(),
-        deletePassword: vi.fn(),
-      },
-      getPassword: vi.fn().mockResolvedValue(null),
-      setPassword: vi.fn(),
-      deletePassword: vi.fn(),
-    }));
-
     vi.spyOn(process, 'cwd').mockReturnValue(testDir);
 
     vi.resetModules();
 
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     // Simulate non-TTY: isTTY is false (default in test env, but explicit here)
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
@@ -481,7 +430,6 @@ describe('config-flow: non-TTY stdout defaults to JSON', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     vi.resetModules();
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
     try {
@@ -540,22 +488,10 @@ describe('config-flow: logged-in profile shows email in config list', () => {
       return { default: ConfMock };
     });
 
-    vi.doMock('keytar', () => ({
-      default: {
-        getPassword: vi.fn().mockResolvedValue(null),
-        setPassword: vi.fn(),
-        deletePassword: vi.fn(),
-      },
-      getPassword: vi.fn().mockResolvedValue(null),
-      setPassword: vi.fn(),
-      deletePassword: vi.fn(),
-    }));
-
     vi.spyOn(process, 'cwd').mockReturnValue(testDir);
 
     vi.resetModules();
 
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
   });
@@ -563,7 +499,6 @@ describe('config-flow: logged-in profile shows email in config list', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     vi.resetModules();
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
     try {

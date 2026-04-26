@@ -55,10 +55,8 @@ export default tseslint.config(
     // `await import('…')` behind an isInteractive() check (from
     // src/lib/env.ts) so the agent cold path never pays for them.
     //
-    // `conf` and `keytar` are NOT on this list:
-    //   - `conf` is a hard dep used on the agent path for profile metadata.
-    //   - `keytar` is lazy-loaded inside src/config/tokens.ts only and is kept
-    //     off the global list so that facade can import it freely.
+    // `conf` is NOT on this list — it is a hard dep used on the agent path
+    // for profile metadata.
     //
     // See `.claude/docs/conventions.md` §Imports.
     files: ['src/**/*.ts'],

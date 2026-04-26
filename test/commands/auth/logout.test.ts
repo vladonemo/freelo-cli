@@ -3,13 +3,6 @@ import { tmpdir } from 'node:os';
 import { mkdir, rm } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('keytar', () => ({
-  default: { getPassword: vi.fn(), setPassword: vi.fn(), deletePassword: vi.fn() },
-  getPassword: vi.fn(),
-  setPassword: vi.fn(),
-  deletePassword: vi.fn(),
-}));
-
 function captureOutput() {
   const stdout: string[] = [];
   const stderr: string[] = [];
@@ -89,14 +82,12 @@ describe('auth logout — absent profile is idempotent', () => {
 
     vi.resetModules();
 
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
   });
 
   afterEach(async () => {
     vi.restoreAllMocks();
     vi.resetModules();
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     try {
       await rm(testDir, { recursive: true, force: true });
@@ -165,14 +156,12 @@ describe('auth logout — present profile is removed', () => {
 
     vi.resetModules();
 
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
   });
 
   afterEach(async () => {
     vi.restoreAllMocks();
     vi.resetModules();
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     try {
       await rm(testDir, { recursive: true, force: true });
@@ -235,7 +224,6 @@ describe('auth logout — human mode', () => {
 
     vi.resetModules();
 
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
     delete process.env['CI'];
@@ -244,7 +232,6 @@ describe('auth logout — human mode', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     vi.resetModules();
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
     try {

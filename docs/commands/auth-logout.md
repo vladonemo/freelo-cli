@@ -20,7 +20,7 @@ freelo auth logout [--profile <name>]
 
 ## Behavior
 
-- Removes the token from both the OS keychain (keytar) and the `tokens.json` fallback file. Both deletions are attempted; "not found" errors from either store are silently ignored.
+- Removes the profile's entry from `tokens.json`. "Not found" (file missing or no entry for the profile) is silently ignored — the operation is idempotent.
 - Removes `profiles[name]` from the conf store. If the removed profile was `currentProfile`, that field is cleared.
 - Never prompts. Never calls the Freelo API.
 
@@ -75,9 +75,9 @@ Exit code is 0 in both the removal and no-op cases.
 
 ## Errors
 
-| Code           | When                                                                | Hint                                                                     |
-| -------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `CONFIG_ERROR` | Both keytar and the fallback file returned a non-"not-found" error. | Check file permissions on the tokens file; path is in the error message. |
+| Code           | When                                                            | Hint                                                                     |
+| -------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `CONFIG_ERROR` | `tokens.json` returned a non-"not-found" error during deletion. | Check file permissions on the tokens file; path is in the error message. |
 
 ## See also
 

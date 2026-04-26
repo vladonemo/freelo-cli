@@ -4,13 +4,6 @@ import { mkdir, rm } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { server, usersMeHandlers } from '../../msw/handlers.js';
 
-vi.mock('keytar', () => ({
-  default: { getPassword: vi.fn(), setPassword: vi.fn(), deletePassword: vi.fn() },
-  getPassword: vi.fn(),
-  setPassword: vi.fn(),
-  deletePassword: vi.fn(),
-}));
-
 function captureOutput() {
   const stdout: string[] = [];
   const stderr: string[] = [];
@@ -105,7 +98,6 @@ describe('auth whoami — env-mode happy path', () => {
 
     process.env['FREELO_API_KEY'] = 'sk-test';
     process.env['FREELO_EMAIL'] = 'agent@example.cz';
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
 
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
@@ -118,7 +110,6 @@ describe('auth whoami — env-mode happy path', () => {
     vi.resetModules();
     delete process.env['FREELO_API_KEY'];
     delete process.env['FREELO_EMAIL'];
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
     try {
@@ -176,7 +167,6 @@ describe('auth whoami — extended fixture includes full_name', () => {
 
     process.env['FREELO_API_KEY'] = 'sk-test';
     process.env['FREELO_EMAIL'] = 'jane@example.cz';
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
 
@@ -188,7 +178,6 @@ describe('auth whoami — extended fixture includes full_name', () => {
     vi.resetModules();
     delete process.env['FREELO_API_KEY'];
     delete process.env['FREELO_EMAIL'];
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
     try {
@@ -239,7 +228,6 @@ describe('auth whoami — missing credentials', () => {
 
     delete process.env['FREELO_API_KEY'];
     delete process.env['FREELO_EMAIL'];
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
   });
@@ -247,7 +235,6 @@ describe('auth whoami — missing credentials', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     vi.resetModules();
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
     try {
@@ -296,7 +283,6 @@ describe('auth whoami — 401 response', () => {
 
     process.env['FREELO_API_KEY'] = 'sk-expired';
     process.env['FREELO_EMAIL'] = 'user@example.com';
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
 
     server.use(usersMeHandlers.unauthorized());
@@ -307,7 +293,6 @@ describe('auth whoami — 401 response', () => {
     vi.resetModules();
     delete process.env['FREELO_API_KEY'];
     delete process.env['FREELO_EMAIL'];
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     try {
       await rm(testDir, { recursive: true, force: true });
@@ -362,7 +347,6 @@ describe('auth whoami — human mode on TTY', () => {
 
     process.env['FREELO_API_KEY'] = 'sk-test';
     process.env['FREELO_EMAIL'] = 'agent@example.cz';
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
     delete process.env['CI'];
@@ -375,7 +359,6 @@ describe('auth whoami — human mode on TTY', () => {
     vi.resetModules();
     delete process.env['FREELO_API_KEY'];
     delete process.env['FREELO_EMAIL'];
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
     try {
@@ -410,7 +393,7 @@ describe('auth whoami — human mode on TTY', () => {
   });
 });
 
-describe('auth whoami — profile_source is conf when credentials come from keytar/fallback', () => {
+describe('auth whoami — profile_source is conf when credentials come from tokens.json', () => {
   let testDir: string;
 
   beforeEach(async () => {
@@ -420,9 +403,9 @@ describe('auth whoami — profile_source is conf when credentials come from keyt
     );
     await mkdir(testDir, { recursive: true });
 
-    // Pre-populate the store with a profile (conf-stored email + apiBaseUrl)
+    // Pre-populate the conf store with a profile (email + apiBaseUrl).
     const storeContent = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       currentProfile: 'default',
       profiles: {
         default: {
@@ -430,6 +413,7 @@ describe('auth whoami — profile_source is conf when credentials come from keyt
           apiBaseUrl: 'https://api.freelo.io/v1',
         },
       },
+      defaults: {},
     };
 
     vi.doMock('conf', () => {
@@ -449,24 +433,17 @@ describe('auth whoami — profile_source is conf when credentials come from keyt
       return { default: ConfMock };
     });
 
-    // Mock keytar to return a stored token so credentials come from conf-fallback/keytar
-    vi.doMock('keytar', () => ({
-      default: {
-        getPassword: vi.fn().mockResolvedValue('sk-stored-in-keytar'),
-        setPassword: vi.fn(),
-        deletePassword: vi.fn(),
-      },
-      getPassword: vi.fn().mockResolvedValue('sk-stored-in-keytar'),
-      setPassword: vi.fn(),
-      deletePassword: vi.fn(),
-    }));
-
     vi.resetModules();
 
-    // No env credentials — must fall through to keytar
+    // No env credentials — must fall through to tokens.json
     delete process.env['FREELO_API_KEY'];
     delete process.env['FREELO_EMAIL'];
-    delete process.env['FREELO_NO_KEYCHAIN'];
+
+    // Seed tokens.json directly so resolveCredentials resolves via the
+    // conf-fallback tier. We do this *after* resetModules so the import
+    // below sees the same Conf mock.
+    const { writeToken } = await import('../../../src/config/tokens.js');
+    await writeToken('default', 'sk-stored-in-tokens-json');
 
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
@@ -479,7 +456,6 @@ describe('auth whoami — profile_source is conf when credentials come from keyt
     vi.resetModules();
     delete process.env['FREELO_API_KEY'];
     delete process.env['FREELO_EMAIL'];
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
     try {
@@ -489,7 +465,7 @@ describe('auth whoami — profile_source is conf when credentials come from keyt
     }
   });
 
-  it('has profile_source conf when token comes from keytar', async () => {
+  it('has profile_source conf when token comes from tokens.json', async () => {
     const { run } = await import('../../../src/bin/freelo.js');
     const { stdout, exitCode } = await runWhoami(run);
     expect(exitCode).toBe(0);

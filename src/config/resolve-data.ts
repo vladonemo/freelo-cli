@@ -58,8 +58,8 @@ export type ConfigResolveData = AppConfigPublic | ConfigResolveAnnotated;
  * which omits credentials). Callers pass it in; it defaults to `""` when no
  * profile is configured (§8.6.3).
  *
- * `has_token` is a `boolean` derived from keytar/tokens.json presence, not a
- * decrypted value. It lets agents know "is there a stored token?" without HTTP.
+ * `has_token` is a `boolean` derived from `tokens.json` presence, not a
+ * value reveal. It lets agents know "is there a stored token?" without HTTP.
  *
  * Redaction lives here, not in the renderer (defence-in-depth per spec §8.5 rule 3).
  */

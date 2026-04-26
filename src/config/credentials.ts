@@ -2,7 +2,7 @@ import { readToken } from './tokens.js';
 import { readStore } from './store.js';
 import { ConfigError } from '../errors/config-error.js';
 
-export type CredentialSource = 'stdin' | 'env' | 'keytar' | 'conf-fallback';
+export type CredentialSource = 'stdin' | 'env' | 'conf-fallback';
 
 export type ResolvedCredentials = {
   email: string;
@@ -26,8 +26,10 @@ export type ResolveCredentialsOptions = {
  * Resolve `{ email, apiKey, apiBaseUrl, source }` using precedence:
  *   1. `stdinApiKey` (from `--api-key-stdin`) — requires `emailFlag`.
  *   2. `FREELO_API_KEY` + `FREELO_EMAIL` env vars.
- *   3. keytar (or fallback file) for the profile.
- *   4. (No per-profile token in conf; conf stores email+baseUrl, not token.)
+ *   3. `tokens.json` fallback file for the profile (mode 0600).
+ *
+ * The OS-keychain (keytar) tier was removed; `tokens.json` is the sole
+ * persistent token store.
  *
  * Throws `ConfigError({ kind: 'missing-token', profile })` when no source
  * is available.
@@ -56,15 +58,15 @@ export async function resolveCredentials(
     };
   }
 
-  // 3 & 4. keytar / fallback file (stored token)
+  // 3. tokens.json fallback file
   const token = await readToken(profile);
   if (token !== null) {
-    // Email and apiBaseUrl are stored in conf.
+    // Email and apiBaseUrl are stored in conf alongside profile metadata.
     const store = readStore();
     const profileConf = store.profiles[profile];
     const email = emailFlag ?? profileConf?.email ?? '';
     const base = profileConf?.apiBaseUrl ?? apiBaseUrl;
-    return { email, apiKey: token, apiBaseUrl: base, source: 'keytar' };
+    return { email, apiKey: token, apiBaseUrl: base, source: 'conf-fallback' };
   }
 
   throw new ConfigError(

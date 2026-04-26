@@ -26,8 +26,7 @@ The command resolves credentials from the first available source:
 
 1. `--api-key-stdin` — reads the key from stdin. Requires `--email`.
 2. `FREELO_API_KEY` + `FREELO_EMAIL` env vars (both must be set; one alone falls through).
-3. OS keychain via keytar. Set `FREELO_NO_KEYCHAIN=1` to skip keytar entirely and use the file fallback.
-4. `conf`-backed fallback file — checked only to detect an existing profile for the overwrite notice; the token is not read from here on this path.
+3. `tokens.json` (mode `0600`) inside the platform-appropriate config directory — checked only to detect an existing profile for the overwrite notice; the token is not read from here on this path.
 
 If none of these sources are available and stdin is not a TTY, the command fails with `AUTH_MISSING` (exit 3). It never hangs waiting on a closed stdin.
 
@@ -98,7 +97,7 @@ Reads until EOF; the trailing newline is stripped automatically.
 | `VALIDATION_ERROR` | Bad email format, missing `--email` with `--api-key-stdin`, or `--email`/`FREELO_EMAIL` mismatch. | Correct the flagged field.                                          |
 | `NETWORK_ERROR`    | Connection or DNS failure.                                                                        | Check network connectivity.                                         |
 | `RATE_LIMITED`     | 429 after three attempts.                                                                         | Wait and retry; inspect `hint_next` for a delay.                    |
-| `CONFIG_ERROR`     | Profile store is corrupt, or both keytar and the fallback file are unwritable.                    | Check the path in the error message.                                |
+| `CONFIG_ERROR`     | Profile store is corrupt or `tokens.json` is unwritable.                                          | Check the path in the error message.                                |
 
 ## See also
 

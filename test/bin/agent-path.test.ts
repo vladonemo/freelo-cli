@@ -10,9 +10,12 @@ import { server, usersMeHandlers } from '../msw/handlers.js';
  * Proves:
  * 1. Non-TTY + env credentials → exactly one line of stdout, JSON-parseable,
  *    schema === 'freelo.auth.whoami/v1'.
- * 2. @inquirer/prompts, ora, chalk, pino-pretty, and keytar are not activated
- *    on the agent path (whoami never needs prompts, spinners, chalk, or keytar;
- *    login only uses them in interactive TTY mode).
+ * 2. @inquirer/prompts, ora, chalk, and pino-pretty are not activated on the
+ *    agent path (whoami never needs prompts, spinners, or chalk; login only
+ *    uses them in interactive TTY mode).
+ *
+ * The keytar dependency was removed entirely in 0011-drop-keytar — there is
+ * no longer a module to mock or assert against.
  *
  * Uses vi.mock to intercept lazy imports. The mocks record whether their
  * factory was called, which signals the module was actually imported.
@@ -50,16 +53,6 @@ vi.mock('pino-pretty', () => {
   return { default: vi.fn(() => ({ write: vi.fn() })) };
 });
 
-vi.mock('keytar', () => {
-  lazyModuleCallLog.push('keytar');
-  return {
-    default: { getPassword: vi.fn(), setPassword: vi.fn(), deletePassword: vi.fn() },
-    getPassword: vi.fn(),
-    setPassword: vi.fn(),
-    deletePassword: vi.fn(),
-  };
-});
-
 describe('agent-path cold-start smoke', () => {
   let testDir: string;
 
@@ -87,7 +80,6 @@ describe('agent-path cold-start smoke', () => {
 
     process.env['FREELO_API_KEY'] = 'sk-agent-test';
     process.env['FREELO_EMAIL'] = 'agent@ci.example.com';
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
 
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
@@ -100,7 +92,6 @@ describe('agent-path cold-start smoke', () => {
     vi.resetModules();
     delete process.env['FREELO_API_KEY'];
     delete process.env['FREELO_EMAIL'];
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
     try {
@@ -246,27 +237,5 @@ describe('agent-path cold-start smoke', () => {
 
     // pino-pretty is only used for TTY log formatting, never on agent paths
     expect(lazyModuleCallLog).not.toContain('pino-pretty');
-  });
-
-  it('does not activate keytar on the whoami agent path when FREELO_NO_KEYCHAIN=1', async () => {
-    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    vi.spyOn(process, 'exit').mockImplementation((_code?: string | number | null) => {
-      throw new Error(`EXIT:${_code ?? 0}`);
-    });
-
-    lazyModuleCallLog.length = 0;
-
-    const { run } = await import('../../src/bin/freelo.js');
-
-    try {
-      await run(['node', 'freelo', 'auth', 'whoami']);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!msg.startsWith('EXIT:')) throw err;
-    }
-
-    // keytar is skipped when FREELO_NO_KEYCHAIN=1 or env credentials are present
-    expect(lazyModuleCallLog).not.toContain('keytar');
   });
 });
