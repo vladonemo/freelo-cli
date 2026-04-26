@@ -171,7 +171,7 @@ export function registerLogin(
       });
       render(mode, envelope, renderLoginHuman);
     } catch (err: unknown) {
-      handleTopLevelError(err, mode);
+      await handleTopLevelError(err, mode);
     }
   });
 }

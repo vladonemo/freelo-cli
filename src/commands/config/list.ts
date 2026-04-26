@@ -51,7 +51,7 @@ export function registerList(
 
       render(mode, envelope, renderConfigListHuman);
     } catch (err: unknown) {
-      handleTopLevelError(err, mode);
+      await handleTopLevelError(err, mode);
     }
   });
 }

@@ -49,6 +49,22 @@ describe('getOwnedProjects', () => {
     const client = makeClient();
     await expect(getOwnedProjects(client, {})).rejects.toThrow(FreeloApiError);
   });
+
+  it('parses real-shape responses where client is null (regression: R03 null-client)', async () => {
+    const fixture = await loadFixture<unknown[]>('owned-with-null-client.json');
+    server.use(projectsHandlers.ownedOk(fixture));
+
+    const client = makeClient();
+    const out = await getOwnedProjects(client, {});
+    expect(out.page.data).toHaveLength(3);
+    // All three carry client: null on the wire; the parser must preserve it.
+    for (const p of out.page.data) {
+      expect((p as { client: unknown }).client).toBeNull();
+    }
+    // tasklists: null (item 1) and missing (item 2) round-trip distinctly.
+    expect((out.page.data[1] as { tasklists: unknown }).tasklists).toBeNull();
+    expect((out.page.data[2] as { tasklists?: unknown }).tasklists).toBeUndefined();
+  });
 });
 
 describe('getAllProjects', () => {

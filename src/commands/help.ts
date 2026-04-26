@@ -51,7 +51,7 @@ export function registerHelp(program: Command, getConfig: GetAppConfig): void {
     .description(
       'Print the command tree as JSON (--output json) or as the same text as --help (default).',
     )
-    .action((commandPath: string[]) => {
+    .action(async (commandPath: string[]) => {
       let mode: 'human' | 'json' | 'ndjson';
       try {
         const appConfig = getConfig();
@@ -90,7 +90,7 @@ export function registerHelp(program: Command, getConfig: GetAppConfig): void {
 
         process.stdout.write(`${JSON.stringify(envelope)}\n`);
       } catch (err: unknown) {
-        handleTopLevelError(err, mode);
+        await handleTopLevelError(err, mode);
       }
     });
 

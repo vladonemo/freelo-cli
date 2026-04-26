@@ -34,7 +34,7 @@ export function registerUse(config: Command, getConfig: GetAppConfig): void {
         'No network call is made — use auth whoami to verify credentials afterward.',
     );
   attachMeta(useCmd, meta);
-  useCmd.action((profile: string) => {
+  useCmd.action(async (profile: string) => {
     const appConfig = getConfig();
     const mode = appConfig.output.mode;
 
@@ -70,7 +70,7 @@ export function registerUse(config: Command, getConfig: GetAppConfig): void {
 
       render(mode, envelope, renderConfigUseHuman);
     } catch (err: unknown) {
-      handleTopLevelError(err, mode);
+      await handleTopLevelError(err, mode);
     }
   });
 }

@@ -60,7 +60,7 @@ export function registerResolve(
 
       render(mode, envelope, renderConfigResolveHuman);
     } catch (err: unknown) {
-      handleTopLevelError(err, mode);
+      await handleTopLevelError(err, mode);
     }
   });
 }

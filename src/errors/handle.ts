@@ -1,3 +1,4 @@
+import { getGlobalDispatcher } from 'undici';
 import { BaseError } from './base.js';
 import { isAbortError } from './network-error.js';
 
@@ -40,15 +41,41 @@ function buildErrorEnvelopeInternal(err: BaseError): ErrorEnvelope {
 }
 
 /**
+ * Drain undici's global dispatcher (keep-alive socket pool) before exit.
+ *
+ * On Windows, calling `process.exit()` while undici still owns live sockets
+ * can trip libuv's strict async-handle teardown:
+ *
+ *   Assertion failed: !(handle->flags & UV_HANDLE_CLOSING),
+ *     file src\\win\\async.c, line 76
+ *
+ * `.close()` waits for in-flight requests to finish and tears down the pool
+ * cleanly. By the time we reach `handleTopLevelError` we have nothing in
+ * flight (the error envelope has already been written), so this resolves
+ * promptly. Best-effort: any failure is swallowed so it cannot mask the
+ * original exit code.
+ */
+export async function drainDispatcher(): Promise<void> {
+  try {
+    await getGlobalDispatcher().close();
+  } catch {
+    // best-effort cleanup; never mask the original exit code
+  }
+}
+
+/**
  * Top-level error handler. Called after `AppConfig` has been resolved so the
  * output `mode` is known. Maps any thrown value to an exit code and emits an
  * appropriate human message or `freelo.error/v1` envelope.
  *
- * This is `never` — it always calls `process.exit`.
+ * Async because we must drain undici's keep-alive pool before exit (see
+ * `drainDispatcher`). The returned promise never resolves — it always calls
+ * `process.exit`.
  */
-export function handleTopLevelError(err: unknown, mode: OutputMode): never {
+export async function handleTopLevelError(err: unknown, mode: OutputMode): Promise<never> {
   // SIGINT: abort-shaped error → exit 130 regardless of mode.
   if (isAbortError(err)) {
+    await drainDispatcher();
     process.exit(130);
   }
 
@@ -86,5 +113,6 @@ export function handleTopLevelError(err: unknown, mode: OutputMode): never {
     process.stderr.write(`${JSON.stringify(envelope)}\n`);
   }
 
+  await drainDispatcher();
   process.exit(typed.exitCode);
 }
