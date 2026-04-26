@@ -1,0 +1,20 @@
+import { type Command } from 'commander';
+import { type GetAppConfig } from '../config/schema.js';
+import { registerList } from './tasklists/list.js';
+
+/**
+ * Register the `tasklists` subcommand tree on the root program. Mirrors the
+ * shape of `src/commands/projects.ts`: the parent carries no `meta` (only
+ * leaves do), and each leaf is registered by its own factory function.
+ */
+export function register(
+  program: Command,
+  getConfig: GetAppConfig,
+  env: Readonly<Record<string, string | undefined>>,
+): void {
+  const tasklists = program
+    .command('tasklists')
+    .description('Browse Freelo tasklists across the projects you can see.');
+
+  registerList(tasklists, getConfig, env);
+}

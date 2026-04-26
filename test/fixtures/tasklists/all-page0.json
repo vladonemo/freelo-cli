@@ -1,0 +1,45 @@
+{
+  "total": 7,
+  "count": 3,
+  "page": 0,
+  "per_page": 3,
+  "data": {
+    "tasklists": [
+      {
+        "id": 101,
+        "name": "Backlog",
+        "date_add": "2026-01-15T10:00:00+01:00",
+        "date_edited_at": "2026-02-01T12:00:00+01:00",
+        "state": { "id": 1, "state": "active" },
+        "project": {
+          "id": 42,
+          "name": "Site redesign",
+          "state": { "id": 1, "state": "active" }
+        },
+        "real_minutes_spent": 120,
+        "budget": { "amount": "5000", "currency": "CZK" },
+        "real_cost": { "amount": "1000", "currency": "CZK" }
+      },
+      {
+        "id": 102,
+        "name": "Sprint 1",
+        "date_add": "2026-02-01T09:00:00+01:00",
+        "state": { "id": 1, "state": "active" },
+        "project": {
+          "id": 42,
+          "name": "Site redesign"
+        }
+      },
+      {
+        "id": 103,
+        "name": "Sprint 2",
+        "date_add": "2026-02-15T09:00:00+01:00",
+        "state": { "id": 1, "state": "active" },
+        "project": {
+          "id": 43,
+          "name": "Mobile app"
+        }
+      }
+    ]
+  }
+}

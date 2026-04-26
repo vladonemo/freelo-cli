@@ -1,0 +1,24 @@
+{
+  "total": 2,
+  "count": 2,
+  "page": 0,
+  "per_page": 25,
+  "data": {
+    "tasklists": [
+      {
+        "id": 101,
+        "name": "Backlog",
+        "date_add": "2026-01-15T10:00:00+01:00",
+        "state": { "id": 1, "state": "active" },
+        "project": { "id": 42, "name": "Site redesign" }
+      },
+      {
+        "id": 102,
+        "name": "Sprint 1",
+        "date_add": "2026-02-01T09:00:00+01:00",
+        "state": { "id": 1, "state": "active" },
+        "project": { "id": 42, "name": "Site redesign" }
+      }
+    ]
+  }
+}

@@ -302,6 +302,135 @@ export const projectShowHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo tasklists list` (R05, spec 0014).
+ *
+ * Single endpoint: `GET /all-tasklists?p=N[&projects_ids[]=<id>]`. The
+ * factories below mirror `projectsHandlers.pagedOk` shape so the tests can
+ * drive multi-page and per-project scenarios from a single `server.use(...)`
+ * call.
+ */
+export const tasklistsHandlers = {
+  /**
+   * `GET /all-tasklists?p=N` — paginated list. `pages` is keyed by 0-indexed
+   * page number; missing pages return an empty page using the last-known
+   * `per_page` and `total` (mirrors `projectsHandlers.pagedOk` past-end
+   * behaviour).
+   */
+  allOk(pages: Record<number, PagedFixture>): RequestHandler {
+    return http.get(`${API_BASE}/all-tasklists`, ({ request }) => {
+      const u = new URL(request.url);
+      const p = Number(u.searchParams.get('p') ?? '0');
+      const known = Object.keys(pages)
+        .map(Number)
+        .sort((a, b) => a - b);
+      const lastKnown = known[known.length - 1] ?? 0;
+      const fixture = pages[p];
+      if (fixture !== undefined) return HttpResponse.json(fixture);
+      const ref = pages[lastKnown];
+      if (!ref) {
+        return HttpResponse.json({
+          total: 0,
+          count: 0,
+          page: p,
+          per_page: 25,
+          data: { tasklists: [] },
+        });
+      }
+      return HttpResponse.json({
+        total: ref.total,
+        count: 0,
+        page: p,
+        per_page: ref.per_page,
+        data: { tasklists: [] },
+      });
+    });
+  },
+
+  /**
+   * `GET /all-tasklists?projects_ids[]=<id>&p=N` — server-filtered to one
+   * project. Returns `pages` when the request's `projects_ids[]` matches
+   * `projectId`; returns an empty body otherwise (simulates ACL-filtered
+   * "project not visible" or non-existent).
+   */
+  allByProject(projectId: number, pages: Record<number, PagedFixture>): RequestHandler {
+    return http.get(`${API_BASE}/all-tasklists`, ({ request }) => {
+      const u = new URL(request.url);
+      const filterId = u.searchParams.get('projects_ids[]');
+      const p = Number(u.searchParams.get('p') ?? '0');
+      if (filterId !== String(projectId)) {
+        return HttpResponse.json({
+          total: 0,
+          count: 0,
+          page: p,
+          per_page: 25,
+          data: { tasklists: [] },
+        });
+      }
+      const fixture = pages[p];
+      if (fixture !== undefined) return HttpResponse.json(fixture);
+      return HttpResponse.json({
+        total: 0,
+        count: 0,
+        page: p,
+        per_page: 25,
+        data: { tasklists: [] },
+      });
+    });
+  },
+
+  /** Returns 401 for the tasklists endpoint. */
+  unauthorized(): RequestHandler {
+    return http.get(`${API_BASE}/all-tasklists`, () =>
+      HttpResponse.json({ errors: ['Invalid token'] }, { status: 401 }),
+    );
+  },
+
+  /** Returns 404. */
+  notFound(): RequestHandler {
+    return http.get(`${API_BASE}/all-tasklists`, () =>
+      HttpResponse.json({ errors: ['Not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** Returns 5xx. */
+  serverError(status = 500): RequestHandler {
+    return http.get(`${API_BASE}/all-tasklists`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** Wrapper missing the inner `tasklists` data key. */
+  malformedWrapper(): RequestHandler {
+    return http.get(`${API_BASE}/all-tasklists`, () =>
+      HttpResponse.json({ total: 0, count: 0, page: 0, per_page: 25, data: {} }),
+    );
+  },
+
+  /**
+   * Mid-stream `--all` failure: succeeds for `p < failPage`, errors at
+   * `p === failPage`. Used to drive the partial-result code path in `--all`
+   * json mode.
+   */
+  allMidStreamError(opts: {
+    pages: Record<number, PagedFixture>;
+    failPage: number;
+    status?: number;
+  }): RequestHandler {
+    const { pages, failPage, status = 500 } = opts;
+    return http.get(`${API_BASE}/all-tasklists`, ({ request }) => {
+      const u = new URL(request.url);
+      const p = Number(u.searchParams.get('p') ?? '0');
+      if (p === failPage) {
+        return HttpResponse.json({ errors: ['mid-stream'] }, { status });
+      }
+      const fixture = pages[p];
+      if (fixture !== undefined) return HttpResponse.json(fixture);
+      return HttpResponse.json({ errors: ['unexpected'] }, { status: 500 });
+    });
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));

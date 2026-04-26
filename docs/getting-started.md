@@ -112,6 +112,10 @@ the work it has already committed. See
 reference, including `--fields` projection and the mid-stream error
 protocol.
 
+Once you know a project id, list its tasklists with
+[`freelo tasklists list --project <id>`](./commands/tasklists-list.md), or
+sweep across every project you can see with `freelo tasklists list`.
+
 ## Auth reference
 
 - [`freelo auth login`](./commands/auth-login.md) — store and verify credentials.

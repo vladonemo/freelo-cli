@@ -1,0 +1,31 @@
+{
+  "total": 7,
+  "count": 3,
+  "page": 1,
+  "per_page": 3,
+  "data": {
+    "tasklists": [
+      {
+        "id": 104,
+        "name": "Sprint 3",
+        "date_add": "2026-03-01T09:00:00+01:00",
+        "state": { "id": 1, "state": "active" },
+        "project": { "id": 43, "name": "Mobile app" }
+      },
+      {
+        "id": 105,
+        "name": "Done",
+        "date_add": "2026-03-10T09:00:00+01:00",
+        "state": { "id": 3, "state": "finished" },
+        "project": { "id": 43, "name": "Mobile app" }
+      },
+      {
+        "id": 106,
+        "name": "Archive",
+        "date_add": "2026-03-20T09:00:00+01:00",
+        "state": { "id": 2, "state": "archived" },
+        "project": { "id": 44, "name": "Legacy" }
+      }
+    ]
+  }
+}
