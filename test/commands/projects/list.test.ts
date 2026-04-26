@@ -501,6 +501,51 @@ describe('freelo projects list — mid-stream --all error', () => {
   });
 });
 
+// First-page error in --all: fetchAllPages re-throws the underlying error
+// (NO PartialPagesError because no successful pages yet) — exercises
+// src/commands/projects/list.ts:315 (`throw err` for non-Partial errors).
+describe('freelo projects list — --all first-page error', () => {
+  it('rethrows underlying error and emits an error envelope (no partial stdout)', async () => {
+    server.use(
+      projectsHandlers.allMidStreamError({
+        pages: {},
+        failPage: 0,
+        status: 503,
+      }),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, stderr, exitCode } = await runCli(run, [
+      'projects',
+      'list',
+      '--scope',
+      'all',
+      '--all',
+      '--output',
+      'json',
+    ]);
+    // Server error → exit 4. No partial envelope on stdout (no pages accumulated).
+    expect(exitCode).toBe(4);
+    expect(stdout).toBe('');
+    const errEnv = parseFirstJson(stderr) as { schema: string; error: { code: string } };
+    expect(errEnv.schema).toBe('freelo.error/v1');
+    expect(errEnv.error.code).toBe('SERVER_ERROR');
+  });
+});
+
+// Human-mode rendering of `projects list` — exercises src/commands/projects/list.ts:339
+// (the `requested ? {...} : {}` branch when --fields is omitted, in human mode).
+describe('freelo projects list — human-mode rendering', () => {
+  it('renders successfully in --output human (default scope, single page)', async () => {
+    const owned = await loadFixture<unknown[]>('owned.json');
+    server.use(projectsHandlers.ownedOk(owned));
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stderr, exitCode } = await runCli(run, ['projects', 'list', '--output', 'human']);
+    expect(exitCode).toBe(0);
+    // No error envelope on stderr.
+    expect(stderr).not.toMatch(/freelo\.error/);
+  });
+});
+
 describe('freelo projects list — introspect', () => {
   it('appears in --introspect output with the expected flags', async () => {
     const { run } = await import('../../../src/bin/freelo.js');
