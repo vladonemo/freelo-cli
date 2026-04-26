@@ -246,6 +246,53 @@ Full detail goes to `docs/runs/<run-id>/phase-reports/`. The live output is scan
 | Changeset action fails | Pause before push, investigate |
 | Git push rejected (remote ahead) | Pause — rebase is a human call |
 | Spec says something the OpenAPI spec contradicts | Pause — Freelo's contract is authoritative |
+| Agent rate-limited mid-implementation | Halt; do **not** skip remaining phases when resuming manually (see Calibration §1) |
+
+---
+
+## Calibration log
+
+Lessons learned from real autonomous runs. Each entry is a class-of-failure and the rule it added.
+
+### 1. Mid-run rate-limit / manual takeover must not skip the test phase
+
+**Trigger:** R04 (`projects show`) — orchestrator hit a rate limit mid-implementation. Source files were on disk, MSW handlers and fixtures were ready, but no test file existed yet. Manual takeover was tempted to commit-and-ship with just typecheck/lint passing.
+
+**Why it matters:** The test phase isn't optional. Writing the test file caught a real source-code bug — `parseProjectId` threw Commander's `InvalidArgumentError` (which falls through to exit 1) when the spec contract demanded `ValidationError` (exit 2). Without exit-code assertions, the bug would have shipped to npm with the wrong observable behavior on every invalid `<id>`.
+
+**Rule:** When any phase is interrupted (rate limit, pause-and-resume, fresh orchestrator with prior state), the human or new orchestrator MUST run every remaining phase — including test, review, document — before pushing. The "what's still missing" list at takeover time is the contract; do not shortcut.
+
+### 2. Exit-code assertions are non-negotiable on error paths
+
+**Trigger:** R04 — same `parseProjectId` bug as above. Six happy-path-shaped tests passed. Two error-path tests (non-numeric `<id>`, zero `<id>`) caught `exitCode: 1` where spec said `exitCode: 2`.
+
+**Why it matters:** The exit code is a public contract. Agents script around it (`exit 2 → user input was invalid; reprompt`). Shipping the wrong code is silently breaking integrations.
+
+**Rule:** Every error path that the spec assigns an exit code MUST have a test asserting that exit code. The test-writer agent's coverage targets must include exit-code assertions, not just "an error envelope was emitted". For every typed error class (`ValidationError`, `FreeloApiError`, `NetworkError`, `RateLimitedError`, `ConfirmationError`, `ConfigError`), at least one test in the slice must trigger that class and assert its `exitCode`.
+
+### 3. Run gates AFTER commit, on the clean committed tree
+
+**Trigger:** R02.5 (`--introspect`) — orchestrator reported `pnpm typecheck` clean during implement; CI on all 9 matrix jobs went red on `tsc`. Self-check ran on a working-tree snapshot before the final test-file edit.
+
+**Why it matters:** A working-tree snapshot can disagree with the committed state. Local-gate-passes-but-CI-red is the worst kind of mismatch: it suggests discipline that doesn't actually exist.
+
+**Rule:** After every commit, before push: `pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm check:readme`. Run on the **committed** tree (clean `git status`), not the working tree mid-edit. Push only when all five pass. **Branch protection on `main` now enforces the CI-equivalent server-side**, but local discipline still matters for fast feedback and to avoid round-tripping CI failures.
+
+### 4. New `try/catch` wrappers add untested branches → coverage drift
+
+**Trigger:** R03 + R02.5 (`null+libuv` fix) — added `await drainDispatcher()` inside every error-path catch block across multiple command handlers. Branch coverage dropped from 95% to 73-82% on individual files; aggregate `src/commands/**` branches fell from green to 82.72% (threshold 85%). Main was red for several merge cycles before the gap was noticed during a release-manager run.
+
+**Why it matters:** A small "fix" that touches many files can quietly invalidate coverage targets. With branch protection now active, this becomes a hard merge gate — but the orchestrator can still write a PR that won't merge until tests catch up.
+
+**Rule:** Any change that adds `try/catch` blocks, conditional cleanup, or new error-path branches across 3+ files must include test cases for each new catch arm. The implementer agent should grep its diff for `catch (` and `await drainDispatcher` introductions and ensure the test plan covers each new arm before declaring the implement phase done.
+
+### 5. CI must be a required status check on `main`
+
+**Trigger:** PRs #22 and #24 auto-merged onto a red CI on `main` because the `ci` workflow wasn't a required check. The release workflow doesn't gate on CI either, so a broken-coverage main shipped `0.5.1` to npm with tests failing.
+
+**Why it matters:** Auto-merge through red CI defeats the purpose of CI. One-time gap, but a real one.
+
+**Rule:** `main` branch protection requires all 7 CI status checks (matrix + `check README autogen`). Configured 2026-04-26. If branch protection is ever disabled, that's a red flag — escalate before merging anything.
 
 ---
 

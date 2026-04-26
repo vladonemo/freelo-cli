@@ -272,4 +272,99 @@ describe('freelo projects show — error paths', () => {
     };
     expect(env.error.code).toBe('VALIDATION_ERROR');
   });
+
+  it('5xx from /project/{id} exits 4 with passthrough hint (not 404/403)', async () => {
+    server.use(projectShowHandlers.detailServerError(42, 503));
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stderr, exitCode } = await runCli(run, ['projects', 'show', '42', '--output', 'json']);
+
+    expect(exitCode).toBe(4);
+    const env = parseFirstJson(stderr) as {
+      schema: string;
+      error: { code: string; http_status: number; hint_next: string | null };
+    };
+    expect(env.schema).toBe('freelo.error/v1');
+    expect(env.error.code).toBe('SERVER_ERROR');
+    expect(env.error.http_status).toBe(503);
+    // rewriteApiHint must NOT inject a 404/403-flavored hint here; the
+    // underlying FreeloApiError carries no hint of its own for 5xx, so
+    // hint_next is null (or, if Freelo ever attaches one, must not look
+    // like a 404 / 403 message).
+    if (env.error.hint_next !== null) {
+      expect(env.error.hint_next).not.toMatch(/not found/i);
+      expect(env.error.hint_next).not.toMatch(/permission/i);
+    }
+  });
+
+  it('mid-stream workers error during --with workers unwraps PartialPagesError to its inner cause', async () => {
+    const project = await loadFixture<Record<string, unknown>>('show-project-42.json');
+    const page0 = await loadFixture<Record<string, unknown>>('show-workers-page0.json');
+
+    server.use(
+      projectShowHandlers.detailOk(42, project),
+      projectShowHandlers.workersMidStreamError({
+        projectId: 42,
+        pages: { 0: page0 as never },
+        failPage: 1,
+        status: 500,
+      }),
+    );
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stderr, exitCode } = await runCli(run, [
+      'projects',
+      'show',
+      '42',
+      '--with',
+      'workers',
+      '--output',
+      'json',
+    ]);
+
+    // Show is single-object — no partial envelope on stdout. The unwrapped
+    // inner cause (FreeloApiError 500) bubbles through handleTopLevelError
+    // for an exit 4, NOT a PartialPagesError-typed envelope.
+    expect(exitCode).toBe(4);
+    const env = parseFirstJson(stderr) as {
+      schema: string;
+      error: { code: string; http_status: number };
+    };
+    expect(env.schema).toBe('freelo.error/v1');
+    expect(env.error.code).toBe('SERVER_ERROR');
+    expect(env.error.http_status).toBe(500);
+  });
+
+  it('first-page workers error (no PartialPagesError wrapper) re-throws underlying error', async () => {
+    const project = await loadFixture<Record<string, unknown>>('show-project-42.json');
+
+    server.use(
+      projectShowHandlers.detailOk(42, project),
+      // Every workers page errors → fetchAllPages re-throws the underlying
+      // FreeloApiError directly (no PartialPagesError wrapper because no pages
+      // succeeded). This exercises the `throw err` branch in fetchAllWorkers
+      // (show.ts line 205).
+      projectShowHandlers.workersServerError(42, 503),
+    );
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stderr, exitCode } = await runCli(run, [
+      'projects',
+      'show',
+      '42',
+      '--with',
+      'workers',
+      '--output',
+      'json',
+    ]);
+
+    expect(exitCode).toBe(4);
+    const env = parseFirstJson(stderr) as {
+      schema: string;
+      error: { code: string; http_status: number };
+    };
+    expect(env.schema).toBe('freelo.error/v1');
+    expect(env.error.code).toBe('SERVER_ERROR');
+    expect(env.error.http_status).toBe(503);
+  });
 });
