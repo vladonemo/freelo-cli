@@ -57,6 +57,7 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 ### projects
 
 - `freelo projects list` — List projects in the chosen scope. Default scope is 'owned'.
+- `freelo projects show <id>` — Show one project's full detail, with optional side-cars.
 <!-- END AUTOGEN COMMANDS -->
 
 The block above is generated from `freelo --introspect` by `scripts/check-readme.mjs` and verified in CI. Run `pnpm fix:readme` to refresh it after adding or changing a command.

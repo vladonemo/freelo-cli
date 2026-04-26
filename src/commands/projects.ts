@@ -1,6 +1,7 @@
 import { type Command } from 'commander';
 import { type GetAppConfig } from '../config/schema.js';
 import { registerList } from './projects/list.js';
+import { registerShow } from './projects/show.js';
 
 /**
  * Register the `projects` subcommand tree on the root program. Mirrors the
@@ -16,4 +17,5 @@ export function register(
   const projects = program.command('projects').description('Browse and manage Freelo projects.');
 
   registerList(projects, getConfig, env);
+  registerShow(projects, getConfig, env);
 }
