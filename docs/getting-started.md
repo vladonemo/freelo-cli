@@ -115,6 +115,9 @@ protocol.
 Once you know a project id, list its tasklists with
 [`freelo tasklists list --project <id>`](./commands/tasklists-list.md), or
 sweep across every project you can see with `freelo tasklists list`.
+Drill into a single tasklist (with the optional pool of users you can
+assign tasks to) via
+[`freelo tasklists show <id> --with assignable-workers`](./commands/tasklists-show.md).
 
 ## Auth reference
 
