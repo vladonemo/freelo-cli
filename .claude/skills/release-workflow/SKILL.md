@@ -102,6 +102,36 @@ On every push to `main`, the action either opens or updates a PR titled "chore: 
 
 **Review it**: polish the changelog, squash near-duplicates. When you merge, the next run publishes.
 
+### Branch protection exception: merge with `--admin`
+
+**Always merge Version Packages PRs with `gh pr merge <PR> --squash --admin`.** This is a documented, intentional exception to `main`'s branch protection — not a workaround.
+
+**Why it's needed.** `main` branch protection requires all 7 CI status checks (matrix + `check README autogen`) before merge. CI on these PRs never runs:
+
+1. `ci.yml` triggers on `pull_request: branches: [main]` events.
+2. The Version Packages PR is created by `changesets-action` using `${{ secrets.GITHUB_TOKEN }}`.
+3. GitHub deliberately suppresses workflow triggers from `GITHUB_TOKEN`-driven events to prevent infinite loops ([docs](https://docs.github.com/en/actions/security-guides/automatic-token-authentication#using-the-github_token-in-a-workflow)).
+4. So the PR sits with `mergeStateStatus: BLOCKED` and "no checks reported" forever — the required checks will never come.
+
+**Why the exception is safe.** The PR is metadata-only:
+
+- `package.json` version bump (mechanical — sourced from changesets)
+- `CHANGELOG.md` rewrite (mechanical — sourced from changesets)
+- Changeset file deletion (mechanical — consumed by versioning)
+
+There's no human-reviewable code change. Skipping CI on this PR is equivalent to skipping it on a `git tag` — the upstream commit on `main` already passed CI before this PR existed.
+
+**Why we do not "fix" it via PAT or GitHub App.** Both options work, but the cost is higher than the benefit on a single-maintainer repo: PATs add rotation maintenance; GitHub Apps add setup complexity. For multi-maintainer repos or compliance-driven environments, see "Alternative paths" below.
+
+### Alternative paths (not used here)
+
+If repo policy ever requires uniform branch protection (no admin overrides), switch one of:
+
+- **PAT route:** create a personal access token with `repo` scope (or fine-grained `contents: write` + `pull-requests: write`), add as repo secret `RELEASE_PAT`, swap `GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` → `GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}` in `release.yml`. PAT-driven events DO trigger downstream workflows, so CI will run on the Version Packages PR.
+- **GitHub App route:** create an app, install on the repo, generate a token via `tibdex/github-app-token` in `release.yml`. Properly scoped, no user-tied rotation.
+
+Both require admin work outside this repo (token / app setup). Defer until policy demands them.
+
 ## Tagging and GitHub Release
 
 The `changesets/action` creates a git tag (`v1.2.3`) and a GitHub Release with the changelog section — automatically, on publish success.
