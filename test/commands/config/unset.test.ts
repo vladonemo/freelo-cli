@@ -230,3 +230,250 @@ describe('config unset — errors', () => {
     expect(parsed.error.code).toBe('VALIDATION_ERROR');
   });
 });
+
+// Pre-populated `verbose: 2` default → exercises the verbose number→string coerce
+// branch (src/commands/config/unset.ts:79-82).
+describe('config unset — verbose default coercion', () => {
+  let testDir: string;
+  let data: Record<string, unknown>;
+
+  beforeEach(async () => {
+    testDir = join(tmpdir(), `freelo-unset-verbose-${Date.now()}`);
+    await mkdir(testDir, { recursive: true });
+    data = {
+      schemaVersion: 2,
+      currentProfile: null,
+      profiles: {},
+      defaults: { verbose: 2 },
+    };
+
+    vi.doMock('conf', () => {
+      const ConfMock = vi.fn().mockImplementation(() => ({
+        get path() {
+          return join(testDir, 'config.json');
+        },
+        has: (key: string) => key in data,
+        get store() {
+          return { ...data };
+        },
+        set store(val: Record<string, unknown>) {
+          data = { ...val };
+        },
+      }));
+      return { default: ConfMock };
+    });
+
+    vi.resetModules();
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
+    try {
+      await rm(testDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+  });
+
+  it('previous_value is the string "2" (coerced) when unsetting verbose=2', async () => {
+    const { stdout, exitCode } = await runCmd(['config', 'unset', 'verbose', '--output', 'json']);
+    const parsed = parseFirstJson(stdout) as {
+      data: { key: string; removed: boolean; previous_value: unknown; scope: string };
+    };
+    expect(parsed.data.key).toBe('verbose');
+    expect(parsed.data.removed).toBe(true);
+    expect(parsed.data.previous_value).toBe('2');
+    expect(parsed.data.scope).toBe('defaults');
+    expect(exitCode).toBe(0);
+  });
+});
+
+// scope === 'currentProfile' branches: unset profile when set, and idempotent
+// when already null (src/commands/config/unset.ts:87-92).
+describe('config unset — profile (currentProfile scope)', () => {
+  let testDir: string;
+  let data: Record<string, unknown>;
+
+  async function setup(currentProfile: string | null) {
+    testDir = join(
+      tmpdir(),
+      `freelo-unset-profile-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    await mkdir(testDir, { recursive: true });
+
+    data = {
+      schemaVersion: 2,
+      currentProfile,
+      profiles: { default: { email: 'a@b.cz', apiBaseUrl: 'https://api.freelo.io/v1' } },
+      defaults: {},
+    };
+
+    vi.doMock('conf', () => {
+      const ConfMock = vi.fn().mockImplementation(() => ({
+        get path() {
+          return join(testDir, 'config.json');
+        },
+        has: (key: string) => key in data,
+        get store() {
+          return { ...data };
+        },
+        set store(val: Record<string, unknown>) {
+          data = { ...val };
+        },
+      }));
+      return { default: ConfMock };
+    });
+    vi.resetModules();
+  }
+
+  beforeEach(() => {
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
+    if (testDir) {
+      try {
+        await rm(testDir, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+
+  it('unset profile when set: removed: true, previous_value reflects the prior name', async () => {
+    await setup('staging');
+    const { stdout, exitCode } = await runCmd(['config', 'unset', 'profile', '--output', 'json']);
+    const parsed = parseFirstJson(stdout) as {
+      data: { key: string; removed: boolean; previous_value: unknown; scope: string };
+    };
+    expect(parsed.data.key).toBe('profile');
+    expect(parsed.data.removed).toBe(true);
+    expect(parsed.data.previous_value).toBe('staging');
+    expect(parsed.data.scope).toBe('defaults');
+    expect(exitCode).toBe(0);
+  });
+
+  it('unset profile when already null: removed: false, previous_value: null (idempotent)', async () => {
+    await setup(null);
+    const { stdout, exitCode } = await runCmd(['config', 'unset', 'profile', '--output', 'json']);
+    const parsed = parseFirstJson(stdout) as {
+      data: { key: string; removed: boolean; previous_value: unknown };
+    };
+    expect(parsed.data.key).toBe('profile');
+    expect(parsed.data.removed).toBe(false);
+    expect(parsed.data.previous_value).toBeNull();
+    expect(exitCode).toBe(0);
+  });
+});
+
+// scope === 'profile' branches: unset apiBaseUrl resets to default; missing
+// profile errors with ConfigError (src/commands/config/unset.ts:94-110).
+describe('config unset — apiBaseUrl (profile scope)', () => {
+  let testDir: string;
+  let data: Record<string, unknown>;
+
+  async function setupShared(initialData: Record<string, unknown>) {
+    testDir = join(
+      tmpdir(),
+      `freelo-unset-aburl-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    await mkdir(testDir, { recursive: true });
+    data = initialData;
+    vi.doMock('conf', () => {
+      const ConfMock = vi.fn().mockImplementation(() => ({
+        get path() {
+          return join(testDir, 'config.json');
+        },
+        has: (key: string) => key in data,
+        get store() {
+          return { ...data };
+        },
+        set store(val: Record<string, unknown>) {
+          data = { ...val };
+        },
+      }));
+      return { default: ConfMock };
+    });
+    vi.resetModules();
+  }
+
+  beforeEach(() => {
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
+    if (testDir) {
+      try {
+        await rm(testDir, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+
+  it('unset apiBaseUrl resets active profile URL to the default; removed: true', async () => {
+    await setupShared({
+      schemaVersion: 2,
+      currentProfile: 'default',
+      profiles: { default: { email: 'a@b.cz', apiBaseUrl: 'https://custom.example.cz/v1' } },
+      defaults: {},
+    });
+    const { stdout, exitCode } = await runCmd([
+      'config',
+      'unset',
+      'apiBaseUrl',
+      '--output',
+      'json',
+    ]);
+    const parsed = parseFirstJson(stdout) as {
+      data: {
+        key: string;
+        removed: boolean;
+        previous_value: unknown;
+        scope: string;
+        profile: string | null;
+      };
+    };
+    expect(parsed.data.key).toBe('apiBaseUrl');
+    expect(parsed.data.removed).toBe(true);
+    expect(parsed.data.previous_value).toBe('https://custom.example.cz/v1');
+    expect(parsed.data.scope).toBe('profile');
+    expect(parsed.data.profile).toBe('default');
+    expect(exitCode).toBe(0);
+  });
+
+  it('unset apiBaseUrl with no active profile errors as missing-profile', async () => {
+    await setupShared({
+      schemaVersion: 2,
+      currentProfile: null,
+      profiles: {},
+      defaults: {},
+    });
+    const { stderr, exitCode } = await runCmd([
+      'config',
+      'unset',
+      'apiBaseUrl',
+      '--output',
+      'json',
+    ]);
+    // missing-profile ConfigError → AUTH_MISSING with exit 3.
+    expect(exitCode).toBe(3);
+    const parsed = parseFirstJson(stderr) as { error: { code: string } };
+    expect(parsed.error.code).toBe('AUTH_MISSING');
+  });
+});

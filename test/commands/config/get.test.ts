@@ -184,3 +184,89 @@ describe('config get — errors', () => {
     expect(parsed.error.code).toBe('VALIDATION_ERROR');
   });
 });
+
+// Error-path branches in src/commands/config/get.ts:
+// - Line 58: inner catch when readStore() throws (email defaults to null).
+// - Line 79: outer catch → handleTopLevelError on a synthetic failure.
+describe('config get — error paths', () => {
+  let testDir: string;
+
+  beforeEach(async () => {
+    testDir = join(
+      tmpdir(),
+      `freelo-config-get-err2-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    await mkdir(testDir, { recursive: true });
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
+    try {
+      await rm(testDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+  });
+
+  it('returns successfully when readStore() throws (email falls back to null)', async () => {
+    // schemaVersion present + invalid → readStore throws corrupt-config; the
+    // inner try/catch (get.ts:53-58) swallows it and email defaults to null.
+    vi.doMock('conf', () => {
+      const ConfMock = vi.fn().mockImplementation(() => ({
+        get path() {
+          return join(testDir, 'config.json');
+        },
+        has: (key: string) => key === 'schemaVersion',
+        get store() {
+          return { schemaVersion: 'corrupt-bad' };
+        },
+        set store(_: unknown) {},
+      }));
+      return { default: ConfMock };
+    });
+    vi.resetModules();
+
+    const { stdout, exitCode } = await runCmd(['config', 'get', 'email', '--output', 'json']);
+    expect(exitCode).toBe(0);
+    const parsed = parseFirstJson(stdout) as {
+      schema: string;
+      data: { key: string; value: unknown };
+    };
+    expect(parsed.schema).toBe('freelo.config.get/v1');
+    expect(parsed.data.key).toBe('email');
+    // email defaults to '' when no profile/store record is available
+    expect(parsed.data.value).toBe('');
+  });
+
+  it('outer catch routes errors through handleTopLevelError on synthetic failure', async () => {
+    // Mock has-token to reject so the outer catch (get.ts:77-79) fires.
+    vi.doMock('conf', () => {
+      const ConfMock = vi.fn().mockImplementation(() => ({
+        get path() {
+          return join(testDir, 'config.json');
+        },
+        has: () => false,
+        get store() {
+          return {};
+        },
+        set store(_: unknown) {},
+      }));
+      return { default: ConfMock };
+    });
+    vi.doMock('../../../src/config/has-token.js', () => ({
+      hasToken: () => Promise.reject(new Error('synthetic has-token failure')),
+    }));
+    vi.resetModules();
+
+    const { stderr, exitCode } = await runCmd(['config', 'get', 'profile', '--output', 'json']);
+    expect(exitCode).toBe(1);
+    const parsed = parseFirstJson(stderr) as { schema: string; error: { code: string } };
+    expect(parsed.schema).toBe('freelo.error/v1');
+    expect(parsed.error.code).toBe('INTERNAL_ERROR');
+  });
+});

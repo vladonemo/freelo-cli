@@ -196,3 +196,88 @@ describe('config resolve --show-source — annotated mode', () => {
     expect(parsed.data.output.color.source).toBeTruthy();
   });
 });
+
+// Error-path branches in src/commands/config/resolve.ts:
+// - Line 49: inner catch when readStore() throws (email defaults to '').
+// - Lines 63-64: outer catch → handleTopLevelError when something else throws.
+describe('config resolve — error paths', () => {
+  let testDir: string;
+
+  beforeEach(async () => {
+    testDir = join(
+      tmpdir(),
+      `freelo-resolve-err-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    await mkdir(testDir, { recursive: true });
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
+    try {
+      await rm(testDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+  });
+
+  it('emits the envelope when readStore() throws (email defaults to "")', async () => {
+    // Arrange a corrupt-looking conf store: schemaVersion present but invalid.
+    // readStore() will throw a corrupt-config ConfigError, which the inner
+    // catch (resolve.ts:47-49) swallows so resolve continues with email = ''.
+    vi.doMock('conf', () => {
+      const ConfMock = vi.fn().mockImplementation(() => ({
+        get path() {
+          return join(testDir, 'config.json');
+        },
+        has: (key: string) => key === 'schemaVersion',
+        get store() {
+          return { schemaVersion: 'not-a-number-bad' };
+        },
+        set store(_: unknown) {},
+      }));
+      return { default: ConfMock };
+    });
+    vi.resetModules();
+
+    const { stdout, exitCode } = await runCmd(['config', 'resolve', '--output', 'json']);
+    expect(exitCode).toBe(0);
+    const parsed = parseFirstJson(stdout) as { schema: string; data: { email: string } };
+    expect(parsed.schema).toBe('freelo.config.resolve/v1');
+    expect(parsed.data.email).toBe('');
+  });
+
+  it('outer catch routes errors through handleTopLevelError when has-token fails', async () => {
+    // Mock has-token.js so its first call throws — exercise the outer catch
+    // (resolve.ts:62-64). The throw is BEFORE the inner readStore try, so the
+    // inner block is skipped and the outer catch fires.
+    vi.doMock('conf', () => {
+      const ConfMock = vi.fn().mockImplementation(() => ({
+        get path() {
+          return join(testDir, 'config.json');
+        },
+        has: () => false,
+        get store() {
+          return {};
+        },
+        set store(_: unknown) {},
+      }));
+      return { default: ConfMock };
+    });
+    vi.doMock('../../../src/config/has-token.js', () => ({
+      hasToken: () => Promise.reject(new Error('synthetic has-token failure')),
+    }));
+    vi.resetModules();
+
+    const { stderr, exitCode } = await runCmd(['config', 'resolve', '--output', 'json']);
+    // Synthetic Error → INTERNAL_ERROR with exit 1.
+    expect(exitCode).toBe(1);
+    const parsed = parseFirstJson(stderr) as { schema: string; error: { code: string } };
+    expect(parsed.schema).toBe('freelo.error/v1');
+    expect(parsed.error.code).toBe('INTERNAL_ERROR');
+  });
+});
