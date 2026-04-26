@@ -1,0 +1,25 @@
+{
+  "id": 314,
+  "name": "Backend QA",
+  "project_id": 42,
+  "date_add": "2026-01-15T09:00:00Z",
+  "date_edited_at": "2026-04-20T11:23:45Z",
+  "tasks": [
+    {
+      "id": 9001,
+      "name": "Audit auth flow",
+      "due_date": "2026-04-30T00:00:00Z",
+      "due_date_end": null,
+      "worker": { "id": 17, "fullname": "Jane Doe" },
+      "parent_task_id": null
+    },
+    {
+      "id": 9002,
+      "name": "Stress-test rate limiter",
+      "due_date": null,
+      "due_date_end": null,
+      "worker": null,
+      "parent_task_id": null
+    }
+  ]
+}

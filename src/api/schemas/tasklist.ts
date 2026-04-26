@@ -1,11 +1,14 @@
 import { z } from 'zod';
+import { UserBasicSchema } from './project.js';
 
 /**
- * Zod schemas for the tasklist entity used by R05 `freelo tasklists list`.
+ * Zod schemas for the tasklist entity used by R05 `freelo tasklists list` and
+ * R06 `freelo tasklists show <id>`.
  *
- * Per spec 0014 §4.1: entity shape is `TasklistFull` (OpenAPI :5065-5090).
- * Only `id` and `name` are universally required (inherited from
- * `TasklistBasic`); every extension field is optional.
+ * - `TasklistFullSchema` — list-row shape used by R05 (OpenAPI :5065-5090).
+ * - `TasklistDetailSchema` — single-resource shape used by R06 (OpenAPI :5092-5126).
+ *   Note: `TasklistDetail` is **not** an extension of `TasklistFull` — the
+ *   field overlap is partial (see spec 0016 §4.1, decision 3).
  *
  * Conventions match `src/api/schemas/project.ts`:
  *  - `.passthrough()` on entity objects so future Freelo additions are not
@@ -81,6 +84,76 @@ export const TasklistListDataSchema = z.object({
 });
 
 export type TasklistListData = z.infer<typeof TasklistListDataSchema>;
+
+/**
+ * Brief task object embedded in `TasklistDetail.tasks`. OpenAPI :5105-5126.
+ *
+ * Mirrors the `TaskBriefSchema` declared inline in `src/api/schemas/project.ts`
+ * for `ProjectDetail.tasklists[*].tasks` — the wire shape is identical.
+ * Promoting the two declarations to a shared module is a follow-up refactor.
+ */
+const TaskBriefSchema = z
+  .object({
+    id: z.number().int(),
+    name: z.string(),
+    due_date: z.string().nullable().optional(),
+    due_date_end: z.string().nullable().optional(),
+    worker: UserBasicSchema.nullable().optional(),
+    parent_task_id: z.number().int().nullable().optional(),
+  })
+  .passthrough();
+
+/**
+ * `TasklistDetail` per OpenAPI :5092-5126. Returned by `GET /tasklist/{id}`.
+ *
+ * Distinct from `TasklistFull` (which is the list-row shape). Carries:
+ *  - `id`, `name` (from `TasklistBasic`)
+ *  - `project_id` — required, used by R06 to construct the `/assignable-workers` URL
+ *  - `date_add`, `date_edited_at`
+ *  - embedded `tasks[]`
+ *
+ * Does **not** carry `state`, `budget`, `real_cost`, `real_minutes_spent`,
+ * or a nested `project` object — those are `TasklistFull`-only.
+ *
+ * `project_id` is declared **required** (no `.optional()`): the OpenAPI
+ * contract guarantees it, and R06 reads it for the second HTTP call. If
+ * Freelo ever drops the field, schema validation fails fast at the HTTP
+ * layer rather than producing a malformed second URL.
+ *
+ * Spec 0016 §4.1.
+ */
+export const TasklistDetailSchema = z
+  .object({
+    id: z.number().int(),
+    /**
+     * Tasklist name — `.nullable().optional()` per the R05.5 hardening
+     * convention (Freelo can return entity objects with the human-readable
+     * name dropped for orphaned / deleted records). Same loosening applied
+     * to `UserBasic.fullname`.
+     */
+    name: z.string().nullable().optional(),
+    project_id: z.number().int(),
+    date_add: z.string().nullable().optional(),
+    date_edited_at: z.string().nullable().optional(),
+    tasks: z.array(TaskBriefSchema).nullable().optional(),
+  })
+  .passthrough();
+
+export type TasklistDetail = z.infer<typeof TasklistDetailSchema>;
+
+/**
+ * Envelope `data` shape for `freelo.tasklists.show/v1` (R06).
+ *
+ * `assignable_workers` is **optional**: present only when the user passed
+ * `--with assignable-workers`. Absent (NOT null, NOT empty array by
+ * convention) when the flag wasn't passed. See spec 0016 §3.2.
+ */
+export const TasklistShowDataSchema = z.object({
+  tasklist: TasklistDetailSchema,
+  assignable_workers: z.array(UserBasicSchema).optional(),
+});
+
+export type TasklistShowData = z.infer<typeof TasklistShowDataSchema>;
 
 /**
  * Default `--fields` registry. Both scopes share the same field set since
