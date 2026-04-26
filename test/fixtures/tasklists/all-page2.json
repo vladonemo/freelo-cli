@@ -1,0 +1,17 @@
+{
+  "total": 7,
+  "count": 1,
+  "page": 2,
+  "per_page": 3,
+  "data": {
+    "tasklists": [
+      {
+        "id": 107,
+        "name": "Last item",
+        "date_add": "2026-04-01T09:00:00+01:00",
+        "state": { "id": 1, "state": "active" },
+        "project": { "id": 44, "name": "Legacy" }
+      }
+    ]
+  }
+}
