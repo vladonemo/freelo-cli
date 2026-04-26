@@ -90,20 +90,8 @@ describe('config list — happy path', () => {
       return { default: ConfMock };
     });
 
-    vi.doMock('keytar', () => ({
-      default: {
-        getPassword: vi.fn().mockResolvedValue(null),
-        setPassword: vi.fn(),
-        deletePassword: vi.fn(),
-      },
-      getPassword: vi.fn().mockResolvedValue(null),
-      setPassword: vi.fn(),
-      deletePassword: vi.fn(),
-    }));
-
     vi.resetModules();
 
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
   });
@@ -111,7 +99,6 @@ describe('config list — happy path', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     vi.resetModules();
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
     try {

@@ -3,25 +3,17 @@ import { tmpdir } from 'node:os';
 import { mkdir, rm } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('keytar', () => ({
-  default: {
-    getPassword: vi.fn(),
-    setPassword: vi.fn(),
-    deletePassword: vi.fn(),
-  },
-  getPassword: vi.fn(),
-  setPassword: vi.fn(),
-  deletePassword: vi.fn(),
-}));
-
 const API_BASE = 'https://api.freelo.io/v1';
 
 /**
  * Helper: set up a Conf mock pointing at testDir and reset modules.
+ *
+ * `data` is the in-memory store backing the Conf mock; tests can pre-seed
+ * it to simulate an existing profile.
  */
-function setupConfMock(testDir: string): void {
+function setupConfMock(testDir: string, seed: Record<string, unknown> = {}): void {
+  const data: Record<string, unknown> = { ...seed };
   vi.doMock('conf', () => {
-    const data: Record<string, unknown> = {};
     const ConfMock = vi.fn().mockImplementation(() => ({
       get path() {
         return join(testDir, 'config.json');
@@ -47,15 +39,11 @@ describe('resolveCredentials — stdin takes highest precedence', () => {
     testDir = join(tmpdir(), `freelo-creds-stdin-${Date.now()}`);
     await mkdir(testDir, { recursive: true });
     setupConfMock(testDir);
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
   });
 
   afterEach(async () => {
     vi.restoreAllMocks();
     vi.resetModules();
-    delete process.env['FREELO_API_KEY'];
-    delete process.env['FREELO_EMAIL'];
-    delete process.env['FREELO_NO_KEYCHAIN'];
     try {
       await rm(testDir, { recursive: true, force: true });
     } catch {
@@ -64,9 +52,6 @@ describe('resolveCredentials — stdin takes highest precedence', () => {
   });
 
   it('uses stdin key over env vars when stdinApiKey is provided', async () => {
-    process.env['FREELO_API_KEY'] = 'sk-env-key';
-    process.env['FREELO_EMAIL'] = 'env@example.com';
-
     const { resolveCredentials } = await import('../../src/config/credentials.js');
     const result = await resolveCredentials({
       profile: 'default',
@@ -82,7 +67,7 @@ describe('resolveCredentials — stdin takes highest precedence', () => {
   });
 });
 
-describe('resolveCredentials — env takes precedence over keytar', () => {
+describe('resolveCredentials — env beats tokens.json', () => {
   let testDir: string;
 
   beforeEach(async () => {
@@ -94,9 +79,6 @@ describe('resolveCredentials — env takes precedence over keytar', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     vi.resetModules();
-    delete process.env['FREELO_API_KEY'];
-    delete process.env['FREELO_EMAIL'];
-    delete process.env['FREELO_NO_KEYCHAIN'];
     try {
       await rm(testDir, { recursive: true, force: true });
     } catch {
@@ -105,8 +87,9 @@ describe('resolveCredentials — env takes precedence over keytar', () => {
   });
 
   it('uses env vars when both FREELO_API_KEY and FREELO_EMAIL are set', async () => {
-    const keytar = await import('keytar');
-    vi.mocked(keytar.getPassword).mockResolvedValue('sk-keytar-key');
+    // Pre-seed a token in tokens.json — env must still win.
+    const { writeToken } = await import('../../src/config/tokens.js');
+    await writeToken('default', 'sk-from-file');
 
     const { resolveCredentials } = await import('../../src/config/credentials.js');
     const result = await resolveCredentials({
@@ -118,8 +101,6 @@ describe('resolveCredentials — env takes precedence over keytar', () => {
     expect(result.apiKey).toBe('sk-env-key');
     expect(result.email).toBe('env@example.com');
     expect(result.source).toBe('env');
-    // keytar.getPassword should NOT be called when env is present
-    expect(keytar.getPassword).not.toHaveBeenCalled();
   });
 
   it('uses emailFlag over FREELO_EMAIL when both are set and they match', async () => {
@@ -133,26 +114,36 @@ describe('resolveCredentials — env takes precedence over keytar', () => {
 
     expect(result.email).toBe('env@example.com');
   });
+
+  it('falls through when only FREELO_API_KEY is set without FREELO_EMAIL', async () => {
+    // Seed a tokens.json so the fallback succeeds.
+    const { writeToken } = await import('../../src/config/tokens.js');
+    await writeToken('default', 'sk-from-file');
+
+    const { resolveCredentials } = await import('../../src/config/credentials.js');
+    const result = await resolveCredentials({
+      profile: 'default',
+      apiBaseUrl: API_BASE,
+      env: { FREELO_API_KEY: 'sk-env-key' }, // no FREELO_EMAIL
+    });
+
+    expect(result.source).toBe('conf-fallback');
+    expect(result.apiKey).toBe('sk-from-file');
+  });
 });
 
-describe('resolveCredentials — keytar over conf-fallback', () => {
+describe('resolveCredentials — tokens.json fallback', () => {
   let testDir: string;
 
   beforeEach(async () => {
-    testDir = join(tmpdir(), `freelo-creds-kt-${Date.now()}`);
+    testDir = join(tmpdir(), `freelo-creds-file-${Date.now()}`);
     await mkdir(testDir, { recursive: true });
     setupConfMock(testDir);
-    delete process.env['FREELO_API_KEY'];
-    delete process.env['FREELO_EMAIL'];
-    delete process.env['FREELO_NO_KEYCHAIN'];
   });
 
   afterEach(async () => {
     vi.restoreAllMocks();
     vi.resetModules();
-    delete process.env['FREELO_API_KEY'];
-    delete process.env['FREELO_EMAIL'];
-    delete process.env['FREELO_NO_KEYCHAIN'];
     try {
       await rm(testDir, { recursive: true, force: true });
     } catch {
@@ -160,9 +151,9 @@ describe('resolveCredentials — keytar over conf-fallback', () => {
     }
   });
 
-  it('uses keytar token when env is absent', async () => {
-    const keytar = await import('keytar');
-    vi.mocked(keytar.getPassword).mockResolvedValue('sk-keytar-token');
+  it('uses tokens.json token when env is absent', async () => {
+    const { writeToken } = await import('../../src/config/tokens.js');
+    await writeToken('default', 'sk-from-file');
 
     const { resolveCredentials } = await import('../../src/config/credentials.js');
     const result = await resolveCredentials({
@@ -171,8 +162,33 @@ describe('resolveCredentials — keytar over conf-fallback', () => {
       env: {},
     });
 
-    expect(result.apiKey).toBe('sk-keytar-token');
-    expect(result.source).toBe('keytar');
+    expect(result.apiKey).toBe('sk-from-file');
+    expect(result.source).toBe('conf-fallback');
+  });
+
+  it('returns the email from the conf store when tokens.json is the source', async () => {
+    const seed = {
+      schemaVersion: 2,
+      currentProfile: 'default',
+      profiles: {
+        default: { email: 'stored@example.com', apiBaseUrl: API_BASE },
+      },
+      defaults: {},
+    };
+    setupConfMock(testDir, seed);
+
+    const { writeToken } = await import('../../src/config/tokens.js');
+    await writeToken('default', 'sk-from-file');
+
+    const { resolveCredentials } = await import('../../src/config/credentials.js');
+    const result = await resolveCredentials({
+      profile: 'default',
+      apiBaseUrl: API_BASE,
+      env: {},
+    });
+
+    expect(result.source).toBe('conf-fallback');
+    expect(result.email).toBe('stored@example.com');
   });
 });
 
@@ -183,17 +199,11 @@ describe('resolveCredentials — missing credentials throws ConfigError', () => 
     testDir = join(tmpdir(), `freelo-creds-miss-${Date.now()}`);
     await mkdir(testDir, { recursive: true });
     setupConfMock(testDir);
-    delete process.env['FREELO_API_KEY'];
-    delete process.env['FREELO_EMAIL'];
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
   });
 
   afterEach(async () => {
     vi.restoreAllMocks();
     vi.resetModules();
-    delete process.env['FREELO_API_KEY'];
-    delete process.env['FREELO_EMAIL'];
-    delete process.env['FREELO_NO_KEYCHAIN'];
     try {
       await rm(testDir, { recursive: true, force: true });
     } catch {
@@ -203,7 +213,6 @@ describe('resolveCredentials — missing credentials throws ConfigError', () => 
 
   it('throws ConfigError with kind missing-token when no credential source is available', async () => {
     const { resolveCredentials } = await import('../../src/config/credentials.js');
-    // Import ConfigError from the same module registry (post-resetModules)
     const { ConfigError: CE } = await import('../../src/errors/config-error.js');
     await expect(
       resolveCredentials({ profile: 'default', apiBaseUrl: API_BASE, env: {} }),

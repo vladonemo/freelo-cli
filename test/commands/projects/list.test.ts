@@ -6,13 +6,6 @@ import { dirname, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { server, projectsHandlers } from '../../msw/handlers.js';
 
-vi.mock('keytar', () => ({
-  default: { getPassword: vi.fn(), setPassword: vi.fn(), deletePassword: vi.fn() },
-  getPassword: vi.fn(),
-  setPassword: vi.fn(),
-  deletePassword: vi.fn(),
-}));
-
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 async function loadFixture<T>(name: string): Promise<T> {
@@ -117,7 +110,6 @@ beforeEach(async () => {
 
   process.env['FREELO_API_KEY'] = 'sk-test';
   process.env['FREELO_EMAIL'] = 'agent@example.cz';
-  process.env['FREELO_NO_KEYCHAIN'] = '1';
 
   Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
   Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
@@ -128,7 +120,6 @@ afterEach(async () => {
   vi.resetModules();
   delete process.env['FREELO_API_KEY'];
   delete process.env['FREELO_EMAIL'];
-  delete process.env['FREELO_NO_KEYCHAIN'];
   Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
   Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
   try {

@@ -16,12 +16,11 @@ export const meta: CommandMeta = {
 };
 
 /** Map the credential source to the envelope's profile_source field. */
-function mapSource(source: 'stdin' | 'env' | 'keytar' | 'conf-fallback'): ProfileSource {
+function mapSource(source: 'stdin' | 'env' | 'conf-fallback'): ProfileSource {
   switch (source) {
     case 'stdin':
     case 'env':
       return 'env';
-    case 'keytar':
     case 'conf-fallback':
       return 'conf';
   }

@@ -6,7 +6,10 @@
  *   1. `freelo --introspect` writes exactly one non-empty stdout line.
  *   2. The output is JSON-parseable with schema 'freelo.introspect/v1'.
  *   3. None of the human-UX deps are loaded on the agent cold path:
- *      `@inquirer/prompts`, `ora`, `chalk`, `pino-pretty`, `keytar`.
+ *      `@inquirer/prompts`, `ora`, `chalk`, `pino-pretty`.
+ *
+ * The keytar dependency was removed entirely in 0011-drop-keytar — there is
+ * no longer a module to mock or assert against.
  */
 
 import { join } from 'node:path';
@@ -44,16 +47,6 @@ vi.mock('pino-pretty', () => {
   return { default: vi.fn(() => ({ write: vi.fn() })) };
 });
 
-vi.mock('keytar', () => {
-  lazyModuleCallLog.push('keytar');
-  return {
-    default: { getPassword: vi.fn(), setPassword: vi.fn(), deletePassword: vi.fn() },
-    getPassword: vi.fn(),
-    setPassword: vi.fn(),
-    deletePassword: vi.fn(),
-  };
-});
-
 describe('freelo --introspect — agent cold path', () => {
   let testDir: string;
 
@@ -80,7 +73,6 @@ describe('freelo --introspect — agent cold path', () => {
     });
 
     vi.resetModules();
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
   });
@@ -88,7 +80,6 @@ describe('freelo --introspect — agent cold path', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     vi.resetModules();
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
     try {
@@ -153,11 +144,5 @@ describe('freelo --introspect — agent cold path', () => {
     lazyModuleCallLog.length = 0;
     await invokeIntrospect();
     expect(lazyModuleCallLog).not.toContain('pino-pretty');
-  });
-
-  it('does not activate keytar', async () => {
-    lazyModuleCallLog.length = 0;
-    await invokeIntrospect();
-    expect(lazyModuleCallLog).not.toContain('keytar');
   });
 });

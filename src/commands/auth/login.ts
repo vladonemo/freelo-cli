@@ -110,7 +110,7 @@ export function registerLogin(
 
         const store = readStore();
         const replaced = profile in store.profiles;
-        await writeToken(profile, apiKey, { mode });
+        await writeToken(profile, apiKey);
         writeProfile(profile, { email, apiBaseUrl });
         if (!store.currentProfile) setCurrentProfile(profile);
 
@@ -151,7 +151,7 @@ export function registerLogin(
 
       const store = readStore();
       const replaced = profile in store.profiles;
-      await writeToken(profile, apiKey, { mode });
+      await writeToken(profile, apiKey);
       writeProfile(profile, { email, apiBaseUrl });
       if (!store.currentProfile) setCurrentProfile(profile);
 

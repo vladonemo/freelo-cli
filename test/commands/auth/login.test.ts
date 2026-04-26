@@ -4,13 +4,6 @@ import { mkdir, rm } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { server, usersMeHandlers } from '../../msw/handlers.js';
 
-vi.mock('keytar', () => ({
-  default: { getPassword: vi.fn(), setPassword: vi.fn(), deletePassword: vi.fn() },
-  getPassword: vi.fn(),
-  setPassword: vi.fn(),
-  deletePassword: vi.fn(),
-}));
-
 function captureOutput() {
   const stdout: string[] = [];
   const stderr: string[] = [];
@@ -103,7 +96,6 @@ describe('auth login — env-mode happy path', () => {
 
     process.env['FREELO_API_KEY'] = 'sk-test';
     process.env['FREELO_EMAIL'] = 'agent@example.cz';
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
 
@@ -115,7 +107,6 @@ describe('auth login — env-mode happy path', () => {
     vi.resetModules();
     delete process.env['FREELO_API_KEY'];
     delete process.env['FREELO_EMAIL'];
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
     try {
@@ -239,7 +230,6 @@ describe('auth login — 401 response', () => {
 
     process.env['FREELO_API_KEY'] = 'sk-expired';
     process.env['FREELO_EMAIL'] = 'user@example.com';
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
 
     server.use(usersMeHandlers.unauthorized());
@@ -250,7 +240,6 @@ describe('auth login — 401 response', () => {
     vi.resetModules();
     delete process.env['FREELO_API_KEY'];
     delete process.env['FREELO_EMAIL'];
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     try {
       await rm(testDir, { recursive: true, force: true });
@@ -305,7 +294,6 @@ describe('auth login — non-TTY no-credentials path', () => {
 
     delete process.env['FREELO_API_KEY'];
     delete process.env['FREELO_EMAIL'];
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
   });
@@ -313,7 +301,6 @@ describe('auth login — non-TTY no-credentials path', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     vi.resetModules();
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
     try {
@@ -362,7 +349,6 @@ describe('auth login — --api-key-stdin without --email exits 2', () => {
 
     delete process.env['FREELO_API_KEY'];
     delete process.env['FREELO_EMAIL'];
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
   });
@@ -370,7 +356,6 @@ describe('auth login — --api-key-stdin without --email exits 2', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     vi.resetModules();
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
     try {
@@ -422,7 +407,6 @@ describe('auth login — 5xx exits 4', () => {
 
     process.env['FREELO_API_KEY'] = 'sk-test';
     process.env['FREELO_EMAIL'] = 'agent@example.cz';
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
 
     server.use(usersMeHandlers.serverError(500));
@@ -433,7 +417,6 @@ describe('auth login — 5xx exits 4', () => {
     vi.resetModules();
     delete process.env['FREELO_API_KEY'];
     delete process.env['FREELO_EMAIL'];
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     try {
       await rm(testDir, { recursive: true, force: true });
@@ -474,7 +457,6 @@ describe('auth login — network failure exits 5', () => {
 
     process.env['FREELO_API_KEY'] = 'sk-test';
     process.env['FREELO_EMAIL'] = 'agent@example.cz';
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
 
     const { http, HttpResponse } = await import('msw');
@@ -486,7 +468,6 @@ describe('auth login — network failure exits 5', () => {
     vi.resetModules();
     delete process.env['FREELO_API_KEY'];
     delete process.env['FREELO_EMAIL'];
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     try {
       await rm(testDir, { recursive: true, force: true });
@@ -540,7 +521,6 @@ describe('auth login — --api-key-stdin with valid key', () => {
 
     delete process.env['FREELO_API_KEY'];
     delete process.env['FREELO_EMAIL'];
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
 
@@ -552,7 +532,6 @@ describe('auth login — --api-key-stdin with valid key', () => {
     vi.resetModules();
     delete process.env['FREELO_API_KEY'];
     delete process.env['FREELO_EMAIL'];
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
     try {
@@ -610,7 +589,6 @@ describe('auth login — --api-key-stdin with empty stdin', () => {
 
     delete process.env['FREELO_API_KEY'];
     delete process.env['FREELO_EMAIL'];
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
   });
@@ -618,7 +596,6 @@ describe('auth login — --api-key-stdin with empty stdin', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     vi.resetModules();
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
     try {
@@ -667,7 +644,6 @@ describe('auth login — --email mismatch with FREELO_EMAIL', () => {
 
     process.env['FREELO_API_KEY'] = 'sk-test';
     process.env['FREELO_EMAIL'] = 'real@example.cz';
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
   });
@@ -677,7 +653,6 @@ describe('auth login — --email mismatch with FREELO_EMAIL', () => {
     vi.resetModules();
     delete process.env['FREELO_API_KEY'];
     delete process.env['FREELO_EMAIL'];
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
     try {
@@ -750,7 +725,6 @@ describe('auth login — interactive TTY path', () => {
     // No env credentials — forces interactive branch
     delete process.env['FREELO_API_KEY'];
     delete process.env['FREELO_EMAIL'];
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     // Mark both stdout and stdin as TTY so isInteractive() returns true
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
@@ -764,7 +738,6 @@ describe('auth login — interactive TTY path', () => {
     vi.resetModules();
     delete process.env['FREELO_API_KEY'];
     delete process.env['FREELO_EMAIL'];
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: undefined });
     try {
@@ -835,7 +808,6 @@ describe('auth login — human mode output', () => {
 
     process.env['FREELO_API_KEY'] = 'sk-test';
     process.env['FREELO_EMAIL'] = 'agent@example.cz';
-    process.env['FREELO_NO_KEYCHAIN'] = '1';
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
 
     server.use(usersMeHandlers.ok());
@@ -846,7 +818,6 @@ describe('auth login — human mode output', () => {
     vi.resetModules();
     delete process.env['FREELO_API_KEY'];
     delete process.env['FREELO_EMAIL'];
-    delete process.env['FREELO_NO_KEYCHAIN'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: undefined });
     try {
       await rm(testDir, { recursive: true, force: true });
