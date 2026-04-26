@@ -1,4 +1,4 @@
-import { type ZodSchema } from 'zod';
+import { type ZodTypeAny, type z } from 'zod';
 import { type Paging } from '../ui/envelope.js';
 import { ValidationError } from '../errors/validation-error.js';
 import { FreeloApiError } from '../errors/freelo-api-error.js';
@@ -47,11 +47,11 @@ export function synthesizeUnpaginated<T>(items: T[]): NormalizedPage<T> {
  * a NormalizedPage. The wire shape's `data` object holds `{ [innerKey]: T[] }`.
  * Computes `nextCursor` as `(page+1) * per_page < total ? page + 1 : null`.
  */
-export function normalizePaginated<T>(
+export function normalizePaginated<S extends ZodTypeAny>(
   raw: unknown,
   innerKey: string,
-  itemSchema: ZodSchema<T>,
-): NormalizedPage<T> {
+  itemSchema: S,
+): NormalizedPage<z.output<S>> {
   const wrapperSchema = paginatedProjectsWrapperSchema(innerKey, itemSchema);
   const parsed = wrapperSchema.safeParse(raw);
   if (!parsed.success) {

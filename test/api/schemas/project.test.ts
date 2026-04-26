@@ -5,6 +5,8 @@ import {
   ProjectsBareArraySchema,
   paginatedProjectsWrapperSchema,
   ProjectListDataSchema,
+  ProjectDetailSchema,
+  UserBasicSchema,
   DEFAULT_FIELDS,
   INNER_KEY_BY_SCOPE,
 } from '../../../src/api/schemas/project.js';
@@ -221,5 +223,146 @@ describe('DEFAULT_FIELDS / INNER_KEY_BY_SCOPE', () => {
     expect(INNER_KEY_BY_SCOPE.archived).toBe('archived_projects');
     expect(INNER_KEY_BY_SCOPE.templates).toBe('template_projects');
     expect(INNER_KEY_BY_SCOPE.all).toBe('projects');
+  });
+});
+
+/* ------------------------------------------------------------------------- *
+ *  R05.5 — Bug #1: UserBasic.fullname is nullable + optional
+ *
+ *  Live Freelo API can return user objects without a fullname (deleted users,
+ *  externally-invited pending users, system actors). The schema must accept
+ *  these payloads without throwing. See spec 0015 §1.
+ * ------------------------------------------------------------------------- */
+
+describe('R05.5 — UserBasicSchema tolerates missing/null fullname', () => {
+  it('accepts a user with id only (no fullname field)', () => {
+    const out = UserBasicSchema.parse({ id: 99 });
+    expect(out.id).toBe(99);
+    expect(out.fullname).toBeUndefined();
+  });
+
+  it('accepts a user with fullname: null', () => {
+    const out = UserBasicSchema.parse({ id: 99, fullname: null });
+    expect(out.fullname).toBeNull();
+  });
+
+  it('still accepts a user with fullname populated', () => {
+    const out = UserBasicSchema.parse({ id: 99, fullname: 'Jane Doe' });
+    expect(out.fullname).toBe('Jane Doe');
+  });
+
+  it('still rejects a user without an id (id is the primary key)', () => {
+    expect(() => UserBasicSchema.parse({ fullname: 'Anon' })).toThrow();
+  });
+});
+
+describe('R05.5 — ProjectFull.owner accepts a UserBasic without fullname', () => {
+  it('parses a project whose owner has only an id', () => {
+    const out = ProjectFullSchema.parse({
+      id: 1,
+      name: 'X',
+      owner: { id: 9 },
+    });
+    const owner = out.owner as { id: number; fullname?: string | null };
+    expect(owner.id).toBe(9);
+    expect(owner.fullname).toBeUndefined();
+  });
+});
+
+describe('R05.5 — ProjectDetail.workers tolerates missing fullname / partial hour_rate', () => {
+  it('parses a worker without fullname', () => {
+    const out = ProjectDetailSchema.parse({
+      id: 1,
+      name: 'X',
+      workers: [{ id: 17 }],
+    });
+    expect(out.workers?.[0]?.id).toBe(17);
+  });
+
+  it('parses a worker with hour_rate fields all null/missing', () => {
+    const out = ProjectDetailSchema.parse({
+      id: 1,
+      name: 'X',
+      workers: [{ id: 17, fullname: 'Jane', hour_rate: { amount: null, currency: null } }],
+    });
+    expect(out.workers?.[0]?.hour_rate?.amount).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------------------- *
+ *  R05.5 — Bug #2: CurrencySchema accepts numeric amounts and normalizes to
+ *  string. Live Freelo API returns `amount` as a number for `real_cost` and
+ *  `budget` on multiple endpoints. Public envelope contract is `string`, so
+ *  the schema parses-and-transforms to a canonical string.
+ * ------------------------------------------------------------------------- */
+
+describe('R05.5 — Currency.amount widens to string|number, normalizes to string', () => {
+  it('accepts amount as a string and preserves it', () => {
+    const out = ProjectFullSchema.parse({
+      id: 1,
+      name: 'X',
+      real_cost: { amount: '2000', currency: 'CZK' },
+    });
+    expect(out.real_cost?.amount).toBe('2000');
+  });
+
+  it('accepts amount as an integer and normalizes to string', () => {
+    const out = ProjectFullSchema.parse({
+      id: 1,
+      name: 'X',
+      real_cost: { amount: 2000, currency: 'CZK' },
+    });
+    expect(out.real_cost?.amount).toBe('2000');
+    expect(typeof out.real_cost?.amount).toBe('string');
+  });
+
+  it('accepts amount as a fractional number and normalizes to string', () => {
+    const out = ProjectFullSchema.parse({
+      id: 1,
+      name: 'X',
+      budget: { amount: 15000.5, currency: 'EUR' },
+    });
+    expect(out.budget?.amount).toBe('15000.5');
+  });
+
+  it('rejects amount: NaN (not a real value)', () => {
+    expect(() =>
+      ProjectFullSchema.parse({
+        id: 1,
+        name: 'X',
+        real_cost: { amount: Number.NaN, currency: 'CZK' },
+      }),
+    ).toThrow();
+  });
+
+  it('rejects amount: Infinity (not a real value)', () => {
+    expect(() =>
+      ProjectFullSchema.parse({
+        id: 1,
+        name: 'X',
+        real_cost: { amount: Number.POSITIVE_INFINITY, currency: 'CZK' },
+      }),
+    ).toThrow();
+  });
+
+  it('rejects an unknown currency code (existing posture; not loosened)', () => {
+    expect(() =>
+      ProjectFullSchema.parse({
+        id: 1,
+        name: 'X',
+        real_cost: { amount: 100, currency: 'GBP' },
+      }),
+    ).toThrow();
+  });
+
+  it('exercises both budget and real_cost on the same record', () => {
+    const out = ProjectFullSchema.parse({
+      id: 1,
+      name: 'X',
+      budget: { amount: 50000, currency: 'CZK' },
+      real_cost: { amount: 12345, currency: 'CZK' },
+    });
+    expect(out.budget?.amount).toBe('50000');
+    expect(out.real_cost?.amount).toBe('12345');
   });
 });

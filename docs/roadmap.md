@@ -142,6 +142,27 @@ freelo projects list [--scope owned|invited|archived|templates|all] [--page N | 
 **CLI:** `freelo tasklists list [--project <id>] [--page N|--all]`
 **Depends on:** R03.
 
+### R05.5 — Hardening: schema null/number tolerance + Windows libuv exit (queued)
+**Outcome:** `freelo projects show` (and any future read command) survives real-world Freelo responses on Windows without crashing.
+**Endpoints:** none (local fixes only).
+**Surface (no CLI changes):** schema sweep + error-path cleanup. Patch release.
+**Triggered by:** real-world tests against a live account on 2026-04-26 (against `freelo-cli@0.7.0` and `0.8.0`):
+- `freelo projects show 235826` → schema bugs #1 and #2 (`real_cost.amount` as number) + libuv crash #3
+- `freelo projects list --scope all` → schema bug #2 reproduces on multiple `ProjectFull.real_cost.amount` + libuv crash #3
+- `freelo tasklists list` → schema bug #2 reproduces on `Tasklist.budget.amount` + libuv crash #3
+
+Bug #2 is **universal** — every consumer of `CurrencySchema` (project `real_cost`, project `budget`, tasklist `budget`, presumably task `budget` later) is affected. The fix at the schema level cascades to all of them.
+
+Three concrete bugs found, all to be addressed in one patch:
+
+1. **`UserBasic.fullname` declared `z.string()` but Freelo can return user objects without it.** Same shape as the keytar-era null-tolerance fix in 0.5.1 — schema is stricter than the API. Sweep all response-entity schemas and make currently-`.optional()` complex fields ALSO `.nullable().optional()`, plus loosen string/number primitives that the live API can return as either.
+2. **`CurrencySchema.amount` declared `z.string()` but live API returns a number.** Confirmed widespread — affects multiple projects in `--scope all`, both `real_cost.amount` and presumably `budget.amount`. Fix at the schema level (`CurrencySchema`), not at each consumer. Accept `z.union([z.string(), z.number()])` and normalize to a single canonical shape (recommend stringify) so the public envelope contract stays stable.
+3. **Windows libuv `UV_HANDLE_CLOSING` assertion fires on `process.exit` despite the 0.5.1 `drainDispatcher` fix.** Confirmed to reproduce on **any zod-validation failure** on Windows (both `projects show` and `projects list` paths trigger it), so the issue is general — not specific to single-resource fetches. The error path (zod fail → `handleTopLevelError` → `await drainDispatcher()` → `process.exit`) is supposed to drain undici's keep-alive pool, but on Windows it doesn't always finish before exit. Investigate: `Agent.destroy()` (forceful) vs `Agent.close()` (graceful), `Promise.race` with a short timeout, or moving `process.exit` into `process.nextTick` after drain. Possibly also `pino-pretty`'s transport worker — though pino is probably silent in this path. Add a regression test that triggers a deliberate zod failure on the Windows matrix row, asserting clean exit (no libuv assertion in stderr).
+
+Tier: Yellow (touches `src/errors/handle.ts` cross-cutting; user-visible via patch release; no auth/HTTP-defaults change).
+Changeset: `freelo-cli: patch`.
+**Depends on:** R03 (the schemas live in `src/api/schemas/project.ts`).
+
 ### R06 — `freelo tasklists show <id>`
 **Outcome:** Tasklist detail + assignable workers.
 **Endpoints:** `GET /tasklist/{tasklist_id}`, `GET /project/{project_id}/tasklist/{tasklist_id}/assignable-workers`.
