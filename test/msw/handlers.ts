@@ -1510,6 +1510,126 @@ export const tasksDescriptionHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo comments list` (R16, spec 0027).
+ *
+ * One endpoint:
+ *   - `GET /all-comments` — `PaginatedResponse` of `CommentFull[]`
+ *
+ * The query parameters are exposed via the `request` callback so tests can
+ * assert wire shape (`projects_ids[]=...`, `type=...`, `order_by=...`,
+ * `order=...`, `p=...`).
+ */
+export const commentsListHandlers = {
+  /**
+   * `GET /all-comments?p=N` — paginated. `pages` keyed by 0-indexed page
+   * number; missing pages return an empty page using the last-known
+   * `per_page` and `total`. Same past-end behaviour as
+   * `tasksShowHandlers.subtasksPaged`.
+   */
+  paged(
+    pages: Record<number, PagedFixture>,
+    opts?: { onRequest?: (req: Request) => void },
+  ): RequestHandler {
+    return http.get(`${API_BASE}/all-comments`, ({ request }) => {
+      opts?.onRequest?.(request);
+      const u = new URL(request.url);
+      const p = Number(u.searchParams.get('p') ?? '0');
+      const known = Object.keys(pages)
+        .map(Number)
+        .sort((a, b) => a - b);
+      const lastKnown = known[known.length - 1] ?? 0;
+      const fixture = pages[p];
+      if (fixture !== undefined) return HttpResponse.json(fixture);
+      const ref = pages[lastKnown];
+      if (!ref) {
+        return HttpResponse.json({
+          total: 0,
+          count: 0,
+          page: p,
+          per_page: 25,
+          data: { comments: [] },
+        });
+      }
+      return HttpResponse.json({
+        total: ref.total,
+        count: 0,
+        page: p,
+        per_page: ref.per_page,
+        data: { comments: [] },
+      });
+    });
+  },
+
+  /** `GET /all-comments` — 401. */
+  unauthorized(): RequestHandler {
+    return http.get(`${API_BASE}/all-comments`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `GET /all-comments` — 403. */
+  forbidden(): RequestHandler {
+    return http.get(`${API_BASE}/all-comments`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** `GET /all-comments` — 404. */
+  notFound(): RequestHandler {
+    return http.get(`${API_BASE}/all-comments`, () =>
+      HttpResponse.json({ errors: ['Not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `GET /all-comments` — 5xx for any page. */
+  serverError(status = 500): RequestHandler {
+    return http.get(`${API_BASE}/all-comments`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** `GET /all-comments` — 429 (Retry-After: 0 so retry exhaustion is fast). */
+  rateLimited(): RequestHandler {
+    return http.get(
+      `${API_BASE}/all-comments`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** `GET /all-comments` — connection-closed (network error). */
+  networkError(): RequestHandler {
+    return http.get(`${API_BASE}/all-comments`, () => HttpResponse.error());
+  },
+
+  /**
+   * Mid-stream fetch failure: succeeds for `p < failPage`, errors at
+   * `p === failPage`. Drives the `PartialPagesError` unwrap path in the
+   * command.
+   */
+  midStreamError(opts: {
+    pages: Record<number, PagedFixture>;
+    failPage: number;
+    status?: number;
+  }): RequestHandler {
+    const { pages, failPage, status = 500 } = opts;
+    return http.get(`${API_BASE}/all-comments`, ({ request }) => {
+      const u = new URL(request.url);
+      const p = Number(u.searchParams.get('p') ?? '0');
+      if (p === failPage) {
+        return HttpResponse.json({ errors: ['mid-stream'] }, { status });
+      }
+      const fixture = pages[p];
+      if (fixture !== undefined) return HttpResponse.json(fixture);
+      return HttpResponse.json({ errors: ['unexpected'] }, { status: 500 });
+    });
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
