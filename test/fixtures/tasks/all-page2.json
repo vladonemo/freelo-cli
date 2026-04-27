@@ -1,0 +1,20 @@
+{
+  "total": 7,
+  "count": 1,
+  "page": 2,
+  "per_page": 3,
+  "data": {
+    "tasks": [
+      {
+        "id": 1007,
+        "name": "Final QA pass",
+        "date_add": "2026-03-08T10:00:00+01:00",
+        "author": { "id": 1, "fullname": "Jane Author" },
+        "worker": { "id": 7, "fullname": "Bob Worker" },
+        "state": { "id": 1, "state": "active" },
+        "project": { "id": 42, "name": "Site redesign" },
+        "tasklist": { "id": 101, "name": "Backlog" }
+      }
+    ]
+  }
+}

@@ -63,6 +63,10 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 
 - `freelo tasklists list` — List tasklists across all projects you can see, optionally filtered to one project.
 - `freelo tasklists show <id>` — Show one tasklist's detail, with optional assignable-workers side-car.
+
+### tasks
+
+- `freelo tasks list` — List tasks across all projects (default) or scoped to one project + tasklist.
 <!-- END AUTOGEN COMMANDS -->
 
 The block above is generated from `freelo --introspect` by `scripts/check-readme.mjs` and verified in CI. Run `pnpm fix:readme` to refresh it after adding or changing a command.
