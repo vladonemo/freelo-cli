@@ -4,25 +4,34 @@ Move a task between tasklists, optionally crossing project boundaries.
 Idempotent: a task that is already in the target tasklist is skipped (no
 redundant POST). Emits a stable `freelo.tasks.move/v1` envelope.
 
+Two modes:
+
+- **Single mode** — one task, one destination, on the command line.
+- **Batch mode** (`--stdin`, **R12.5**) — many tasks, one row per move,
+  NDJSON in / NDJSON out, continue-on-error.
+
 ## Synopsis
 
 ```bash
+# Single mode
 freelo tasks move <id> --to-tasklist <id>
                        [--to-project <id>]
                        [--dry-run]
-```
 
-Single-id only in v1 — no `--ids` / `--stdin` batch input. Compose with
-`xargs` if you need to relocate many tasks (see Examples below).
+# Batch mode (R12.5) — one envelope per row
+freelo tasks move --stdin [--dry-run]
+# Per-line NDJSON: {"id": <task_id>, "to_tasklist": <tasklist_id>, "to_project"?: <project_id>}
+```
 
 ## Options
 
-| Flag                 | Type / values    | Default | Purpose                                                                                                                                                                                                                               |
-| -------------------- | ---------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<id>`               | positive integer | —       | The task to move. Required.                                                                                                                                                                                                           |
-| `--to-tasklist <id>` | positive integer | —       | Destination tasklist id. **Required.** The destination project is **derived from this id** by Freelo (cross-project moves work transparently).                                                                                        |
-| `--to-project <id>`  | positive integer | unset   | Optional post-move assertion. The destination project is server-derived from `--to-tasklist`; this flag adds a sanity check — on mismatch, the envelope carries a `notice` (exit stays 0).                                            |
-| `--dry-run`          | boolean          | false   | Skip the `POST /task/{id}/move/{tasklist_id}` call. **The pre-check `GET /task/{id}` still runs** so the envelope reflects observed state; `would` echoes the path that would have been called. `to_project_id` is `null` in dry-run. |
+| Flag                 | Type / values    | Default | Purpose                                                                                                                                                                                                                                                    |
+| -------------------- | ---------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<id>`               | positive integer | —       | The task to move. Required in single mode; rejected with `--stdin`.                                                                                                                                                                                        |
+| `--to-tasklist <id>` | positive integer | —       | Destination tasklist id. **Required in single mode.** Rejected with `--stdin` (use per-row `to_tasklist` instead). The destination project is **derived from this id** by Freelo (cross-project moves work transparently).                                 |
+| `--to-project <id>`  | positive integer | unset   | Optional post-move assertion (single mode only). On mismatch, the envelope carries a `notice` (exit stays 0). Rejected with `--stdin` (use per-row `to_project` instead).                                                                                  |
+| `--dry-run`          | boolean          | false   | Skip the `POST /task/{id}/move/{tasklist_id}` call. **The pre-check `GET /task/{id}` still runs** so the envelope reflects observed state; `would` echoes the path that would have been called. `to_project_id` is `null` in dry-run. Works in both modes. |
+| `--stdin`            | boolean          | false   | Batch mode. Read NDJSON from stdin, one move per line. Mutex with `<id>`, `--to-tasklist`, `--to-project`.                                                                                                                                                 |
 
 `--output`, `--color`, `--profile`, `-v/-vv`, `--request-id` are inherited
 global flags.
@@ -175,13 +184,109 @@ $ freelo tasks move 9012 --to-tasklist 1200 --dry-run --output json
 
 ### Compose with `tasks list` (move every task with a label)
 
-`tasks move` is single-id — agents compose for batch:
-
 ```bash
 $ freelo tasks list --label "ready-for-qa" --output json \
   | jq -r '.data.tasks[].id' \
   | xargs -I{} freelo tasks move {} --to-tasklist 1200 --output json
 ```
+
+For relocations to **different** destinations per row, see batch mode below.
+
+## Batch input via `--stdin` (R12.5)
+
+`--stdin` reads NDJSON from stdin and emits one envelope per row, in input
+order. Per-row idempotency is preserved (a row whose `to_tasklist` matches
+the task's current tasklist returns `already_in_target_tasklist: true`).
+
+### Per-line shape
+
+```jsonc
+{
+  "id": <task_id, positive integer>,
+  "to_tasklist": <tasklist_id, positive integer>,
+  "to_project": <project_id, positive integer>   // optional, per-row assertion
+}
+```
+
+Unknown keys reject the line with a `VALIDATION_ERROR` (zod `.strict()`).
+Per-row `to_project` is a post-move assertion — same semantics as single
+mode's `--to-project`.
+
+### Output
+
+One envelope per row on stdout, in input order:
+
+- Successful row → `freelo.tasks.move/v1` with an additional `data.line_index` field
+  (0-indexed across non-empty input lines).
+- Failed row → `freelo.error/v1` with `error.context.line_index` and (when known)
+  `error.context.task_id`.
+
+### Failure semantics
+
+**Continue-on-error.** A bad line does not abort the run; subsequent lines still
+process. The exit code at end-of-run is the **max** of per-line exit codes:
+
+| Per-line failure                      | Exit |
+| ------------------------------------- | ---- |
+| Line is not valid JSON                | 2    |
+| Line schema fails (missing/typed)     | 2    |
+| Pre-check observes `state: 'deleted'` | 2    |
+| Pre-check 401                         | 3    |
+| Pre-check / POST 403, 404, 5xx, 4xx   | 4    |
+| Network failure                       | 5    |
+| HTTP 429                              | 6    |
+
+Run-level exit = `max(per-line exit codes)`. Empty stdin → silent exit 0.
+
+### Examples
+
+**Multiple tasks to multiple destinations:**
+
+```bash
+$ cat <<EOF | freelo tasks move --stdin --output json
+{"id": 9012, "to_tasklist": 1200}
+{"id": 9013, "to_tasklist": 1200}
+{"id": 9014, "to_tasklist": 5500, "to_project": 99}
+EOF
+{"schema":"freelo.tasks.move/v1","data":{"task_id":9012,...,"line_index":0},...}
+{"schema":"freelo.tasks.move/v1","data":{"task_id":9013,...,"line_index":1},...}
+{"schema":"freelo.tasks.move/v1","data":{"task_id":9014,...,"to_project_id":99,"line_index":2},...}
+$ echo $?
+0
+```
+
+**Mixed success and failure (continue-on-error):**
+
+```bash
+$ cat <<EOF | freelo tasks move --stdin --output json
+{"id": 9012, "to_tasklist": 1200}
+{"id": 99999, "to_tasklist": 1200}
+EOF
+{"schema":"freelo.tasks.move/v1","data":{"task_id":9012,...,"line_index":0},...}
+{"schema":"freelo.error/v1","error":{"code":"NOT_FOUND","http_status":404,"context":{"line_index":1,"task_id":99999},...}}
+$ echo $?
+4
+```
+
+**Batch dry-run (no POST, no refresh GET; pre-check still runs):**
+
+```bash
+$ echo '{"id": 9012, "to_tasklist": 1200}' | freelo tasks move --stdin --dry-run --output json
+{"schema":"freelo.tasks.move/v1","dry_run":true,"data":{"task_id":9012,...,"would":{"method":"POST","path":"/task/9012/move/1200","body":{}},"line_index":0}}
+```
+
+**Composed pipeline (move all unfinished tasks from one tasklist to another):**
+
+```bash
+$ freelo tasks list --tasklist 1100 --state active --output ndjson \
+  | jq -c '{id: .id, to_tasklist: 1200}' \
+  | freelo tasks move --stdin --output ndjson
+```
+
+### Mutex rules
+
+`--stdin` is mutually exclusive with `<id>`, `--to-tasklist`, and `--to-project`.
+Combining them fails fast with `VALIDATION_ERROR` (exit 2) before any HTTP runs.
 
 ### Move on a deleted task (refused)
 
@@ -209,12 +314,15 @@ $ echo $?
 | HTTP 429                               | `RATE_LIMITED`     | 6    |
 | Network failure                        | `NETWORK_ERROR`    | 5    |
 
-## Non-goals (R12 v1)
+## Non-goals
 
-- **Batch input** (`--ids`, `--stdin`). Move takes two ids — source AND
-  destination tasklist — which doesn't fit R09/R11's "one verb, list of
-  ids" mold cleanly. Compose via `xargs` for now; revisit if real demand
-  shows up.
+- **`--pairs <id>:<list>,<id>:<list>` shell sugar.** `--stdin` NDJSON is the
+  documented batch contract. Defer until real users ask.
+- **Global `--to-project` in `--stdin` mode.** Per-row only — different rows
+  can target different projects.
+- **Fail-fast / `--abort-on-error` flag in batch.** Continue-on-error is the
+  only semantic; matches R09 (`tasks create --stdin`) and R11
+  (`tasks finish --stdin`).
 - **`--work-reports-action` and `--custom-fields-action` flags.** Both
   default to sensible server-side values (`move_to_target_project`,
   `nothing`) and most callers don't need to override them. Out for v1.
@@ -226,4 +334,5 @@ $ echo $?
 - **Confirmation prompt / `--yes` flag.** Move is reversible (run the
   command again with the original tasklist id).
 
-See [spec 0022](../specs/0022-tasks-move.md) for the full design.
+See [spec 0022](../specs/0022-tasks-move.md) for the single-mode design and
+[spec 0023](../specs/0023-tasks-move-batch.md) for batch mode (R12.5).
