@@ -56,9 +56,23 @@ jobs:
       # with it never fires `ci.yml` and stays blocked by branch protection.
       # `RELEASE_GITHUB_TOKEN` is a fine-grained PAT scoped to this repo
       # with Contents: read/write and Pull requests: read/write.
+      #
+      # We also disable `setupGitUser` and configure git ourselves below.
+      # `changesets/action@v1` otherwise hard-codes the committer to
+      # `github-actions[bot]`. PAT-authenticated `pull_request: opened`
+      # events from a bot committer DO trigger workflows, but subsequent
+      # `pull_request: synchronize` force-pushes do NOT — so the second
+      # and later updates of the Version Packages PR would silently fail
+      # to refresh CI and the PR would stay blocked by branch protection.
+      - name: Configure git committer (non-bot, so synchronize fires CI)
+        run: |
+          git config --global user.name "Vladimir Nemergut"
+          git config --global user.email "vlado.nemo@gmail.com"
+
       - name: changesets
         uses: changesets/action@v1
         with:
+          setupGitUser: false
           version: pnpm changeset version
           publish: pnpm changeset publish
           commit: 'chore(release): version packages'
