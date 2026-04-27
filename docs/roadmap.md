@@ -334,9 +334,11 @@ Goal after this wave: the CLI replaces the Freelo web UI for 80% of individual-c
 
 ### R16 — `freelo comments list`
 
-**Endpoints:** `GET /task/{task_id}/comments`, `GET /all-comments`.
-**CLI:** `freelo comments list [--task <id>] [--project <id>] [--since DATE] [--page N|--all]`.
+**Endpoints:** `GET /all-comments`.
+**CLI:** `freelo comments list [--project <id> ...] [--type <kind>] [--order-by <field>] [--order <asc|desc>] [--page N|--all] [--since YYYY-MM-DD]`.
 **Depends on:** R08.
+
+> **Note (2026-04-27, decision in `docs/runs/2026-04-27-2234-comments-list/decisions/01-scope-narrow.md`):** The original entry referenced `GET /task/{task_id}/comments` and a `--task` flag. That endpoint is **not in `docs/api/freelo-api.yaml`** — only its POST counterpart is documented. Task-scoped listing is **deferred** to a follow-up slice; revisit when the Freelo API confirms / adds the GET. `--since` ships as a **client-side post-filter** (mutex with `--page N`).
 
 ### R17 — `freelo comments add`
 

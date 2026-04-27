@@ -40,6 +40,10 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 - `freelo auth logout` — Remove stored credentials for a Freelo profile.
 - `freelo auth whoami` — Show the currently authenticated user.
 
+### comments
+
+- `freelo comments list` — List comments across all projects, tasks, documents, files and links the caller can see.
+
 ### config
 
 - `freelo config get <key>` — Get the current value and source of a configuration key. Read-only keys (e.g. 'apiKey') return '[redacted]'.
