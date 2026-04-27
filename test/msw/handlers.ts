@@ -1314,6 +1314,111 @@ export const tasksDeleteHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo subtasks add` (R14, spec 0025).
+ *
+ * One endpoint:
+ *   - `POST /task/{task_id}/subtasks` — `Subtask`
+ *
+ * The `freelo subtasks list` GET path is already served by
+ * `tasksShowHandlers.subtasksPaged(...)` etc. — same endpoint as R08.
+ * No new GET handlers added here.
+ */
+export const subtasksAddHandlers = {
+  /** `POST /task/{id}/subtasks` — 200 with the supplied response body. */
+  ok(taskId: number, body: Record<string, unknown>): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/subtasks`, () => HttpResponse.json(body));
+  },
+
+  /**
+   * Match-on-body variant: `predicate(body, request)` decides whether the
+   * supplied response or a 500 diagnostic comes back. Useful when a test
+   * needs to assert the exact wire body.
+   */
+  okWhenBody(
+    taskId: number,
+    predicate: (body: unknown, request: Request) => boolean,
+    response: Record<string, unknown>,
+  ): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/subtasks`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json(response);
+    });
+  },
+
+  /** `POST /task/{id}/subtasks` — 401. */
+  unauthorized(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/subtasks`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `POST /task/{id}/subtasks` — 403. */
+  forbidden(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/subtasks`, () =>
+      HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** `POST /task/{id}/subtasks` — 404 (parent task missing). */
+  notFound(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/subtasks`, () =>
+      HttpResponse.json({ errors: ['Task not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `POST /task/{id}/subtasks` — 5xx. */
+  serverError(taskId: number, status = 500): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/subtasks`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** `POST /task/{id}/subtasks` — 429 (Retry-After: 0). */
+  rateLimited(taskId: number): RequestHandler {
+    return http.post(
+      `${API_BASE}/task/${taskId}/subtasks`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** `POST /task/{id}/subtasks` — connection-closed (network error). */
+  networkError(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/subtasks`, () => HttpResponse.error());
+  },
+
+  /**
+   * Sequential responder for batch testing: returns `responses[N]` for the
+   * Nth POST (0-indexed). Each entry is `{ status, body }`. Past the end,
+   * returns 500. Mirrors `tasksCreateHandlers.sequence`.
+   */
+  sequence(
+    taskId: number,
+    responses: Array<{ status: number; body: Record<string, unknown> }>,
+  ): RequestHandler {
+    const counter = { n: 0 };
+    return http.post(`${API_BASE}/task/${taskId}/subtasks`, () => {
+      const idx = counter.n;
+      counter.n += 1;
+      const r = responses[idx] ?? {
+        status: 500,
+        body: { errors: [`out of sequence (idx=${idx})`] },
+      };
+      return HttpResponse.json(r.body, { status: r.status });
+    });
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));

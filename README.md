@@ -59,6 +59,11 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 - `freelo projects list` — List projects in the chosen scope. Default scope is 'owned'.
 - `freelo projects show <id>` — Show one project's full detail, with optional side-cars.
 
+### subtasks
+
+- `freelo subtasks add` — Create a subtask (taskcheck) under a parent task (single or NDJSON batch via --stdin). Note: Freelo's API auto-falls-back from a smart subtask (full task with worker, due date, etc.) to a simple taskcheck (a checkbox row with only a name) when the parent's tasklist can't host smart ones. The response envelope's `data.storage_form` field reflects which form was actually persisted; `data.input_ignored[]` lists fields you set that the server discarded on the simple path.
+- `freelo subtasks list` — List subtasks (taskchecks) under one parent task, paginated.
+
 ### tasklists
 
 - `freelo tasklists list` — List tasklists across all projects you can see, optionally filtered to one project.
