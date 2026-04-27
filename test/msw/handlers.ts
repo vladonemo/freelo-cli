@@ -1098,6 +1098,92 @@ export const tasksEditHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo tasks finish` / `tasks reopen` (R11, spec 0021).
+ *
+ * Two endpoints:
+ *   - `POST /task/{id}/finish`
+ *   - `POST /task/{id}/activate`  (CLI verb: `reopen`)
+ *
+ * Both take an empty body and return `SuccessResponse`. Pre-check GETs are
+ * served by `tasksShowHandlers.detailOk(...)` etc. — no new GET handlers
+ * needed.
+ */
+export const tasksTransitionHandlers = {
+  /** `POST /task/{id}/finish` — 200 success. */
+  finishOk(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/finish`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /** `POST /task/{id}/activate` — 200 success. */
+  activateOk(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/activate`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /** `POST /task/{id}/finish` — 401. */
+  finishUnauthorized(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/finish`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `POST /task/{id}/finish` — 403. */
+  finishForbidden(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/finish`, () =>
+      HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** `POST /task/{id}/finish` — 404. */
+  finishNotFound(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/finish`, () =>
+      HttpResponse.json({ errors: ['Task not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `POST /task/{id}/finish` — 5xx. */
+  finishServerError(taskId: number, status = 500): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/finish`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** `POST /task/{id}/finish` — 429 (Retry-After: 0). */
+  finishRateLimited(taskId: number): RequestHandler {
+    return http.post(
+      `${API_BASE}/task/${taskId}/finish`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** `POST /task/{id}/finish` — connection-closed (network error). */
+  finishNetworkError(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/finish`, () => HttpResponse.error());
+  },
+
+  /** `POST /task/{id}/activate` — 404 (deleted task per OpenAPI :1802). */
+  activateNotFound(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/activate`, () =>
+      HttpResponse.json({ errors: ['Task not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `POST /task/{id}/activate` — 403. */
+  activateForbidden(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/activate`, () =>
+      HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 }),
+    );
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
