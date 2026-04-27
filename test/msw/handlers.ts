@@ -525,6 +525,160 @@ export const tasklistShowHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo tasks list` (R07, spec 0017).
+ *
+ * Two endpoints in v1:
+ *   - `GET /all-tasks?<query>` — paginated; inner key `tasks`. Filters compose
+ *     via `buildQuery` (`projects_ids[]=42&projects_ids[]=43`, etc.).
+ *   - `GET /project/{p}/tasklist/{t}/tasks` — bare `TaskSummary[]`, NOT paginated.
+ *
+ * The `/tasklist/{id}/finished-tasks` route is deferred to R07.5 (spec OQ #4).
+ */
+export const tasksHandlers = {
+  /**
+   * `GET /all-tasks?p=N&...` — paginated. `pages` keyed by 0-indexed page
+   * number; missing pages return an empty page with `total` from the last-
+   * known fixture. Same past-end behaviour as `tasklistsHandlers.allOk`.
+   */
+  allTasksOk(pages: Record<number, PagedFixture>): RequestHandler {
+    return http.get(`${API_BASE}/all-tasks`, ({ request }) => {
+      const u = new URL(request.url);
+      const p = Number(u.searchParams.get('p') ?? '0');
+      const known = Object.keys(pages)
+        .map(Number)
+        .sort((a, b) => a - b);
+      const lastKnown = known[known.length - 1] ?? 0;
+      const fixture = pages[p];
+      if (fixture !== undefined) return HttpResponse.json(fixture);
+      const ref = pages[lastKnown];
+      if (!ref) {
+        return HttpResponse.json({
+          total: 0,
+          count: 0,
+          page: p,
+          per_page: 25,
+          data: { tasks: [] },
+        });
+      }
+      return HttpResponse.json({
+        total: ref.total,
+        count: 0,
+        page: p,
+        per_page: ref.per_page,
+        data: { tasks: [] },
+      });
+    });
+  },
+
+  /**
+   * `GET /all-tasks?<query>` with arbitrary URL-string assertion. Useful for
+   * tests that need to validate the exact encoded query (test #2 / #4 / #5
+   * style — cf. spec 0017 §8.4).
+   *
+   * `matchFn(url)` returns `true` when the request URL matches expectations;
+   * the handler then responds with `response`. On no-match, returns 500 with
+   * a diagnostic body so a test failure points at the offending URL.
+   */
+  allTasksByQuery(matchFn: (url: URL) => boolean, response: PagedFixture): RequestHandler {
+    return http.get(`${API_BASE}/all-tasks`, ({ request }) => {
+      const u = new URL(request.url);
+      if (!matchFn(u)) {
+        return HttpResponse.json(
+          { errors: [`URL did not match assertion: ${u.searchParams.toString()}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json(response);
+    });
+  },
+
+  /**
+   * `GET /project/{pid}/tasklist/{tid}/tasks` — 200 with the bare array.
+   * Spec 0017 §4.3 — endpoint returns an array directly, no wrapper.
+   */
+  tasklistTasksOk(
+    projectId: number,
+    tasklistId: number,
+    items: Array<Record<string, unknown>>,
+  ): RequestHandler {
+    return http.get(`${API_BASE}/project/${projectId}/tasklist/${tasklistId}/tasks`, () =>
+      HttpResponse.json(items),
+    );
+  },
+
+  /** `GET /all-tasks` — 401. */
+  unauthorized(): RequestHandler {
+    return http.get(`${API_BASE}/all-tasks`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `GET /all-tasks` — configurable 5xx. */
+  serverError(status = 500): RequestHandler {
+    return http.get(`${API_BASE}/all-tasks`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /**
+   * `GET /all-tasks` — always returns 429. Combined with the HttpClient's
+   * three-attempt retry budget, this surfaces a `RateLimitedError` (exit 6).
+   */
+  rateLimited(): RequestHandler {
+    return http.get(
+      `${API_BASE}/all-tasks`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /**
+   * `GET /all-tasks` — closes the connection without a response so undici
+   * raises a network error. The HttpClient surfaces this as `NetworkError`
+   * (exit 5). Spec 0017 §5 mandatory test #32.
+   */
+  networkError(): RequestHandler {
+    return http.get(`${API_BASE}/all-tasks`, () => HttpResponse.error());
+  },
+
+  /**
+   * Mid-stream `--all` failure: succeeds for `p < failPage`, errors at
+   * `p === failPage`. Drives the partial-result code path (spec 0017 §5,
+   * mandatory test #35). Same shape as `tasklistsHandlers.allMidStreamError`.
+   */
+  allMidStreamError(opts: {
+    pages: Record<number, PagedFixture>;
+    failPage: number;
+    status?: number;
+  }): RequestHandler {
+    const { pages, failPage, status = 500 } = opts;
+    return http.get(`${API_BASE}/all-tasks`, ({ request }) => {
+      const u = new URL(request.url);
+      const p = Number(u.searchParams.get('p') ?? '0');
+      if (p === failPage) {
+        return HttpResponse.json({ errors: ['mid-stream'] }, { status });
+      }
+      const fixture = pages[p];
+      if (fixture !== undefined) return HttpResponse.json(fixture);
+      return HttpResponse.json({ errors: ['unexpected'] }, { status: 500 });
+    });
+  },
+
+  /**
+   * Wrapper missing the inner `tasks` data key. Surfaces as `FreeloApiError`
+   * with code `VALIDATION_ERROR` (exit 4). Spec 0017 §5 mandatory test #33.
+   */
+  malformedWrapper(): RequestHandler {
+    return http.get(`${API_BASE}/all-tasks`, () =>
+      HttpResponse.json({ total: 0, count: 0, page: 0, per_page: 25, data: {} }),
+    );
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
