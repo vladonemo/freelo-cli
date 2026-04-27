@@ -1184,6 +1184,70 @@ export const tasksTransitionHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo tasks move` (R12, spec 0022).
+ *
+ * One endpoint:
+ *   - `POST /task/{id}/move/{tasklist_id}`
+ *
+ * Empty body, returns `SuccessResponse`. Pre-check + post-move refresh GETs
+ * are served by `tasksShowHandlers.detailOk(...)` etc. — no new GET handlers
+ * needed.
+ */
+export const tasksMoveHandlers = {
+  /** `POST /task/{id}/move/{tasklist_id}` — 200 success. */
+  moveOk(taskId: number, toTasklistId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/move/${toTasklistId}`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /** `POST /task/{id}/move/{tasklist_id}` — 401. */
+  moveUnauthorized(taskId: number, toTasklistId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/move/${toTasklistId}`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `POST /task/{id}/move/{tasklist_id}` — 403. */
+  moveForbidden(taskId: number, toTasklistId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/move/${toTasklistId}`, () =>
+      HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** `POST /task/{id}/move/{tasklist_id}` — 404 (task or tasklist missing). */
+  moveNotFound(taskId: number, toTasklistId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/move/${toTasklistId}`, () =>
+      HttpResponse.json({ errors: ['Task or tasklist not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `POST /task/{id}/move/{tasklist_id}` — 5xx. */
+  moveServerError(taskId: number, toTasklistId: number, status = 500): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/move/${toTasklistId}`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** `POST /task/{id}/move/{tasklist_id}` — 429 (Retry-After: 0). */
+  moveRateLimited(taskId: number, toTasklistId: number): RequestHandler {
+    return http.post(
+      `${API_BASE}/task/${taskId}/move/${toTasklistId}`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** `POST /task/{id}/move/{tasklist_id}` — connection-closed (network error). */
+  moveNetworkError(taskId: number, toTasklistId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/move/${toTasklistId}`, () => HttpResponse.error());
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));

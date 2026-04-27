@@ -668,3 +668,52 @@ export const TasksTransitionDataSchema = z.object({
 });
 
 export type TasksTransitionData = z.infer<typeof TasksTransitionDataSchema>;
+
+/* ---------------------------------------------------------------------------
+ *  R12 — `freelo tasks move <id>` (spec 0022)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Envelope `data` shape for `freelo.tasks.move/v1`.
+ *
+ *   - `task_id`: positive integer (the source task).
+ *   - `from_tasklist_id`: integer or null. Observed via the pre-check GET on
+ *     the source task. Null when the wire's `task.tasklist` ref is missing
+ *     (defensive — passthrough may let null through).
+ *   - `to_tasklist_id`: integer (always set; comes from `--to-tasklist`).
+ *   - `from_project_id`: integer or null (pre-check derived).
+ *   - `to_project_id`: integer or null. Live success: post-move refresh GET's
+ *     `task.project.id`. Idempotent skip: equals `from_project_id` (no move
+ *     happened). Dry-run: null (we do NOT fetch the destination tasklist's
+ *     project — that would double the GET load for what is otherwise a
+ *     read-only preview).
+ *   - `already_in_target_tasklist`: `true` ⇔ the POST was skipped because the
+ *     pre-check showed the task already in the target tasklist (R11-style
+ *     idempotency).
+ *   - `task`: `TaskDetail | null`. Live success: refreshed post-move detail.
+ *     Idempotent skip: pre-check detail (the pre-check IS the truth — no
+ *     second GET runs). Dry-run: pre-check detail. Refresh-GET-failed: null
+ *     (with a `notice` on the envelope; mirrors R10 spec 0020 decision 11).
+ *   - `would`: present only in --dry-run AND only when a POST would have run
+ *     (i.e. NOT already-in-target-tasklist). Mirrors R11's shape.
+ *
+ * Spec 0022 §3.2 / §3.5 / §4.
+ */
+export const TasksMoveDataSchema = z.object({
+  task_id: z.number().int(),
+  from_tasklist_id: z.number().int().nullable(),
+  to_tasklist_id: z.number().int(),
+  from_project_id: z.number().int().nullable(),
+  to_project_id: z.number().int().nullable(),
+  already_in_target_tasklist: z.boolean(),
+  task: TaskDetailSchema.nullable().optional(),
+  would: z
+    .object({
+      method: z.literal('POST'),
+      path: z.string(),
+      body: z.unknown(),
+    })
+    .optional(),
+});
+
+export type TasksMoveData = z.infer<typeof TasksMoveDataSchema>;
