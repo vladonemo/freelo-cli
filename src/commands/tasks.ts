@@ -6,6 +6,7 @@ import { registerCreate } from './tasks/create.js';
 import { registerEdit } from './tasks/edit.js';
 import { registerFinish } from './tasks/finish.js';
 import { registerReopen } from './tasks/reopen.js';
+import { registerMove } from './tasks/move.js';
 
 /**
  * Register the `tasks` subcommand tree on the root program. Mirrors the
@@ -29,4 +30,5 @@ export function register(
   registerEdit(tasks, getConfig, env);
   registerFinish(tasks, getConfig, env);
   registerReopen(tasks, getConfig, env);
+  registerMove(tasks, getConfig, env);
 }
