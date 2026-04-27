@@ -49,6 +49,13 @@ jobs:
       # The `id-token: write` permission above is what npm verifies against
       # the registered Trusted Publisher for `freelo-cli`. No NPM_TOKEN
       # secret is required.
+      #
+      # GITHUB_TOKEN must be a PAT (or GitHub App token), NOT the default
+      # `secrets.GITHUB_TOKEN`. GitHub suppresses workflow runs from events
+      # triggered by the default token, so the Version Packages PR opened
+      # with it never fires `ci.yml` and stays blocked by branch protection.
+      # `RELEASE_GITHUB_TOKEN` is a fine-grained PAT scoped to this repo
+      # with Contents: read/write and Pull requests: read/write.
       - name: changesets
         uses: changesets/action@v1
         with:
@@ -57,5 +64,5 @@ jobs:
           commit: 'chore(release): version packages'
           title: 'chore(release): version packages'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: 'true'
