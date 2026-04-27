@@ -965,6 +965,139 @@ export const tasksCreateHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo tasks edit <id>` (R10, spec 0020).
+ *
+ * Three endpoints:
+ *   - `POST /task/{id}` — partial edit (returns `TaskDetail`)
+ *   - `POST /task-labels/add-to-task/{id}` — name-mode label add
+ *   - `POST /task-labels/remove-from-task/{id}` — name-mode label remove
+ *
+ * The lookup `GET /task/{id}` and the post-edit refresh `GET /task/{id}` are
+ * served by `tasksShowHandlers.detailOk` (reused — same endpoint).
+ */
+export const tasksEditHandlers = {
+  /** `POST /task/{id}` — 200 with the supplied `TaskDetail` body. */
+  ok(taskId: number, body: Record<string, unknown>): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}`, () => HttpResponse.json(body));
+  },
+
+  /** `POST /task/{id}` — 200, capturing the request body via the predicate. */
+  okWhenBody(
+    taskId: number,
+    predicate: (body: unknown, request: Request) => boolean,
+    response: Record<string, unknown>,
+  ): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json(response);
+    });
+  },
+
+  /** `POST /task/{id}` — 401. */
+  editUnauthorized(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `POST /task/{id}` — 403. */
+  editForbidden(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}`, () =>
+      HttpResponse.json({ errors: ['User has no access.'] }, { status: 403 }),
+    );
+  },
+
+  /** `POST /task/{id}` — 422 with a server message. */
+  editUnprocessable(taskId: number, message = 'Server-side validation failed.'): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 422 }),
+    );
+  },
+
+  /** `POST /task/{id}` — 429. */
+  editRateLimited(taskId: number): RequestHandler {
+    return http.post(
+      `${API_BASE}/task/${taskId}`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** `POST /task/{id}` — connection-closed (network error). */
+  editNetworkError(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}`, () => HttpResponse.error());
+  },
+
+  /** `POST /task/{id}` — malformed body (missing required `id`). */
+  editMalformed(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}`, () =>
+      HttpResponse.json({ name: 'oops, no id' }),
+    );
+  },
+
+  /** `POST /task-labels/add-to-task/{id}` — 200 success. */
+  addLabelsOk(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task-labels/add-to-task/${taskId}`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /** `POST /task-labels/add-to-task/{id}` — 200; predicate inspects the body. */
+  addLabelsOkWhenBody(taskId: number, predicate: (body: unknown) => boolean): RequestHandler {
+    return http.post(`${API_BASE}/task-labels/add-to-task/${taskId}`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json({ result: 'success' });
+    });
+  },
+
+  /** `POST /task-labels/add-to-task/{id}` — 422 (e.g. `Unsupported color`). */
+  addLabelsUnprocessable(
+    taskId: number,
+    message = 'Unsupported color (X) provided.',
+  ): RequestHandler {
+    return http.post(`${API_BASE}/task-labels/add-to-task/${taskId}`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 422 }),
+    );
+  },
+
+  /** `POST /task-labels/remove-from-task/{id}` — 200 success. */
+  removeLabelsOk(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task-labels/remove-from-task/${taskId}`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /** `POST /task-labels/remove-from-task/{id}` — 200; predicate inspects the body. */
+  removeLabelsOkWhenBody(taskId: number, predicate: (body: unknown) => boolean): RequestHandler {
+    return http.post(`${API_BASE}/task-labels/remove-from-task/${taskId}`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json({ result: 'success' });
+    });
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
