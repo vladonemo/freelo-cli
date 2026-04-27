@@ -1,5 +1,223 @@
 # freelo-cli
 
+## 0.16.0
+
+### Minor Changes
+
+- 11e4888: R12.5 — `freelo tasks move --stdin` batch input. Move many tasks in one
+  invocation, each row pointing at its own destination tasklist (and optionally
+  project). Closes the gap between `tasks move` and the rest of the write
+  surface that already supports batch.
+
+  NDJSON in / NDJSON out, one envelope per row. Per-line shape:
+  `{"id": <task_id>, "to_tasklist": <tasklist_id>, "to_project"?: <project_id>}`.
+
+  - **Continue-on-error semantics** — a bad line does not abort the run; the
+    exit code at end-of-run is the max of per-line exit codes (matches R09 /
+    R11 batch precedent).
+  - **Per-row idempotency** — a row whose `to_tasklist` matches the task's
+    current tasklist returns `already_in_target_tasklist: true` (no POST).
+  - **Per-row `to_project` assertion** — same post-move sanity check as
+    single-mode `--to-project`, but per-row. Mismatch emits a `notice` on
+    that line's envelope; exit stays 0 for that row.
+  - **`--stdin` is mutex** with positional `<id>`, `--to-tasklist`, and
+    `--to-project`. Combining them fails fast with `VALIDATION_ERROR`.
+
+  **Schema delta (additive minor):** `freelo.tasks.move/v1` envelopes carry an
+  optional `data.line_index` field in batch mode. Single-mode envelopes are
+  **byte-identical** to R12 v1 (no `line_index`).
+
+  No new dependencies. No changes to `src/lib/batch.ts` (existing primitives
+  are already schema-generic).
+
+- 6d28ecf: R12 — `freelo tasks move <id>` to relocate tasks across tasklists and
+  (optionally) projects. New envelope schema: `freelo.tasks.move/v1`.
+
+  The destination tasklist (`--to-tasklist <id>`) is required; the destination
+  project is server-derived from it (cross-project moves work transparently).
+  The optional `--to-project <id>` flag is a post-move sanity check — on
+  mismatch the envelope carries a `notice` (exit stays 0).
+
+  Idempotent: a task that is already in the target tasklist is skipped (no
+  POST, no refresh GET) and the envelope returns
+  `already_in_target_tasklist: true`. Reuses the shared idempotency helper
+  shipped in R11.
+
+  Single-id only in v1 — no `--ids` / `--stdin` batch input. Compose via
+  `xargs` for batch workflows.
+
+- 5e478b5: R13 — `freelo tasks delete <id>` to soft-delete tasks. **The first
+  destructive command in the CLI** — gates every wire call behind a
+  confirmation step.
+
+  Three input shapes (mutex):
+
+  - Positional: `freelo tasks delete 9012 9013 9014 --yes`
+  - `--ids`: `freelo tasks delete --ids "9012,9013,9014" --yes`
+  - `--stdin` NDJSON: `echo '{"id": 9012}' | freelo tasks delete --stdin --yes`
+
+  Confirmation policy (new shared helper `src/lib/confirm.ts`, reused by every
+  later destructive command):
+
+  - `--yes` or `--dry-run` → unconditional bypass.
+  - TTY without `--yes` → prompt once for the whole run (`Delete N task(s)?`,
+    default no). Declined → `CONFIRMATION_REQUIRED` (exit 2).
+  - **Non-TTY without `--yes` → fail closed** with `CONFIRMATION_REQUIRED`
+    (exit 2) before any wire call. Agents and CI must opt in explicitly.
+
+  Idempotent: a `DELETE /task/{id}` that returns 404 (the task was already
+  deleted) is re-classified as a success envelope with
+  `already_in_target_state: true`. The CLI does **not** pre-fetch via GET —
+  the DELETE response is authoritative and `previous_state` is therefore
+  `null` in v1.
+
+  New envelope: `freelo.tasks.delete/v1`. New schema fields:
+
+  - `task_id`, `previous_state` (always `null` in v1), `current_state`
+    (always `'deleted'`), `already_in_target_state`, optional `would`
+    (dry-run), optional `line_index` (`--stdin` batch).
+
+  Batch (`--stdin`) supports continue-on-error semantics with max-of exit
+  codes per R09/R11/R12.5 precedent.
+
+  `@inquirer/prompts` import stays lazy (TTY-prompt branch only) — the
+  agent cold path never pulls it in.
+
+  `destructive: true` in the introspect entry — the first command to set
+  this. Future destructive commands (`tasks archive`, `subtasks delete`,
+  `comments delete`, `files delete`, `projects delete`, `tasklists delete`)
+  will all reuse `confirmDestructive` byte-for-byte.
+
+  No new dependencies.
+
+- 4cb21ff: R14 — `freelo subtasks` (smart list). Two new commands under a brand-new
+  top-level `subtasks` subcommand:
+
+  - `freelo subtasks list --task <id> [--page N | --all]` — paginated read of
+    one parent task's subtasks (taskchecks). Reuses R08's `SubtaskSchema` and
+    the `fetchAllPages` infrastructure from R03.
+  - `freelo subtasks add --task <id> --name <str> [--worker <id>] [--due YYYY-MM-DD]
+[--dry-run] [--stdin]` — creates a subtask. Additive (not destructive); no
+    confirmation gate.
+
+  **Smart-vs-simple fallback (the headline UX feature).** Freelo's API auto-
+  falls-back from a **smart taskcheck** (full task with worker / due date /
+  tracking users) to a **simple taskcheck** (a checkbox row with only a name)
+  when the parent's tasklist can't host smart ones (OpenAPI :2425). The CLI
+  surfaces the resulting form in the response envelope:
+
+  - `data.storage_form: 'smart' | 'simple'` — inferred from the response shape
+    (any of `worker`, `due_date`, `state`, `tasklist`, `project` populated →
+    `smart`; otherwise `simple`).
+  - `data.input_ignored: ['worker', 'due']` — only present on the `simple`
+    path AND only for fields the user actually set that the server discarded.
+
+  The `freelo subtasks add --help` text explains this behavior (roadmap-
+  mandated UX requirement).
+
+  **Two new envelope schemas (additive surface):**
+
+  - `freelo.subtasks.list/v1` — `{ task_id, subtasks: Subtask[] }` plus
+    envelope-level `paging` and `rate_limit`.
+  - `freelo.subtasks.add/v1` — `{ task_id, subtask?, storage_form?,
+input_ignored?, would?, line_index? }`. `subtask` and `storage_form` are
+    always present in live envelopes and absent in `--dry-run`.
+
+  `--stdin` NDJSON batch mode for `subtasks add` mirrors R09 / R12.5 (per-line
+  schema, continue-on-error, max-of exit codes, lazy client construction).
+  Per-line `task` is rejected — `--task` is shared per-batch on the command
+  line.
+
+  No new dependencies. The wire wrapper for the existing `GET /task/{id}/subtasks`
+  endpoint is reused as-is from R08 (`src/api/tasks.ts`); only the new POST
+  wrapper, the storage-form inference helper, and CLI envelope-data schemas
+  land in this slice.
+
+- 48c27a3: R15 — `freelo tasks description` (get/set). Two new commands under a new
+  nested `tasks description` subcommand:
+
+  - `freelo tasks description get <id>` — print the rich-text description (the
+    canonical body of a task). Reuses R08's `getTaskDescription` wire wrapper
+    and `TaskCommentSchema`.
+  - `freelo tasks description set <id> (--from-file <path> | --editor | -)
+[--dry-run]` — replace the description (upsert; first call creates,
+    subsequent call overwrites entirely with no history per the Freelo API
+    contract). Content comes from one of three input sources, each mediated by
+    the new shared `src/lib/input.ts` helper.
+
+  **First introduction of the `src/lib/input.ts` helper** (per
+  `docs/roadmap.md:686`). Generic and reusable: `readInput({ kind: 'file' |
+'stdin' | 'editor', ... }) → { content, source }`. Future write commands
+  (R17 `comments add`, R22 `reports edit`, etc.) will reuse the same input
+  shape. Editor resolution: `$VISUAL` → `$EDITOR` → platform default
+  (`notepad.exe` on win32, `vi` elsewhere); `--editor` is TTY-only and errors
+  out cleanly in agent / CI environments.
+
+  **Empty content is rejected at the command layer.** A successful `set` with
+  empty content would silently clear the description — almost always a
+  destructive accident. The command surfaces a `VALIDATION_ERROR` (exit 2)
+  and points at `freelo tasks edit <id> --description ''` (R10) for the
+  explicit clearing path.
+
+  **Two new envelope schemas (additive surface):**
+
+  - `freelo.tasks.description.get/v1` — `{ task_id, description: Comment }`.
+    `description.id` / `.content` may be `null` on tasks with no description
+    set (the API returns 200 with empty fields per OpenAPI :2015).
+  - `freelo.tasks.description.set/v1` — `{ task_id, description?, source?,
+byte_length, would? }`. `description` and `source` are always present in
+    live envelopes and absent in `--dry-run`. `byte_length` is always
+    present so agents can verify content size against their source.
+
+  `set` is **`destructive: false`** — same precedent as R10 (`tasks edit
+--description`). `--dry-run` is the safety net for upsert-class writes.
+
+  No new runtime dependencies. The new wire wrapper (`setTaskDescription` in
+  `src/api/tasks-description.ts`) reuses the existing `TaskCommentSchema`
+  from R08; only the POST wrapper, the input helper, and CLI envelope-data
+  schemas land in this slice. No `--files` / multipart support in v1 (R25
+  multipart helper).
+
+- 6613b23: R16 — `freelo comments list`. The first command in a brand-new top-level
+  `comments` subcommand:
+
+  - `freelo comments list [--project <id> ...] [--type <all|task|document|file|link>]
+[--order-by <date_add|date_edited_at>] [--order <asc|desc>]
+[--page N | --all] [--since YYYY-MM-DD]` — paginated read of the global
+    comment feed, ACL-filtered to whatever the caller can see. Maps to
+    `GET /all-comments`.
+
+  **One new envelope schema (additive surface):**
+
+  - `freelo.comments.list/v1` — `{ applied_filters, comments: CommentFull[] }`
+    plus envelope-level `paging` and `rate_limit`. `applied_filters` echoes
+    only the keys the user explicitly set; `comments[]` includes all the
+    documented `CommentFull` shape variants (task, document, file, link
+    comments, discriminated by which entity-link block is non-null).
+
+  **Client-side `--since` post-filter.** Freelo's `/all-comments` endpoint
+  accepts no time-window query parameter, so `--since` is implemented
+  client-side: under `--all` with the default `desc` order, iteration
+  short-circuits the moment a fetched page's last item predates the cutoff.
+  Under `--order asc`, the short-circuit is disabled and iteration continues
+  to exhaustion (post-filtering each page individually). `--since` is mutex
+  with `--page N` to avoid silent under-counting.
+
+  **Out of scope for v1 (deferred):**
+
+  - No `--task` flag. The original R16 roadmap entry mentioned
+    `GET /task/{task_id}/comments`, but that endpoint is not in
+    `docs/api/freelo-api.yaml` (only the POST counterpart is documented).
+    Task-scoped listing is deferred until Freelo confirms the GET exists
+    undocumented or adds it. Tracked as Open Question #1 in spec 0027.
+  - No `--per-page`, `--cursor`, or `--fields` flags in v1 — all
+    future-additive.
+
+  No new dependencies. Reuses the standard pagination infrastructure
+  (`fetchAllPages`, `pagingFromNormalized`, `PartialPagesError`) from R03 /
+  R14, the `buildQuery` query-encoder from R07, and the `UserBasic` schema
+  from R03.
+
 ## 0.15.0
 
 ### Minor Changes
