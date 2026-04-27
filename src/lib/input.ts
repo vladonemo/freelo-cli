@@ -189,18 +189,20 @@ async function readFromEditor(
       });
     }
 
-    // Build the spawn env. Default: inherit process.env. When the caller
-    // supplied an explicit `env` snapshot (production callers do; tests do
-    // for editor mode-mocking), pass it through so the child sees the same
-    // FREELO_FAKE_EDITOR_* vars used to drive the fake editor in tests.
+    // Build the spawn env. Always start from `process.env` so PATH and
+    // other shell essentials are available to the child (without PATH the
+    // child can't resolve `node`/`vi`/etc. on POSIX, leading to ENOENT).
+    // The caller's `opts.env` is treated as an overlay layered on top, so
+    // tests can inject FREELO_FAKE_EDITOR_* vars without having to plumb
+    // PATH themselves, and production callers (which pass the full frozen
+    // env from src/bin/freelo.ts) keep the same effective env.
     // Filter out `undefined` values — spawnSync's env type rejects them.
     const spawnEnv: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) {
+      if (typeof v === 'string') spawnEnv[k] = v;
+    }
     if (opts.env !== undefined) {
       for (const [k, v] of Object.entries(opts.env)) {
-        if (typeof v === 'string') spawnEnv[k] = v;
-      }
-    } else {
-      for (const [k, v] of Object.entries(process.env)) {
         if (typeof v === 'string') spawnEnv[k] = v;
       }
     }
