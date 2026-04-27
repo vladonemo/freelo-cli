@@ -726,3 +726,48 @@ export const TasksMoveDataSchema = z.object({
 });
 
 export type TasksMoveData = z.infer<typeof TasksMoveDataSchema>;
+
+/* ---------------------------------------------------------------------------
+ *  R13 — `freelo tasks delete <id>` (spec 0024)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Envelope `data` shape for `freelo.tasks.delete/v1`.
+ *
+ *   - `task_id`: positive integer (the task we tried to delete).
+ *   - `previous_state`: lowercase task state OR `null` when the CLI did NOT
+ *     pre-fetch via GET. R13 deliberately does NOT pre-check (spec 0024
+ *     decision 4) — the DELETE response is authoritative and a GET would
+ *     double API load on a destructive op. So `previous_state` is **always
+ *     `null`** in v1; the field is reserved (typed `nullable`) for future
+ *     versions that may decide to pre-fetch on demand.
+ *   - `current_state`: literal `'deleted'` (live success path) or the same
+ *     state as previous (idempotent skip — but in R13 v1 we never observe
+ *     a non-deleted previous_state so this is always `'deleted'` too).
+ *   - `already_in_target_state`: `true` ⇔ the DELETE returned 404 (the
+ *     task was already deleted before we got there). Mirrors R11's
+ *     idempotency convention.
+ *   - `would`: present only in `--dry-run` envelopes (and only when a
+ *     DELETE would have run; with R13 there is always a wire call to make
+ *     in the live path, so `would` is present in every dry-run envelope).
+ *   - `line_index`: present only in `--stdin` batch mode. 0-indexed across
+ *     non-empty input lines. Mirrors R09/R11/R12.5.
+ *
+ * Spec 0024 §3.2 / §4.2.
+ */
+export const TasksDeleteDataSchema = z.object({
+  task_id: z.number().int(),
+  previous_state: z.enum(['active', 'archived', 'finished', 'deleted', 'template']).nullable(),
+  current_state: z.enum(['active', 'archived', 'finished', 'deleted', 'template']),
+  already_in_target_state: z.boolean(),
+  would: z
+    .object({
+      method: z.literal('DELETE'),
+      path: z.string(),
+      body: z.unknown(),
+    })
+    .optional(),
+  line_index: z.number().int().min(0).optional(),
+});
+
+export type TasksDeleteData = z.infer<typeof TasksDeleteDataSchema>;

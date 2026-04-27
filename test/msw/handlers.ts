@@ -1248,6 +1248,72 @@ export const tasksMoveHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo tasks delete` (R13, spec 0024).
+ *
+ * One endpoint:
+ *   - `DELETE /task/{task_id}`
+ *
+ * Empty body, returns `SuccessResponse`. No pre-check GET in R13 v1
+ * (spec 0024 decision 4) — the DELETE response is authoritative.
+ */
+export const tasksDeleteHandlers = {
+  /** `DELETE /task/{id}` — 200 success. */
+  deleteOk(taskId: number): RequestHandler {
+    return http.delete(`${API_BASE}/task/${taskId}`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /**
+   * `DELETE /task/{id}` — 404. The command layer re-classifies this as
+   * idempotent already-deleted (spec 0024 decision 3).
+   */
+  deleteNotFound(taskId: number): RequestHandler {
+    return http.delete(`${API_BASE}/task/${taskId}`, () =>
+      HttpResponse.json({ errors: ['Task not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `DELETE /task/{id}` — 401. */
+  deleteUnauthorized(taskId: number): RequestHandler {
+    return http.delete(`${API_BASE}/task/${taskId}`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `DELETE /task/{id}` — 403. */
+  deleteForbidden(taskId: number): RequestHandler {
+    return http.delete(`${API_BASE}/task/${taskId}`, () =>
+      HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** `DELETE /task/{id}` — 5xx. */
+  deleteServerError(taskId: number, status = 500): RequestHandler {
+    return http.delete(`${API_BASE}/task/${taskId}`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** `DELETE /task/{id}` — 429 (Retry-After: 0). */
+  deleteRateLimited(taskId: number): RequestHandler {
+    return http.delete(
+      `${API_BASE}/task/${taskId}`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** `DELETE /task/{id}` — connection-closed (network error). */
+  deleteNetworkError(taskId: number): RequestHandler {
+    return http.delete(`${API_BASE}/task/${taskId}`, () => HttpResponse.error());
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
