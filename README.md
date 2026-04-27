@@ -73,6 +73,8 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 
 - `freelo tasks create` — Create a task in a tasklist (single or NDJSON batch via --stdin).
 - `freelo tasks delete [id...]` — Soft-delete one or more tasks. Destructive — requires --yes (non-TTY) or interactive confirmation (TTY). 404-after-delete is treated as idempotent already-deleted.
+- `freelo tasks description get <id>` — Print one task's rich-text description.
+- `freelo tasks description set <id> [input]` — Replace one task's rich-text description from a file, an interactive editor, or stdin (upsert).
 - `freelo tasks edit <id>` — Partially update a task: name, due date, worker, priority, and label diff.
 - `freelo tasks finish [id...]` — Mark tasks as finished. Idempotent: tasks already finished aren't re-POSTed.
 - `freelo tasks list` — List tasks across all projects (default) or scoped to one project + tasklist.

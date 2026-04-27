@@ -1419,6 +1419,97 @@ export const subtasksAddHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo tasks description set` (R15, spec 0026).
+ *
+ * One endpoint:
+ *   - `POST /task/{task_id}/description` — `Comment`
+ *
+ * The `freelo tasks description get` GET path is already served by
+ * `tasksShowHandlers.descriptionOk(...)` etc. — same endpoint as R08. No
+ * new GET handlers added here.
+ */
+export const tasksDescriptionHandlers = {
+  /** `POST /task/{id}/description` — 200 with the supplied response body. */
+  setOk(taskId: number, body: Record<string, unknown>): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/description`, () => HttpResponse.json(body));
+  },
+
+  /**
+   * Match-on-body variant: `predicate(body, request)` decides whether the
+   * supplied response or a 500 diagnostic comes back. Useful when a test
+   * needs to assert the exact wire body.
+   */
+  setOkWhenBody(
+    taskId: number,
+    predicate: (body: unknown, request: Request) => boolean,
+    response: Record<string, unknown>,
+  ): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/description`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json(response);
+    });
+  },
+
+  /** `POST /task/{id}/description` — 401. */
+  setUnauthorized(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/description`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `POST /task/{id}/description` — 403. */
+  setForbidden(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/description`, () =>
+      HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** `POST /task/{id}/description` — 404 (task missing). */
+  setNotFound(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/description`, () =>
+      HttpResponse.json({ errors: ['Task not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `POST /task/{id}/description` — 422 (server-side validation). */
+  setUnprocessable(taskId: number, message = 'Server-side validation failed.'): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/description`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 422 }),
+    );
+  },
+
+  /** `POST /task/{id}/description` — 5xx. */
+  setServerError(taskId: number, status = 500): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/description`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** `POST /task/{id}/description` — 429 (Retry-After: 0). */
+  setRateLimited(taskId: number): RequestHandler {
+    return http.post(
+      `${API_BASE}/task/${taskId}/description`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** `POST /task/{id}/description` — connection-closed (network error). */
+  setNetworkError(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/description`, () => HttpResponse.error());
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
