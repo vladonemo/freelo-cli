@@ -614,3 +614,57 @@ export const TasksEditDataSchema = z.object({
 });
 
 export type TasksEditData = z.infer<typeof TasksEditDataSchema>;
+
+/* ---------------------------------------------------------------------------
+ *  R11 — `freelo tasks finish` / `freelo tasks reopen` (spec 0021)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Task state values from `TaskDetail.state.state`.
+ *
+ * Mirrors the `StateSchema` enum declared at the top of this module. Exposed
+ * separately so command code can write `'active' | 'finished'` literals
+ * without importing from a private module.
+ */
+export type TaskState = 'active' | 'archived' | 'finished' | 'deleted' | 'template';
+
+/**
+ * Envelope `data` shape shared by `freelo.tasks.finish/v1` and
+ * `freelo.tasks.reopen/v1`.
+ *
+ *   - `task_id`: positive integer.
+ *   - `previous_state` / `current_state`: lowercase strings from
+ *     `TaskDetail.state.state`. Both ALWAYS present in success envelopes; in
+ *     dry-run they are equal (no POST happened).
+ *   - `already_in_target_state`: `true` ⇔ the POST was skipped because the
+ *     observed state already matched the target (idempotent short-circuit).
+ *   - `verb`: literal `'finish'` or `'reopen'`. Lets a consumer route on the
+ *     payload without re-parsing `schema`.
+ *   - `would`: present only in --dry-run AND only when a POST would have run
+ *     (i.e. NOT already-in-target).
+ *   - `line_index`: present only in --stdin batch (0-indexed across non-empty
+ *     input lines). Matches R09's convention.
+ *
+ * Both schemas — `freelo.tasks.finish/v1` and `freelo.tasks.reopen/v1` —
+ * share this `data` shape (only the schema discriminant differs). Two
+ * SchemaString constants live in code so agents can route on `schema` alone.
+ *
+ * Spec 0021 §3.2 / §4.
+ */
+export const TasksTransitionDataSchema = z.object({
+  task_id: z.number().int(),
+  previous_state: z.enum(['active', 'archived', 'finished', 'deleted', 'template']),
+  current_state: z.enum(['active', 'archived', 'finished', 'deleted', 'template']),
+  already_in_target_state: z.boolean(),
+  verb: z.enum(['finish', 'reopen']),
+  would: z
+    .object({
+      method: z.literal('POST'),
+      path: z.string(),
+      body: z.unknown(),
+    })
+    .optional(),
+  line_index: z.number().int().nonnegative().optional(),
+});
+
+export type TasksTransitionData = z.infer<typeof TasksTransitionDataSchema>;
