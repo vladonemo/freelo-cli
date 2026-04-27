@@ -254,6 +254,39 @@ freelo tasks finish --stdin                    # NDJSON in, NDJSON out
 **Endpoints:** `POST /task/{task_id}/move/{tasklist_id}`.
 **CLI:** `freelo tasks move <id> --to-tasklist <id> [--to-project <id>]`.
 **Depends on:** R10.
+**Note:** Single-id only in v1. Batch move needs two ids per row (the task and its destination tasklist), which doesn't fit the `--ids a,b,c` / single-target-`--stdin` mold from R09/R11. Tracked as R12.5.
+
+### R12.5 — `freelo tasks move` batch input (queued)
+
+**Outcome:** Move many tasks in one invocation, each row pointing at its own destination tasklist (and optionally project). Closes the only remaining gap between `tasks move` and the rest of the write surface that already supports batch.
+**Endpoints:** same as R12 — `POST /task/{task_id}/move/{tasklist_id}` per row.
+**CLI:**
+
+```
+# NDJSON in, NDJSON out — one envelope per input line:
+freelo tasks move --stdin [--dry-run]
+# Each input line: {"id": <task_id>, "to_tasklist": <tasklist_id>, "to_project"?: <project_id>}
+
+# Per-row sugar (composes with shells without writing JSON):
+freelo tasks move --pairs <id>:<tasklist_id>,<id>:<tasklist_id>,...   # optional, decide during /spec
+```
+
+**Ships with this slice:**
+
+- Extension to `src/lib/batch.ts` to support **per-row destination params**, not just a shared `<id>` list. The existing `--ids` / `--stdin` reader assumes one target verb applied to many ids; this is the first command where each row carries its own arguments. Generalizing the helper benefits any future "two-id" write (e.g. label attach with per-row label, task-relation create).
+- NDJSON row schema validated by zod before the first network call (fail-fast on a malformed line; emit row-index in the error envelope).
+- Idempotency contract preserved per row — moving a task to its current tasklist still returns `already_in_target_state: true` for that envelope.
+- Output schema: `freelo.tasks.move/v1` per row (no new schema; reuses R12).
+
+**Open questions for `/spec`:**
+
+1. Whether to ship `--pairs` sugar in addition to `--stdin`, or keep stdin-only to force structured input (consistent with how agents are expected to drive the CLI).
+2. Failure semantics: continue-on-error (current `--stdin` precedent) vs. fail-fast on first error. Default has been continue-on-error across the write commands — confirm.
+3. Whether `--to-project` makes sense as a global flag in batch mode (overriding the per-row value) or only per-row.
+
+**Tier:** Yellow (additive surface, no schema change, touches the shared batch helper which is cross-cutting — review carefully).
+**Changeset:** `freelo-cli: minor` (new flag set; envelope unchanged).
+**Depends on:** R12.
 
 ### R13 — `freelo tasks delete <id>`
 
