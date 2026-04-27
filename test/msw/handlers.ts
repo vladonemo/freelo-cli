@@ -679,6 +679,159 @@ export const tasksHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo tasks show <id>` (R08, spec 0018).
+ *
+ * Three endpoints:
+ *   - `GET /task/{id}` — `TaskDetail` (single object)
+ *   - `GET /task/{id}/description` — `TaskComment` (single object, may be empty)
+ *   - `GET /task/{id}/subtasks?p=N` — paginated `Subtask[]`
+ *
+ * The `--with projects` side-car has **no** HTTP endpoint (it's projected
+ * from the embedded `TaskDetail.multi_project_task` block — decision 1).
+ */
+export const tasksShowHandlers = {
+  /** `GET /task/{id}` — 200 with the supplied detail body. */
+  detailOk(taskId: number, body: Record<string, unknown>): RequestHandler {
+    return http.get(`${API_BASE}/task/${taskId}`, () => HttpResponse.json(body));
+  },
+
+  /** `GET /task/{id}` — 404. */
+  detailNotFound(taskId: number): RequestHandler {
+    return http.get(`${API_BASE}/task/${taskId}`, () =>
+      HttpResponse.json({ errors: ['Task not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `GET /task/{id}` — 403. */
+  detailForbidden(taskId: number): RequestHandler {
+    return http.get(`${API_BASE}/task/${taskId}`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** `GET /task/{id}` — 401. */
+  detailUnauthorized(taskId: number): RequestHandler {
+    return http.get(`${API_BASE}/task/${taskId}`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `GET /task/{id}` — 5xx. */
+  detailServerError(taskId: number, status = 500): RequestHandler {
+    return http.get(`${API_BASE}/task/${taskId}`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** `GET /task/{id}/description` — 200 with the supplied comment body. */
+  descriptionOk(taskId: number, body: Record<string, unknown>): RequestHandler {
+    return http.get(`${API_BASE}/task/${taskId}/description`, () => HttpResponse.json(body));
+  },
+
+  /** `GET /task/{id}/description` — 404. */
+  descriptionNotFound(taskId: number): RequestHandler {
+    return http.get(`${API_BASE}/task/${taskId}/description`, () =>
+      HttpResponse.json({ errors: ['Not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `GET /task/{id}/description` — 403. */
+  descriptionForbidden(taskId: number): RequestHandler {
+    return http.get(`${API_BASE}/task/${taskId}/description`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** `GET /task/{id}/description` — 5xx. */
+  descriptionServerError(taskId: number, status = 500): RequestHandler {
+    return http.get(`${API_BASE}/task/${taskId}/description`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /**
+   * `GET /task/{id}/subtasks?p=N` — paginated. `pages` keyed by 0-indexed
+   * page number; missing pages return an empty page using the last-known
+   * `per_page` and `total`. Same past-end behaviour as
+   * `projectShowHandlers.workersPaged`.
+   */
+  subtasksPaged(taskId: number, pages: Record<number, PagedFixture>): RequestHandler {
+    return http.get(`${API_BASE}/task/${taskId}/subtasks`, ({ request }) => {
+      const u = new URL(request.url);
+      const p = Number(u.searchParams.get('p') ?? '0');
+      const known = Object.keys(pages)
+        .map(Number)
+        .sort((a, b) => a - b);
+      const lastKnown = known[known.length - 1] ?? 0;
+      const fixture = pages[p];
+      if (fixture !== undefined) return HttpResponse.json(fixture);
+      const ref = pages[lastKnown];
+      if (!ref) {
+        return HttpResponse.json({
+          total: 0,
+          count: 0,
+          page: p,
+          per_page: 25,
+          data: { subtasks: [] },
+        });
+      }
+      return HttpResponse.json({
+        total: ref.total,
+        count: 0,
+        page: p,
+        per_page: ref.per_page,
+        data: { subtasks: [] },
+      });
+    });
+  },
+
+  /** `GET /task/{id}/subtasks` — 404. */
+  subtasksNotFound(taskId: number): RequestHandler {
+    return http.get(`${API_BASE}/task/${taskId}/subtasks`, () =>
+      HttpResponse.json({ errors: ['Not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `GET /task/{id}/subtasks` — 403. */
+  subtasksForbidden(taskId: number): RequestHandler {
+    return http.get(`${API_BASE}/task/${taskId}/subtasks`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** `GET /task/{id}/subtasks` — 5xx for any page. */
+  subtasksServerError(taskId: number, status = 500): RequestHandler {
+    return http.get(`${API_BASE}/task/${taskId}/subtasks`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /**
+   * Mid-stream subtasks fetch failure: succeeds for `p < failPage`, errors
+   * at `p === failPage`. Drives the `PartialPagesError` unwrap path in the
+   * command (mirrors `projectShowHandlers.workersMidStreamError`).
+   */
+  subtasksMidStreamError(opts: {
+    taskId: number;
+    pages: Record<number, PagedFixture>;
+    failPage: number;
+    status?: number;
+  }): RequestHandler {
+    const { taskId, pages, failPage, status = 500 } = opts;
+    return http.get(`${API_BASE}/task/${taskId}/subtasks`, ({ request }) => {
+      const u = new URL(request.url);
+      const p = Number(u.searchParams.get('p') ?? '0');
+      if (p === failPage) {
+        return HttpResponse.json({ errors: ['mid-stream'] }, { status });
+      }
+      const fixture = pages[p];
+      if (fixture !== undefined) return HttpResponse.json(fixture);
+      return HttpResponse.json({ errors: ['unexpected'] }, { status: 500 });
+    });
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));

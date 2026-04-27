@@ -218,3 +218,218 @@ export const TASK_FINISHED_DEFAULT_FIELDS: readonly string[] = Object.freeze([
   'date_finished',
   'finished_by',
 ]);
+
+/* ---------------------------------------------------------------------------
+ *  R08 — `freelo tasks show <id>` (spec 0018)
+ *
+ *  TaskDetail is materially richer than TaskFull/TaskSummary — adds
+ *  priority_enum, count_subtasks, cost, comments[], custom_fields[], time
+ *  estimates, tracking_users[], and the multi_project_task block. Declared
+ *  from scratch (not extended) so we don't drag the leaner shapes' field
+ *  set as required (spec 0018 §4.1, OQ#5).
+ * ------------------------------------------------------------------------- */
+
+const PriorityEnumSchema = z.enum(['l', 'm', 'h']);
+
+/**
+ * Money amount embedded in `TaskDetail.cost`. Live Freelo API returns the
+ * same union-of-string-or-number that `tasklist.ts` / `project.ts` document
+ * for `CurrencySchema`. We normalize to string for envelope stability.
+ *
+ * Inlined here (not imported) so R08's schema work is self-contained — the
+ * cross-module shared `Currency` is a follow-up refactor (same approach as
+ * `TimeEstimateSchema` / `UserTimeEstimateSchema` already inlined for R07).
+ */
+const CurrencySchema = z.object({
+  amount: z
+    .union([z.string(), z.number()])
+    .refine((v) => typeof v === 'string' || (Number.isFinite(v) && !Number.isNaN(v)), {
+      message: 'amount must be a finite number or a string',
+    })
+    .transform((v) => String(v)),
+  currency: z.enum(['CZK', 'EUR', 'USD']),
+});
+
+const FileBasicSchema = z
+  .object({
+    id: z.number().int(),
+    uuid: z.string(),
+    filename: z.string().nullable().optional(),
+    size: z.number().int().nullable().optional(),
+  })
+  .passthrough();
+
+/**
+ * Comment embedded inside `TaskDetail.comments[]`. Per OpenAPI :5589-5605 a
+ * `CommentWithFiles` extends the bare `Comment` with author / is_description /
+ * comments_reactions / files (rich `FileFull`). We accept the loosened shape
+ * — author / files / etc. all `.nullable().optional()` — to absorb whatever
+ * Freelo returns.
+ */
+const CommentWithFilesSchema = z
+  .object({
+    id: z.number().int(),
+    content: z.string().nullable().optional(),
+    date_add: z.string().nullable().optional(),
+    author: UserBasicSchema.nullable().optional(),
+    is_description: z.boolean().nullable().optional(),
+    files: z.array(FileBasicSchema).nullable().optional(),
+  })
+  .passthrough();
+
+const ProjectBasicRefSchema = z
+  .object({
+    id: z.number().int(),
+    name: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+const TasklistBasicRefSchema = z
+  .object({
+    id: z.number().int(),
+    name: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+/**
+ * Multi-project membership block embedded in `TaskDetail.multi_project_task`.
+ *
+ * The OpenAPI documents this loosely (description :1676 — *"the response
+ * contains a `multi_project_task` block mapping the task across its projects"*)
+ * without nailing down the exact shape. We accept any object with an
+ * optional `projects: { id, name? }[]` array; `passthrough()` keeps the door
+ * open for additional fields Freelo may emit.
+ *
+ * R08's `--with projects` side-car projects this block into a top-level
+ * envelope key (`data.projects`) — see decision 1.
+ *
+ * Exported because the envelope `data` schema (`TasksShowDataSchema` below)
+ * references it, and the human renderer formats it.
+ */
+export const MultiProjectBlockSchema = z
+  .object({
+    projects: z
+      .array(
+        z
+          .object({
+            id: z.number().int(),
+            name: z.string().nullable().optional(),
+          })
+          .passthrough(),
+      )
+      .nullable()
+      .optional(),
+  })
+  .passthrough();
+
+export type MultiProjectBlock = z.infer<typeof MultiProjectBlockSchema>;
+
+/**
+ * `TaskDetail` per OpenAPI :5381-5448. Returned by `GET /task/{id}`.
+ *
+ * Every optional field is `.nullable().optional()` (Freelo treats null and
+ * absent interchangeably, R05.5 hardening). `.passthrough()` lets unknown
+ * fields ride through to the envelope (forward-compat).
+ *
+ * Spec 0018 §4.1.
+ */
+export const TaskDetailSchema = z
+  .object({
+    id: z.number().int(),
+    name: z.string().nullable().optional(),
+    date_add: z.string().nullable().optional(),
+    date_edited_at: z.string().nullable().optional(),
+    due_date: z.string().nullable().optional(),
+    due_date_end: z.string().nullable().optional(),
+    date_finished: z.string().nullable().optional(),
+    minutes: z.number().int().nullable().optional(),
+    priority_enum: PriorityEnumSchema.nullable().optional(),
+    count_subtasks: z.number().int().nullable().optional(),
+    parent_task_id: z.number().int().nullable().optional(),
+    cost: CurrencySchema.nullable().optional(),
+    author: UserBasicSchema.nullable().optional(),
+    worker: UserBasicSchema.nullable().optional(),
+    state: StateSchema.nullable().optional(),
+    comments: z.array(CommentWithFilesSchema).nullable().optional(),
+    labels: z.array(TaskLabelSchema).nullable().optional(),
+    project: ProjectBasicRefSchema.nullable().optional(),
+    tasklist: TasklistBasicRefSchema.nullable().optional(),
+    custom_fields: z.array(z.unknown()).nullable().optional(),
+    total_time_estimate: TimeEstimateSchema.nullable().optional(),
+    users_time_estimates: z.array(UserTimeEstimateSchema).nullable().optional(),
+    tracking_users: z.array(UserBasicSchema).nullable().optional(),
+    multi_project_task: MultiProjectBlockSchema.nullable().optional(),
+  })
+  .passthrough();
+
+export type TaskDetail = z.infer<typeof TaskDetailSchema>;
+
+/**
+ * `Subtask` per OpenAPI :5482-5530. Inner-array element of
+ * `GET /task/{id}/subtasks` (paginated).
+ *
+ * Spec 0018 §4.2.
+ */
+export const SubtaskSchema = z
+  .object({
+    id: z.number().int(),
+    task_id: z.number().int().nullable().optional(),
+    name: z.string().nullable().optional(),
+    date_add: z.string().nullable().optional(),
+    due_date: z.string().nullable().optional(),
+    due_date_end: z.string().nullable().optional(),
+    count_comments: z.number().int().nullable().optional(),
+    count_subtasks: z.number().int().nullable().optional(),
+    author: UserBasicSchema.nullable().optional(),
+    worker: UserBasicSchema.nullable().optional(),
+    state: StateSchema.nullable().optional(),
+    project: ProjectBasicRefSchema.nullable().optional(),
+    tasklist: TasklistBasicRefSchema.nullable().optional(),
+    labels: z.array(TaskLabelSchema).nullable().optional(),
+  })
+  .passthrough();
+
+export type Subtask = z.infer<typeof SubtaskSchema>;
+
+/**
+ * Lean `Comment` shape returned by `GET /task/{id}/description` (OpenAPI
+ * :5574-5587 + endpoint description :2014).
+ *
+ * `id` is `.nullable().optional()` — when the task has no description yet,
+ * the response is still 200 but fields may be empty / null per OpenAPI :2014.
+ * `passthrough()` because Freelo can extend the wire shape.
+ *
+ * Spec 0018 §4.3.
+ */
+export const TaskCommentSchema = z
+  .object({
+    id: z.number().int().nullable().optional(),
+    content: z.string().nullable().optional(),
+    date_add: z.string().nullable().optional(),
+    files: z.array(FileBasicSchema).nullable().optional(),
+  })
+  .passthrough();
+
+export type TaskComment = z.infer<typeof TaskCommentSchema>;
+
+/**
+ * Envelope `data` shape for `freelo.tasks.show/v1` (R08).
+ *
+ *   - `task` always present (the `/task/{id}` call is mandatory).
+ *   - `description` present only when `--with description` was passed.
+ *   - `subtasks` present only when `--with subtasks` was passed.
+ *   - `projects` present only when `--with projects` was passed; **may be
+ *     `null`** when the task is single-project (no `multi_project_task`
+ *     block on the wire). Three states matter — absent vs. null vs. object —
+ *     and agents key off both `'projects' in data` and the value (decision 2).
+ *
+ * Spec 0018 §3.2 / §4.4.
+ */
+export const TasksShowDataSchema = z.object({
+  task: TaskDetailSchema,
+  description: TaskCommentSchema.optional(),
+  subtasks: z.array(SubtaskSchema).optional(),
+  projects: MultiProjectBlockSchema.nullable().optional(),
+});
+
+export type TasksShowData = z.infer<typeof TasksShowDataSchema>;

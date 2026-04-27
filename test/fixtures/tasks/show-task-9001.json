@@ -1,0 +1,29 @@
+{
+  "id": 9001,
+  "name": "Audit auth flow",
+  "date_add": "2026-01-15T09:00:00Z",
+  "date_edited_at": "2026-04-20T11:23:45Z",
+  "due_date": "2026-04-30T00:00:00Z",
+  "due_date_end": null,
+  "date_finished": null,
+  "minutes": 120,
+  "priority_enum": "m",
+  "count_subtasks": 3,
+  "parent_task_id": null,
+  "cost": { "amount": "5000", "currency": "CZK" },
+  "author": { "id": 9, "fullname": "Owner Name" },
+  "worker": { "id": 17, "fullname": "Jane Doe" },
+  "state": { "id": 1, "state": "active" },
+  "comments": [],
+  "labels": [
+    { "uuid": "lbl-1", "name": "urgent", "color": "#ff0000" },
+    { "uuid": "lbl-2", "name": "backend", "color": "#0000ff" }
+  ],
+  "project": { "id": 42, "name": "Site redesign" },
+  "tasklist": { "id": 314, "name": "Backend QA" },
+  "custom_fields": [],
+  "total_time_estimate": { "minutes": 240 },
+  "users_time_estimates": [],
+  "tracking_users": [{ "id": 17, "fullname": "Jane Doe" }],
+  "multi_project_task": null
+}

@@ -1,0 +1,42 @@
+{
+  "total": 3,
+  "count": 2,
+  "page": 0,
+  "per_page": 2,
+  "data": {
+    "subtasks": [
+      {
+        "id": 8001,
+        "task_id": 9001,
+        "name": "Sub 1 — collect endpoint inventory",
+        "date_add": "2026-01-16T08:00:00Z",
+        "due_date": "2026-04-25T00:00:00Z",
+        "due_date_end": null,
+        "count_comments": 0,
+        "count_subtasks": 0,
+        "author": { "id": 17, "fullname": "Jane Doe" },
+        "worker": { "id": 17, "fullname": "Jane Doe" },
+        "state": { "id": 1, "state": "active" },
+        "project": { "id": 42, "name": "Site redesign" },
+        "tasklist": { "id": 314, "name": "Backend QA" },
+        "labels": []
+      },
+      {
+        "id": 8002,
+        "task_id": 9001,
+        "name": "Sub 2 — write threat model",
+        "date_add": "2026-01-17T08:00:00Z",
+        "due_date": null,
+        "due_date_end": null,
+        "count_comments": 1,
+        "count_subtasks": 0,
+        "author": { "id": 17, "fullname": "Jane Doe" },
+        "worker": null,
+        "state": { "id": 3, "state": "finished" },
+        "project": { "id": 42, "name": "Site redesign" },
+        "tasklist": { "id": 314, "name": "Backend QA" },
+        "labels": []
+      }
+    ]
+  }
+}

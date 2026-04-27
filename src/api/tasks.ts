@@ -3,8 +3,14 @@ import { type ApiResponse, type HttpClient } from './client.js';
 import {
   TaskFullSchema,
   TaskSummarySchema,
+  TaskDetailSchema,
+  TaskCommentSchema,
+  SubtaskSchema,
   type TaskFull,
   type TaskSummary,
+  type TaskDetail,
+  type TaskComment,
+  type Subtask,
 } from './schemas/task.js';
 import { type NormalizedPage, normalizePaginated, synthesizeUnpaginated } from './pagination.js';
 import { buildQuery } from '../lib/query.js';
@@ -142,5 +148,75 @@ export async function getTasklistActiveTasks(
     ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
   });
   const page = synthesizeUnpaginated(raw.data);
+  return { page, raw };
+}
+
+/* ---------------------------------------------------------------------------
+ *  R08 — `freelo tasks show <id>` (spec 0018)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * `GET /task/{id}` — returns the rich `TaskDetail` shape. Carries the
+ * `multi_project_task` block that R08's `--with projects` projects into
+ * the envelope (decision 1, no separate HTTP call).
+ *
+ * OpenAPI :1662-1689. Spec 0018 §4.5.
+ */
+export async function getTaskDetail(
+  client: HttpClient,
+  taskId: number,
+  opts: FetchOpts,
+): Promise<ApiResponse<TaskDetail>> {
+  return client.request({
+    method: 'GET',
+    path: `/task/${taskId}`,
+    schema: TaskDetailSchema,
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+}
+
+/**
+ * `GET /task/{id}/description` — returns a single `Comment` (id, content,
+ * date_add, files[]). Empty descriptions still return 200 with empty/null
+ * fields per OpenAPI :2014; the schema's `id`/`content` are nullable to
+ * tolerate that.
+ *
+ * OpenAPI :2002-2025. Spec 0018 §4.5.
+ */
+export async function getTaskDescription(
+  client: HttpClient,
+  taskId: number,
+  opts: FetchOpts,
+): Promise<ApiResponse<TaskComment>> {
+  return client.request({
+    method: 'GET',
+    path: `/task/${taskId}/description`,
+    schema: TaskCommentSchema,
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+}
+
+/**
+ * `GET /task/{id}/subtasks?p=N` — paginated; inner key `subtasks`, items are
+ * `Subtask`. Reuses `normalizePaginated` so the command can drive
+ * `fetchAllPages` with the standard contract (mirrors R04 `getProjectWorkers`).
+ *
+ * OpenAPI :2380-2415. Spec 0018 §4.5.
+ */
+export async function getTaskSubtasks(
+  client: HttpClient,
+  taskId: number,
+  opts: FetchOpts & { page: number },
+): Promise<{ page: NormalizedPage<Subtask>; raw: ApiResponse<unknown> }> {
+  const raw = await client.request({
+    method: 'GET',
+    path: `/task/${taskId}/subtasks?p=${opts.page}`,
+    schema: z.unknown(),
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+  const page = normalizePaginated(raw.data, 'subtasks', SubtaskSchema);
   return { page, raw };
 }

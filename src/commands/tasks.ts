@@ -1,6 +1,7 @@
 import { type Command } from 'commander';
 import { type GetAppConfig } from '../config/schema.js';
 import { registerList } from './tasks/list.js';
+import { registerShow } from './tasks/show.js';
 
 /**
  * Register the `tasks` subcommand tree on the root program. Mirrors the
@@ -17,4 +18,5 @@ export function register(
     .description('Browse Freelo tasks across the projects and tasklists you can see.');
 
   registerList(tasks, getConfig, env);
+  registerShow(tasks, getConfig, env);
 }
