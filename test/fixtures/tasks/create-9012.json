@@ -1,0 +1,17 @@
+{
+  "id": 9012,
+  "name": "Audit auth flow",
+  "date_add": "2026-04-27T20:30:00Z",
+  "due_date": "2026-04-30T00:00:00Z",
+  "due_date_end": null,
+  "worker": { "id": 17, "fullname": "Jane Doe" },
+  "priority_enum": "h",
+  "labels": [
+    { "uuid": "00000000-0000-4000-8000-000000000001", "name": "blocker", "color": "#ff5555" }
+  ],
+  "tracking_users": [
+    { "id": 17, "fullname": "Jane Doe" },
+    { "id": 1, "fullname": "Owner Name" }
+  ],
+  "subtasks": []
+}

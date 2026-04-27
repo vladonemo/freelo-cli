@@ -433,3 +433,104 @@ export const TasksShowDataSchema = z.object({
 });
 
 export type TasksShowData = z.infer<typeof TasksShowDataSchema>;
+
+/* ---------------------------------------------------------------------------
+ *  R09 — `freelo tasks create` (spec 0019)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * `TaskCreated` — server response shape from `POST /project/{p}/tasklist/{t}/tasks`.
+ *
+ * OpenAPI :5339-5380. Mirrors R07/R08 conventions:
+ *   - `.passthrough()` because Freelo can extend the wire shape;
+ *   - non-`id`/`name` fields are `.nullable().optional()` because Freelo treats
+ *     null and absent interchangeably for empty data.
+ *
+ * Spec 0019 §5.
+ */
+export const TaskCreatedSchema = z
+  .object({
+    id: z.number().int(),
+    name: z.string(),
+    date_add: z.string().nullable().optional(),
+    due_date: z.string().nullable().optional(),
+    due_date_end: z.string().nullable().optional(),
+    worker: UserBasicSchema.nullable().optional(),
+    priority_enum: z.string().nullable().optional(),
+    labels: z.array(TaskLabelSchema).nullable().optional(),
+    tracking_users: z.array(UserBasicSchema).nullable().optional(),
+    subtasks: z
+      .array(
+        z
+          .object({
+            id: z.number().int(),
+            task_id: z.number().int(),
+            name: z.string(),
+          })
+          .passthrough(),
+      )
+      .nullable()
+      .optional(),
+  })
+  .passthrough();
+
+export type TaskCreated = z.infer<typeof TaskCreatedSchema>;
+
+/**
+ * CLI-side input shape for `buildCreateTaskBody`.
+ *
+ * Distinct from the wire shape (`CreateTaskBody`) — the CLI accepts the
+ * ergonomic `--due YYYY-MM-DD` and `--priority low|normal|high` forms; the
+ * builder maps them to `due_date: YYYY-MM-DDT00:00:00Z` (decision 1) and
+ * `priority_enum: 'l'|'m'|'h'`.
+ */
+export type CreateTaskInput = {
+  name: string;
+  due?: string;
+  worker?: number;
+  priority?: 'low' | 'normal' | 'high';
+  labels?: readonly string[];
+  description?: string;
+};
+
+/**
+ * Wire-shape of the POST body. Matches `TaskCreate` (OpenAPI :5300-5337) for
+ * the subset of fields R09 supports. Fields are emitted only when set —
+ * matches the `applied_filters` convention in R07.
+ */
+export type CreateTaskBody = {
+  name: string;
+  due_date?: string;
+  worker?: number;
+  priority_enum?: 'h' | 'm' | 'l';
+  comment?: { content: string };
+  labels?: { name: string }[];
+};
+
+/**
+ * Envelope `data` shape for `freelo.tasks.create/v1`.
+ *
+ *   - `task` is **always present** in success envelopes (live mode).
+ *   - `tasklist_id` and `project_id` are echoed for round-trip clarity.
+ *   - `would` is **only present** in `--dry-run` envelopes (decision: pulled
+ *     up to envelope-data so `dry_run: true` + `data.would` is a single
+ *     coherent shape).
+ *   - `line_index` is **only present** in batch (`--stdin`) mode — 0-indexed.
+ *
+ * Spec 0019 §3.2.
+ */
+export const TasksCreateDataSchema = z.object({
+  task: TaskCreatedSchema.optional(),
+  tasklist_id: z.number().int(),
+  project_id: z.number().int().nullable(),
+  would: z
+    .object({
+      method: z.literal('POST'),
+      path: z.string(),
+      body: z.unknown(),
+    })
+    .optional(),
+  line_index: z.number().int().nonnegative().optional(),
+});
+
+export type TasksCreateData = z.infer<typeof TasksCreateDataSchema>;
