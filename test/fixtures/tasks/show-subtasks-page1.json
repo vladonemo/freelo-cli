@@ -1,0 +1,26 @@
+{
+  "total": 3,
+  "count": 1,
+  "page": 1,
+  "per_page": 2,
+  "data": {
+    "subtasks": [
+      {
+        "id": 8003,
+        "task_id": 9001,
+        "name": "Sub 3 — pen-test session login",
+        "date_add": "2026-01-18T08:00:00Z",
+        "due_date": "2026-05-10T00:00:00Z",
+        "due_date_end": null,
+        "count_comments": 0,
+        "count_subtasks": 0,
+        "author": { "id": 17, "fullname": "Jane Doe" },
+        "worker": { "id": 23, "fullname": "Karel Novak" },
+        "state": { "id": 1, "state": "active" },
+        "project": { "id": 42, "name": "Site redesign" },
+        "tasklist": { "id": 314, "name": "Backend QA" },
+        "labels": []
+      }
+    ]
+  }
+}

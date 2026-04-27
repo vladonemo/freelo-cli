@@ -1,0 +1,6 @@
+{
+  "id": 55501,
+  "content": "We need to audit the OAuth2 flow end-to-end. Focus areas:\n\n- token refresh boundary\n- silent renewal\n- scope downgrade",
+  "date_add": "2026-01-15T09:05:00Z",
+  "files": []
+}
