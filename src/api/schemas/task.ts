@@ -696,8 +696,12 @@ export type TasksTransitionData = z.infer<typeof TasksTransitionDataSchema>;
  *     (with a `notice` on the envelope; mirrors R10 spec 0020 decision 11).
  *   - `would`: present only in --dry-run AND only when a POST would have run
  *     (i.e. NOT already-in-target-tasklist). Mirrors R11's shape.
+ *   - `line_index` (R12.5, additive): set ONLY in `--stdin` batch mode. 0-indexed
+ *     across non-empty input lines (mirrors `tasks create --stdin` and
+ *     `tasks finish --stdin`). Single-mode envelopes never carry this field —
+ *     R12 v1 shape is preserved byte-for-byte for existing callers.
  *
- * Spec 0022 §3.2 / §3.5 / §4.
+ * Spec 0022 §3.2 / §3.5 / §4. R12.5 / spec 0023 — additive `line_index`.
  */
 export const TasksMoveDataSchema = z.object({
   task_id: z.number().int(),
@@ -714,6 +718,11 @@ export const TasksMoveDataSchema = z.object({
       body: z.unknown(),
     })
     .optional(),
+  /**
+   * R12.5 (additive). Present in `--stdin` batch envelopes; absent in single
+   * mode. 0-indexed across non-empty input lines.
+   */
+  line_index: z.number().int().min(0).optional(),
 });
 
 export type TasksMoveData = z.infer<typeof TasksMoveDataSchema>;
