@@ -190,7 +190,7 @@ freelo tasks list [--project <id>]... [--tasklist <id>]... [--worker <id>]
 ### R08 — `freelo tasks show <id>`
 
 **Outcome:** Full task view: metadata, description, subtasks, labels.
-**Endpoints:** `GET /task/{task_id}`, `GET /task/{task_id}/description`, `GET /task/{task_id}/subtasks`, `GET /task/{task_id}/projects`.
+**Endpoints:** `GET /task/{task_id}`, `GET /task/{task_id}/description`, `GET /task/{task_id}/subtasks`. The `--with projects` side-car projects the embedded `multi_project_task` block from `GET /task/{task_id}` rather than calling a separate `GET /task/{task_id}/projects` (which is not present in the documented OpenAPI). See spec 0018 decision 1.
 **CLI:** `freelo tasks show <id> [--with description,subtasks,projects]`
 **Depends on:** R07.
 
