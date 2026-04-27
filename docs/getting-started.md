@@ -119,6 +119,28 @@ Drill into a single tasklist (with the optional pool of users you can
 assign tasks to) via
 [`freelo tasklists show <id> --with assignable-workers`](./commands/tasklists-show.md).
 
+## Listing tasks
+
+The workhorse read across all your projects is
+[`freelo tasks list`](./commands/tasks-list.md). It unifies Freelo's
+`/all-tasks` and per-tasklist task endpoints behind a single CLI surface
+with rich filters (`--project`, `--tasklist`, `--worker`, `--label`,
+`--due-from`/`--due-to`, `--no-due`, `--search`) and the same
+pagination protocol as projects (`--page`, `--all`, `--cursor`).
+
+```bash
+# all tasks I can see, page 1
+freelo tasks list --output json
+# tasks in one tasklist, no pagination
+freelo tasks list --project 42 --tasklist 101 --output json
+# everything labeled "bug" or "p1", iterate every page
+freelo tasks list --label bug --label p1 --all --output ndjson
+```
+
+The envelope's `data.endpoint` and `data.entity_shape` discriminators
+tell agents which Freelo route answered the request and which task shape
+to expect, so per-route field differences are explicit.
+
 ## Auth reference
 
 - [`freelo auth login`](./commands/auth-login.md) — store and verify credentials.

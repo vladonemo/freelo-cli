@@ -1,0 +1,48 @@
+{
+  "total": 7,
+  "count": 3,
+  "page": 0,
+  "per_page": 3,
+  "data": {
+    "tasks": [
+      {
+        "id": 1001,
+        "name": "Wire the home page",
+        "date_add": "2026-03-01T10:00:00+01:00",
+        "date_edited_at": "2026-03-02T11:00:00+01:00",
+        "due_date": "2026-04-30",
+        "count_comments": 2,
+        "count_subtasks": 0,
+        "author": { "id": 1, "fullname": "Jane Author" },
+        "worker": { "id": 7, "fullname": "Bob Worker" },
+        "labels": [{ "uuid": "u1", "name": "bug" }],
+        "parent_task_id": null,
+        "total_time_estimate": { "minutes": 60 },
+        "state": { "id": 1, "state": "active" },
+        "project": { "id": 42, "name": "Site redesign", "state": { "id": 1, "state": "active" } },
+        "tasklist": { "id": 101, "name": "Backlog", "state": { "id": 1, "state": "active" } }
+      },
+      {
+        "id": 1002,
+        "name": "Fix nav alignment",
+        "date_add": "2026-03-03T10:00:00+01:00",
+        "due_date": null,
+        "author": { "id": 1, "fullname": "Jane Author" },
+        "worker": { "id": 7, "fullname": "Bob Worker" },
+        "state": { "id": 1, "state": "active" },
+        "project": { "id": 42, "name": "Site redesign" },
+        "tasklist": { "id": 101, "name": "Backlog" }
+      },
+      {
+        "id": 1003,
+        "name": "Bump dependencies",
+        "date_add": "2026-03-04T10:00:00+01:00",
+        "author": { "id": 2, "fullname": "Eve Reviewer" },
+        "worker": { "id": 8, "fullname": null },
+        "state": { "id": 1, "state": "active" },
+        "project": { "id": 43, "name": "Mobile app" },
+        "tasklist": { "id": 201, "name": "Sprint 7" }
+      }
+    ]
+  }
+}

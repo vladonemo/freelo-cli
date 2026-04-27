@@ -1,0 +1,27 @@
+[
+  {
+    "id": 2001,
+    "name": "Refactor header",
+    "date_add": "2026-03-10T10:00:00+01:00",
+    "due_date": "2026-04-30",
+    "count_comments": 1,
+    "count_subtasks": 0,
+    "author": { "id": 1, "fullname": "Jane Author" },
+    "worker": { "id": 7, "fullname": "Bob Worker" },
+    "labels": [],
+    "parent_task_id": null,
+    "total_time_estimate": { "minutes": 30 }
+  },
+  {
+    "id": 2002,
+    "name": "Cache user prefs",
+    "date_add": "2026-03-11T10:00:00+01:00",
+    "due_date": null,
+    "count_comments": 0,
+    "count_subtasks": 0,
+    "author": { "id": 1, "fullname": "Jane Author" },
+    "worker": null,
+    "labels": [],
+    "parent_task_id": null
+  }
+]
