@@ -67,6 +67,7 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 ### tasks
 
 - `freelo tasks create` — Create a task in a tasklist (single or NDJSON batch via --stdin).
+- `freelo tasks edit <id>` — Partially update a task: name, due date, worker, priority, and label diff.
 - `freelo tasks list` — List tasks across all projects (default) or scoped to one project + tasklist.
 - `freelo tasks show <id>` — Show one task's full detail, with optional side-cars.
 <!-- END AUTOGEN COMMANDS -->

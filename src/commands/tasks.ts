@@ -3,6 +3,7 @@ import { type GetAppConfig } from '../config/schema.js';
 import { registerList } from './tasks/list.js';
 import { registerShow } from './tasks/show.js';
 import { registerCreate } from './tasks/create.js';
+import { registerEdit } from './tasks/edit.js';
 
 /**
  * Register the `tasks` subcommand tree on the root program. Mirrors the
@@ -16,9 +17,12 @@ export function register(
 ): void {
   const tasks = program
     .command('tasks')
-    .description('Browse and create Freelo tasks across the projects and tasklists you can see.');
+    .description(
+      'Browse, create, and edit Freelo tasks across the projects and tasklists you can see.',
+    );
 
   registerList(tasks, getConfig, env);
   registerShow(tasks, getConfig, env);
   registerCreate(tasks, getConfig, env);
+  registerEdit(tasks, getConfig, env);
 }

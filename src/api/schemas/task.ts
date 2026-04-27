@@ -534,3 +534,83 @@ export const TasksCreateDataSchema = z.object({
 });
 
 export type TasksCreateData = z.infer<typeof TasksCreateDataSchema>;
+
+/* ---------------------------------------------------------------------------
+ *  R10 — `freelo tasks edit <id>` (spec 0020)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * CLI-side input for `buildEditTaskBody`. Every field is optional — callers
+ * pre-flight that at least one mutating flag is set; the builder doesn't.
+ *
+ * `clearPriority` is mutually exclusive with `priority` (validated at the
+ * command layer); when set, the builder emits `priority_enum: null` to signal
+ * the explicit clear (OpenAPI :1739 — `priority_enum` is nullable).
+ *
+ * Spec 0020 §5.
+ */
+export type EditTaskInput = {
+  name?: string;
+  due?: string; // YYYY-MM-DD; mapped to YYYY-MM-DDT00:00:00Z
+  worker?: number;
+  priority?: 'low' | 'normal' | 'high'; // mapped to 'l'|'m'|'h'
+  clearPriority?: true; // mutex with `priority`
+};
+
+/**
+ * Wire shape of `POST /task/{task_id}` body. Subset of the documented
+ * whitelist (OpenAPI :1717-1755): only the fields R10 supports.
+ *
+ * `priority_enum: null` is the explicit-clear signal (decision: only emit
+ * this key when the user passes `--clear-priority`).
+ */
+export type EditTaskBody = {
+  name?: string;
+  due_date?: string;
+  worker?: number;
+  priority_enum?: 'l' | 'm' | 'h' | null;
+};
+
+/**
+ * Single descriptor for one would-be wire call inside `data.would[]`.
+ * R10's `would` is an array (not a single object as in R09) because the
+ * edit fans out across up to 3 endpoints — see spec 0020 §3.2 / decision 5.
+ */
+export const EditWouldEntrySchema = z.object({
+  method: z.literal('POST'),
+  path: z.string(),
+  body: z.unknown(),
+});
+
+export type EditWouldEntry = z.infer<typeof EditWouldEntrySchema>;
+
+/**
+ * Envelope `data` shape for `freelo.tasks.edit/v1`.
+ *
+ *   - `task`: post-edit `TaskDetail` (a fresh GET runs after every successful
+ *     write). May be **null** when all writes succeeded but the refresh GET
+ *     failed (decision 11 — surfaced with a `notice` on the envelope).
+ *   - `tasklist_id` / `project_id`: derived from the lookup GET; null if the
+ *     lookup happened but the wire had no ref (defensive).
+ *   - `applied_changes`: honest accumulator — only contains what *succeeded*
+ *     on the wire (decision 12). `edit` is the wire body (snake-case keys).
+ *     `labels_added` / `labels_removed` carry the input names (not server
+ *     UUIDs — those are visible in `task.labels[]`).
+ *   - `would`: present only in `--dry-run` envelopes. An array, in the order
+ *     the calls would have happened (remove-labels, add-labels, edit).
+ *
+ * Spec 0020 §3.2.
+ */
+export const TasksEditDataSchema = z.object({
+  task: TaskDetailSchema.nullable().optional(),
+  tasklist_id: z.number().int().nullable(),
+  project_id: z.number().int().nullable(),
+  applied_changes: z.object({
+    edit: z.record(z.string(), z.unknown()),
+    labels_added: z.array(z.string()),
+    labels_removed: z.array(z.string()),
+  }),
+  would: z.array(EditWouldEntrySchema).optional(),
+});
+
+export type TasksEditData = z.infer<typeof TasksEditDataSchema>;
