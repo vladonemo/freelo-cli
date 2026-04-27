@@ -141,6 +141,39 @@ The envelope's `data.endpoint` and `data.entity_shape` discriminators
 tell agents which Freelo route answered the request and which task shape
 to expect, so per-route field differences are explicit.
 
+## Creating tasks
+
+[`freelo tasks create`](./commands/tasks-create.md) is the first write-class
+subcommand. It POSTs a new task to a tasklist and returns the parsed
+`TaskCreated` shape. Project id is derived from `--tasklist` automatically;
+agents only need to remember one id.
+
+```bash
+# Single task — minimal flags
+freelo tasks create --tasklist 314 --name "Audit auth flow"
+
+# Single task — every flag
+freelo tasks create --tasklist 314 --name "Audit auth flow" \
+    --priority high --label blocker --worker 17 --due 2026-05-01
+
+# Dry-run before committing
+freelo tasks create --tasklist 314 --name "Test" --dry-run --output json
+
+# Batch from a generator script (NDJSON in → NDJSON out)
+./generate-tasks.sh | freelo tasks create --tasklist 314 --stdin --output ndjson
+```
+
+Every write command in this CLI honors the same write-infra contract
+introduced here:
+
+- `--dry-run` returns the `data.would` block (method, path, body) without
+  hitting the API.
+- `--stdin` reads NDJSON, one operation per line, and streams one envelope
+  per line on stdout. The process exit code at end-of-stream is the
+  numerically highest per-line exit code.
+- The envelope schema (`freelo.<resource>.<op>/v<n>`) is a public contract;
+  field additions are minor, removals/renames bump the major version.
+
 ## Auth reference
 
 - [`freelo auth login`](./commands/auth-login.md) — store and verify credentials.

@@ -832,6 +832,139 @@ export const tasksShowHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo tasks create` (R09, spec 0019).
+ *
+ * One endpoint:
+ *   - `POST /project/{pid}/tasklist/{tid}/tasks` — `TaskCreated`
+ *
+ * The startup-time `GET /tasklist/{id}` lookup is served by
+ * `tasklistShowHandlers.detailOk` (reused — same endpoint).
+ */
+export const tasksCreateHandlers = {
+  /** `POST /project/{pid}/tasklist/{tid}/tasks` — 200 with the supplied body. */
+  ok(
+    projectId: number,
+    tasklistId: number,
+    body: Record<string, unknown>,
+    opts?: { onRequest?: (req: Request) => void },
+  ): RequestHandler {
+    return http.post(
+      `${API_BASE}/project/${projectId}/tasklist/${tasklistId}/tasks`,
+      ({ request }) => {
+        opts?.onRequest?.(request);
+        return HttpResponse.json(body);
+      },
+    );
+  },
+
+  /** Same endpoint — 401. */
+  unauthorized(projectId: number, tasklistId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/tasklist/${tasklistId}/tasks`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** Same endpoint — 403. */
+  forbidden(projectId: number, tasklistId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/tasklist/${tasklistId}/tasks`, () =>
+      HttpResponse.json({ errors: ['User has no access to tasklist.'] }, { status: 403 }),
+    );
+  },
+
+  /** Same endpoint — 404. */
+  notFound(projectId: number, tasklistId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/tasklist/${tasklistId}/tasks`, () =>
+      HttpResponse.json({ errors: ['Tasklist not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** Same endpoint — 422 (server-side validation). */
+  unprocessable(
+    projectId: number,
+    tasklistId: number,
+    message = 'Server-side validation failed.',
+  ): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/tasklist/${tasklistId}/tasks`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 422 }),
+    );
+  },
+
+  /** Same endpoint — 429. */
+  rateLimited(projectId: number, tasklistId: number): RequestHandler {
+    return http.post(
+      `${API_BASE}/project/${projectId}/tasklist/${tasklistId}/tasks`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** Same endpoint — 5xx. */
+  serverError(projectId: number, tasklistId: number, status = 500): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/tasklist/${tasklistId}/tasks`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** Same endpoint — closes the connection (network error). */
+  networkError(projectId: number, tasklistId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/tasklist/${tasklistId}/tasks`, () =>
+      HttpResponse.error(),
+    );
+  },
+
+  /**
+   * Match-on-body variant: `predicate(body, request)` decides whether the
+   * supplied response or a 500 diagnostic comes back. Useful when the test
+   * needs to assert the exact wire body.
+   */
+  okWhenBody(
+    projectId: number,
+    tasklistId: number,
+    predicate: (body: unknown, request: Request) => boolean,
+    response: Record<string, unknown>,
+  ): RequestHandler {
+    return http.post(
+      `${API_BASE}/project/${projectId}/tasklist/${tasklistId}/tasks`,
+      async ({ request }) => {
+        const body: unknown = await request.clone().json();
+        if (!predicate(body, request)) {
+          return HttpResponse.json(
+            { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+            { status: 500 },
+          );
+        }
+        return HttpResponse.json(response);
+      },
+    );
+  },
+
+  /**
+   * Sequential responder for batch testing: returns `responses[N]` for the
+   * Nth POST (0-indexed). Each entry is `{ status, body }`. Past the end,
+   * returns 500.
+   */
+  sequence(
+    projectId: number,
+    tasklistId: number,
+    responses: Array<{ status: number; body: Record<string, unknown> }>,
+  ): RequestHandler {
+    const counter = { n: 0 };
+    return http.post(`${API_BASE}/project/${projectId}/tasklist/${tasklistId}/tasks`, () => {
+      const idx = counter.n;
+      counter.n += 1;
+      const r = responses[idx] ?? {
+        status: 500,
+        body: { errors: [`out of sequence (idx=${idx})`] },
+      };
+      return HttpResponse.json(r.body, { status: r.status });
+    });
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
