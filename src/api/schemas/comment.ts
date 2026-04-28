@@ -134,3 +134,95 @@ export const CommentsListDataSchema = z.object({
   comments: z.array(CommentFullSchema),
 });
 export type CommentsListData = z.infer<typeof CommentsListDataSchema>;
+
+/* ---------------------------------------------------------------------------
+ *  R17 — `freelo comments add` (spec 0028)
+ *
+ *  Singleton response from `POST /task/{task_id}/comments`. We declare a
+ *  separate schema (rather than reusing `CommentFullSchema` from R16)
+ *  because:
+ *    - `CommentFull` requires `date_edited_at` (used by R16's `--since`
+ *      filter); the singleton POST response may not always include it.
+ *    - `CommentFull` is shaped for `/all-comments` rows that always carry an
+ *      entity-link block; the singleton POST response does not.
+ *    - Touching `CommentFullSchema` would risk regressing R16's contract.
+ *
+ *  Spec 0028 §2.2 / §3.2.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Singleton `Comment` response from `POST /task/{task_id}/comments`.
+ *
+ * Loose by design (passthrough; nullable+optional on most fields). The only
+ * required field is `content` — the API guarantees it on a 200 response.
+ *
+ * `is_description` is the load-bearing field for the description-flip case
+ * (yaml :2589-2592 — "if the task has no comments yet, this call creates
+ * the task's description instead of a regular comment"). When true, the
+ * envelope's pulled-up `data.is_description` echoes it.
+ *
+ * Spec 0028 §2.2.
+ */
+export const CommentCreatedSchema = z
+  .object({
+    id: z.number().int().nullable().optional(),
+    uuid: z.string().nullable().optional(),
+    content: z.string(),
+    date_add: z.string().nullable().optional(),
+    date_edited_at: z.string().nullable().optional(),
+    is_description: z.boolean().nullable().optional(),
+    author: UserBasicSchema.nullable().optional(),
+  })
+  .passthrough();
+
+export type CommentCreated = z.infer<typeof CommentCreatedSchema>;
+
+/**
+ * Source of the content for `comments add`. Echoed in the envelope so agents
+ * can verify which input source produced the body.
+ *
+ *   - `'message'` — `--message <str>` (inline pass-through).
+ *   - `'file'`    — `--from-file <path>`.
+ *   - `'editor'`  — `--editor` (TTY-only).
+ *   - `'stdin'`   — `-` (positional sentinel).
+ *
+ * Distinct from R15's `SetDescriptionSourceSchema` (which lacks `'message'`).
+ * R17 owns its own enum so R15's contract is untouched. Spec 0028 decision 4.
+ */
+export const AddCommentSourceSchema = z.enum(['message', 'file', 'editor', 'stdin']);
+export type AddCommentSource = z.infer<typeof AddCommentSourceSchema>;
+
+/**
+ * `freelo.comments.add/v1` envelope `data` shape.
+ *
+ *   - `task_id`: target task id (echoed).
+ *   - `comment`: server response (post-create), validated through
+ *     `CommentCreatedSchema`. **Always present** in live envelopes; **absent**
+ *     in `--dry-run`.
+ *   - `source`: `'message' | 'file' | 'editor' | 'stdin'`. **Always present**
+ *     in live; **absent** in `--dry-run`.
+ *   - `byte_length`: UTF-8 byte length of the content sent (or that would have
+ *     been sent in dry-run). **Always present**.
+ *   - `is_description`: pulled-up boolean (defaults to `false` when the
+ *     server omits the field). True ⇔ this POST flipped to description due to
+ *     the empty-comments precondition (spec 0028 §3.2 / decision 3).
+ *     **Always present** in live envelopes; **absent** in `--dry-run`.
+ *   - `would`: only in `--dry-run` envelopes (mirrors R09 / R13 / R15).
+ *
+ * Spec 0028 §3.2.
+ */
+export const CommentsAddDataSchema = z.object({
+  task_id: z.number().int(),
+  comment: CommentCreatedSchema.optional(),
+  source: AddCommentSourceSchema.optional(),
+  byte_length: z.number().int().nonnegative(),
+  is_description: z.boolean().optional(),
+  would: z
+    .object({
+      method: z.literal('POST'),
+      path: z.string(),
+      body: z.unknown(),
+    })
+    .optional(),
+});
+export type CommentsAddData = z.infer<typeof CommentsAddDataSchema>;

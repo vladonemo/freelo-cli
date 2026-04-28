@@ -1510,6 +1510,106 @@ export const tasksDescriptionHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo comments add` (R17, spec 0028).
+ *
+ * One endpoint:
+ *   - `POST /task/{task_id}/comments` — `Comment` (singleton 200).
+ *
+ * Mirrors the shape of `tasksDescriptionHandlers` byte-for-byte; only the
+ * path and the response shape differ.
+ */
+export const commentsAddHandlers = {
+  /** `POST /task/{id}/comments` — 200 with the supplied response body. */
+  addOk(taskId: number, body: Record<string, unknown>): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/comments`, () => HttpResponse.json(body));
+  },
+
+  /**
+   * 200 with `is_description: true` — simulates the auto-flip to description
+   * when the target task has no prior comments (yaml :2589-2592).
+   */
+  addOkAsDescription(taskId: number, body: Record<string, unknown>): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/comments`, () =>
+      HttpResponse.json({ ...body, is_description: true }),
+    );
+  },
+
+  /**
+   * Match-on-body variant: `predicate(body, request)` decides whether the
+   * supplied response or a 500 diagnostic comes back. Useful when a test
+   * needs to assert the exact wire body.
+   */
+  addOkWhenBody(
+    taskId: number,
+    predicate: (body: unknown, request: Request) => boolean,
+    response: Record<string, unknown>,
+  ): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/comments`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json(response);
+    });
+  },
+
+  /** `POST /task/{id}/comments` — 401. */
+  addUnauthorized(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/comments`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `POST /task/{id}/comments` — 403. */
+  addForbidden(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/comments`, () =>
+      HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** `POST /task/{id}/comments` — 404 (task missing). */
+  addNotFound(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/comments`, () =>
+      HttpResponse.json({ errors: ['Task not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `POST /task/{id}/comments` — 422 (server-side validation). */
+  addUnprocessable(taskId: number, message = 'Server-side validation failed.'): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/comments`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 422 }),
+    );
+  },
+
+  /** `POST /task/{id}/comments` — 5xx. */
+  addServerError(taskId: number, status = 500): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/comments`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** `POST /task/{id}/comments` — 429 (Retry-After: 0). */
+  addRateLimited(taskId: number): RequestHandler {
+    return http.post(
+      `${API_BASE}/task/${taskId}/comments`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** `POST /task/{id}/comments` — connection-closed (network error). */
+  addNetworkError(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/comments`, () => HttpResponse.error());
+  },
+};
+
+/**
  * MSW handlers for `freelo comments list` (R16, spec 0027).
  *
  * One endpoint:
