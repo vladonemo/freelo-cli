@@ -38,17 +38,29 @@ export const TIMER_STATUS_PATH = '/timetracking/status';
 
 /**
  * Wire-shape of the POST body for `/timetracking/start` (yaml :2747-2760).
- * Both fields are optional / nullable per the OpenAPI; v1 CLI surfaces both.
+ *
+ * `task_id` / `note` are documented in the OpenAPI request schema. The
+ * additional `date_reported` field is documented in the endpoint's prose
+ * (yaml :2744): *"defaults to 'now' (server time) if not provided. Passing
+ * an explicit `date_reported` backdates the session's start time."* It is
+ * surfaced via the `--at <ISO>` flag (R19.5, spec 0031). When `--at` is
+ * omitted, the field MUST be absent from the body — not `null` — to keep
+ * wire diffs identical to R19 for the unchanged path (spec 0031 §2.2 /
+ * decision 5).
  */
 export type StartTimerBody = {
   task_id?: number | null;
   note?: string | null;
+  /** Canonical UTC ISO 8601 timestamp (`YYYY-MM-DDTHH:MM:SSZ`). Backdate the session start. */
+  date_reported?: string;
 };
 
 /** CLI-side input shape passed to `buildStartTimerBody`. */
 export type StartTimerInput = {
   taskId?: number;
   note?: string;
+  /** Canonical UTC ISO 8601 string, already validated by `parseIsoTimestampFlag`. */
+  dateReported?: string;
 };
 
 export type StartTimerOpts = FetchOpts & {
@@ -93,6 +105,7 @@ export function buildStartTimerBody(input: StartTimerInput): StartTimerBody {
   const body: StartTimerBody = {};
   if (input.taskId !== undefined) body.task_id = input.taskId;
   if (input.note !== undefined) body.note = input.note;
+  if (input.dateReported !== undefined) body.date_reported = input.dateReported;
   return body;
 }
 

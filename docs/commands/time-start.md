@@ -8,21 +8,32 @@ Start a time tracking session — a "running work" record that converts into a f
 
 ```bash
 # Start tracking on a task with an optional note
-freelo time start --task <id> [--note <str>] [--dry-run]
+freelo time start --task <id> [--note <str>] [--at <ISO>] [--dry-run]
 
 # Start a taskless ("general work") timer
-freelo time start [--note <str>] [--dry-run]
+freelo time start [--note <str>] [--at <ISO>] [--dry-run]
 ```
 
-Both flags are optional. Omitting `--task` is supported by the API and starts a general-work session not tied to any task.
+All flags are optional. Omitting `--task` is supported by the API and starts a general-work session not tied to any task. Omitting `--at` defers to the server's "now" default — the timer starts at the moment Freelo receives the request.
 
 ## Arguments / Options
 
-| Flag           | Type             | Default | Purpose                                                                         |
-| -------------- | ---------------- | ------- | ------------------------------------------------------------------------------- |
-| `--task <id>`  | positive integer | unset   | Target task id. Omit for general (taskless) work.                               |
-| `--note <str>` | string           | unset   | Optional note attached to the session. Persists into the resulting work report. |
-| `--dry-run`    | boolean          | false   | Skip the POST; envelope echoes the body that would have been sent.              |
+| Flag           | Type             | Default | Purpose                                                                                                                            |
+| -------------- | ---------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `--task <id>`  | positive integer | unset   | Target task id. Omit for general (taskless) work.                                                                                  |
+| `--note <str>` | string           | unset   | Optional note attached to the session. Persists into the resulting work report.                                                    |
+| `--at <ISO>`   | ISO 8601 string  | unset   | Backdate the session start. Accepts UTC (`2026-04-28T09:00:00Z`), tz-offset (`...+02:00`), or bare date (`2026-04-28`). See below. |
+| `--dry-run`    | boolean          | false   | Skip the POST; envelope echoes the body that would have been sent.                                                                 |
+
+### Backdating sessions (`--at`)
+
+Use `--at` when you forgot to start the timer at the real start time, or when an integration replays a "moved to in-progress" event after the fact.
+
+- **Acceptance shape.** `--at` accepts any value `Date.parse()` accepts: full RFC 3339 / ISO 8601 timestamps, timestamps with tz offsets, and bare `YYYY-MM-DD` (treated as midnight UTC).
+- **Wire normalization.** The CLI converts the input to **canonical UTC** (`YYYY-MM-DDTHH:MM:SSZ`, second precision) before sending. Whatever timezone you pass, Freelo receives a UTC string.
+- **Validation.** Malformed input rejects with `VALIDATION_ERROR` (exit 2) and a hint pointing at the canonical shape. Timestamps more than 60 seconds in the future of your local clock are rejected as a clock-skew clamp — backdating into the future doesn't make sense for a session that's just starting.
+- **No far-past bound.** The CLI does not impose a "no more than N days ago" limit. If Freelo's server validates the lower bound, it returns 400/422 and the CLI surfaces that as `FREELO_API_ERROR` (exit 4).
+- **Wire cleanliness.** Omitting `--at` means the wire body has **no** `date_reported` key (not `null`). Server-side default behavior ("now") triggers off field absence.
 
 ## Idempotency
 
@@ -93,6 +104,29 @@ $ freelo time start --task 4567 --dry-run --output json
 {"schema":"freelo.time.start/v1","dry_run":true,"data":{"task_id":4567,"note":null,"would":{"method":"POST","path":"/timetracking/start","body":{"task_id":4567}}}}
 ```
 
+### Backdate to a specific UTC time (forgot to start it)
+
+```bash
+$ freelo time start --task 4567 --at 2026-04-28T09:00:00Z
+Started timer tt-uuid-12345 on task #4567.
+```
+
+### Backdate from a local time (auto-normalized to UTC)
+
+```bash
+$ freelo time start --task 4567 --at 2026-04-28T11:00:00+02:00 --dry-run --output json
+{"schema":"freelo.time.start/v1","dry_run":true,"data":{"task_id":4567,"note":null,"would":{"method":"POST","path":"/timetracking/start","body":{"task_id":4567,"date_reported":"2026-04-28T09:00:00Z"}}}}
+```
+
+The wire body's `date_reported` is the UTC-canonical form, not your local-tz input.
+
+### Backdate to a calendar day (00:00 UTC)
+
+```bash
+$ freelo time start --note "Catch-up" --at 2026-04-28
+# Sends date_reported = 2026-04-28T00:00:00Z
+```
+
 ### Singleton conflict (already tracking)
 
 ```bash
@@ -118,6 +152,8 @@ $ if [ "$(echo "$STATUS" | jq -r '.data.active')" = "false" ]; then
 | Trigger                                      | code               | exit |
 | -------------------------------------------- | ------------------ | ---- |
 | `--task` non-numeric / zero / negative       | `VALIDATION_ERROR` | 2    |
+| `--at` malformed / empty                     | `VALIDATION_ERROR` | 2    |
+| `--at` more than 60 s in the future          | `VALIDATION_ERROR` | 2    |
 | POST 401                                     | `AUTH_EXPIRED`     | 3    |
 | POST 404 (task missing or no access)         | `NOT_FOUND`        | 4    |
 | POST 409 (singleton — timer already running) | `FREELO_API_ERROR` | 4    |
@@ -130,11 +166,13 @@ The 409 case is the load-bearing UX edge — the hint is the actionable next ste
 ## Non-goals
 
 - **No batch / `--ids` / `--stdin`** — see Idempotency section above.
-- **No `--at <timestamp>` backdate flag** in v1 — the API supports `date_reported` but the CLI doesn't surface it yet. Most workflows want "now".
+- **No `--at` echo on the live envelope `data`.** When `--at` is set, the effect is captured by the server's response and (in dry-run) by `data.would.body.date_reported`. Agents that want to confirm the backdate took effect can chain [`freelo time status`](./time-status.md) and read `started_at`.
+- **No `--at` on `time edit`** in this slice — that lands in R20 if-and-when the spec calls for it.
 - **No `time stop` / `time edit`** — those land in R20.
 
 ## See also
 
 - [`freelo time status`](./time-status.md) — check the current timer state.
-- [Spec 0030](../specs/0030-time-start-status.md) — full design and decision log.
-- [Roadmap R19 / R20 / R21 / R22](../roadmap.md) — full time-tracking sub-thread.
+- [Spec 0030](../specs/0030-time-start-status.md) — original R19 design and decision log.
+- [Spec 0031](../specs/0031-time-start-backdate.md) — R19.5 `--at` backdate flag.
+- [Roadmap R19 / R19.5 / R20 / R21 / R22](../roadmap.md) — full time-tracking sub-thread.

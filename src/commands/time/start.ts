@@ -1,8 +1,16 @@
 /**
- * `freelo time start [--task <id>] [--note <str>] [--dry-run]` (R19, spec 0030).
+ * `freelo time start [--task <id>] [--note <str>] [--at <ISO>] [--dry-run]`
+ * (R19, spec 0030; `--at` added in R19.5, spec 0031).
  *
- * Starts a singleton-per-user timer via `POST /timetracking/start`. Both flags
- * are optional — Freelo accepts taskless general-work timers (yaml :2756).
+ * Starts a singleton-per-user timer via `POST /timetracking/start`. All flags
+ * are optional — Freelo accepts taskless general-work timers (yaml :2756) and
+ * `date_reported` defaults to "now" server-side when omitted (yaml :2744).
+ *
+ * `--at <ISO>` (R19.5): backdate the session start timestamp. Validated
+ * client-side by `parseIsoTimestampFlag`; rejects malformed input and futures
+ * more than 60 s ahead of the local clock as `ValidationError` (exit 2).
+ * Canonicalized to UTC before sending (decision 6) and emitted as the wire
+ * field `date_reported` only when set (decision 5 — no `null`).
  *
  * Singleton enforcement: a second start while one is already running returns
  * HTTP 409 (yaml :2773-2778). The leaf catches `FreeloApiError` with
@@ -38,6 +46,7 @@ import { handleTopLevelError } from '../../errors/handle.js';
 import { ValidationError } from '../../errors/validation-error.js';
 import { FreeloApiError } from '../../errors/freelo-api-error.js';
 import { attachMeta, type CommandMeta } from '../../lib/introspect.js';
+import { parseIsoTimestampFlag } from '../../lib/iso-timestamp.js';
 
 export const meta: CommandMeta = {
   outputSchema: 'freelo.time.start/v1',
@@ -49,6 +58,8 @@ const SCHEMA: SchemaString = 'freelo.time.start/v1';
 type StartOpts = {
   task?: number;
   note?: string;
+  /** Canonical UTC ISO already produced by `parseIsoTimestampFlag` (R19.5, spec 0031). */
+  at?: string;
   dryRun?: boolean;
 };
 
@@ -83,6 +94,11 @@ export function registerStart(
       parseTaskFlag,
     )
     .option('--note <str>', 'Optional note attached to the session.')
+    .option(
+      '--at <iso>',
+      'Optional UTC ISO 8601 start timestamp (backdate). Defaults to "now" on the server. Accepts timezone offsets and bare YYYY-MM-DD; normalized to UTC before sending.',
+      (raw) => parseIsoTimestampFlag('--at', raw),
+    )
     .option('--dry-run', 'Skip the POST; envelope echoes the body that would have been sent.');
   attachMeta(cmd, meta);
 
@@ -93,9 +109,15 @@ export function registerStart(
     try {
       const taskId = opts.task; // already validated by parseTaskFlag (or undefined)
       const note = opts.note;
+      // `--at` is already canonicalized to UTC by parseIsoTimestampFlag at the
+      // Commander option-parser stage; here it's just a string or undefined.
+      // When undefined, `dateReported` is omitted from the wire body entirely
+      // (spec 0031 §2.2 / decision 5 — wire-clean parity with R19).
+      const at = opts.at;
       const body = buildStartTimerBody({
         ...(taskId !== undefined ? { taskId } : {}),
         ...(note !== undefined ? { note } : {}),
+        ...(at !== undefined ? { dateReported: at } : {}),
       });
 
       // ---- Dry-run: skip the POST and credential resolution.

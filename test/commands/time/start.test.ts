@@ -404,6 +404,173 @@ describe('freelo time start — HTTP errors', () => {
 });
 
 // ---------------------------------------------------------------------------
+//  --at backdate flag (R19.5, spec 0031)
+// ---------------------------------------------------------------------------
+
+describe('freelo time start — --at backdate (R19.5)', () => {
+  it('--at <UTC ISO>: wire body carries date_reported (canonical UTC)', async () => {
+    let captured: unknown;
+    server.use(
+      timeHandlers.startOkWhenBody((body) => {
+        captured = body;
+        return true;
+      }, 'tt-uuid-at-utc'),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { exitCode } = await runCli(run, [
+      'time',
+      'start',
+      '--task',
+      '4567',
+      '--at',
+      '2026-04-28T09:00:00Z',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(0);
+    expect(captured).toEqual({ task_id: 4567, date_reported: '2026-04-28T09:00:00Z' });
+  });
+
+  it('--at with tz offset: normalized to UTC before send', async () => {
+    let captured: unknown;
+    server.use(
+      timeHandlers.startOkWhenBody((body) => {
+        captured = body;
+        return true;
+      }, 'tt-uuid-at-tz'),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { exitCode } = await runCli(run, [
+      'time',
+      'start',
+      '--task',
+      '4567',
+      '--at',
+      '2026-04-28T11:00:00+02:00',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(0);
+    // Wire body must carry the UTC-canonical form, NOT the user's local-tz string.
+    expect(captured).toEqual({ task_id: 4567, date_reported: '2026-04-28T09:00:00Z' });
+  });
+
+  it('--at with --dry-run: data.would.body carries date_reported, no POST hits the network', async () => {
+    // No MSW handler registered — onUnhandledRequest:'error' would trip if a POST happens.
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'time',
+      'start',
+      '--task',
+      '4567',
+      '--at',
+      '2026-04-28T09:00:00Z',
+      '--dry-run',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(0);
+    const env = parseFirstJson(stdout) as {
+      schema: string;
+      dry_run?: boolean;
+      data: {
+        task_id: number | null;
+        note: string | null;
+        would: {
+          method: string;
+          path: string;
+          body: { task_id?: number; note?: string; date_reported?: string };
+        };
+      };
+    };
+    expect(env.schema).toBe('freelo.time.start/v1');
+    expect(env.dry_run).toBe(true);
+    expect(env.data.would.body.date_reported).toBe('2026-04-28T09:00:00Z');
+    expect(env.data.would.body.task_id).toBe(4567);
+    // No `note` because not passed.
+    expect('note' in env.data.would.body).toBe(false);
+  });
+
+  it('--at omitted: wire body has NO date_reported key (R19 wire-clean parity)', async () => {
+    let captured: Record<string, unknown> | undefined;
+    server.use(
+      timeHandlers.startOkWhenBody((body) => {
+        captured = body as Record<string, unknown>;
+        return true;
+      }, 'tt-uuid-no-at'),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { exitCode } = await runCli(run, ['time', 'start', '--task', '4567', '--output', 'json']);
+    expect(exitCode).toBe(0);
+    // Spec 0031 §2.2 / decision 5 — omitted, NOT sent as null.
+    expect(captured).toBeDefined();
+    expect('date_reported' in (captured as object)).toBe(false);
+  });
+
+  it('--at omitted + --dry-run: data.would.body has NO date_reported key', async () => {
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'time',
+      'start',
+      '--task',
+      '4567',
+      '--dry-run',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(0);
+    const env = parseFirstJson(stdout) as {
+      data: {
+        would: {
+          body: Record<string, unknown>;
+        };
+      };
+    };
+    expect('date_reported' in env.data.would.body).toBe(false);
+  });
+
+  it('--at malformed: exit 2 (ValidationError, Calibration §2)', async () => {
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { exitCode } = await runCli(run, [
+      'time',
+      'start',
+      '--at',
+      'not a date',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(2);
+  });
+
+  it('--at empty string: exit 2', async () => {
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { exitCode } = await runCli(run, ['time', 'start', '--at', '', '--output', 'json']);
+    expect(exitCode).toBe(2);
+  });
+
+  it('--at far-future (2099): exit 2 with clock-skew hint', async () => {
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stderr, exitCode } = await runCli(run, [
+      'time',
+      'start',
+      '--at',
+      '2099-01-01T00:00:00Z',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(2);
+    const env = JSON.parse(stderr.split('\n').find((l) => l.startsWith('{')) ?? '{}') as {
+      schema: string;
+      error: { code: string; hint_next: string; message: string };
+    };
+    expect(env.schema).toBe('freelo.error/v1');
+    expect(env.error.code).toBe('VALIDATION_ERROR');
+    expect(env.error.message).toContain('--at is in the future');
+    expect(env.error.hint_next).toContain('Check your system clock');
+  });
+});
+
+// ---------------------------------------------------------------------------
 //  Introspect entry
 // ---------------------------------------------------------------------------
 
