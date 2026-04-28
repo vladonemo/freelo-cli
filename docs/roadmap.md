@@ -371,6 +371,29 @@ Goal after this wave: the CLI replaces the Freelo web UI for 80% of individual-c
 **Ships with this slice:** friendly formatting of the "already tracking X since Y" error — time tracking is singleton per user.
 **Depends on:** R08.
 
+### R19.5 — `freelo time start --at <ISO>` (backdate, queued)
+
+**Outcome:** Backdate a newly started session's start timestamp — useful when a user forgot to start the timer at the real start time, or when an integration replays a "moved to in-progress" event after the fact.
+**Endpoints:** same as R19 — `POST /timetracking/start`. The OpenAPI documents the optional `date_reported` body field: _"defaults to 'now' (server time) if not provided. Passing an explicit `date_reported` backdates the session's start time."_ (`docs/api/freelo-api.yaml:2744`).
+**Surface (additive on top of R19):**
+
+```
+freelo time start --task <id> [--note <str>] [--at <ISO>] [--dry-run]
+```
+
+**Ships with this slice:**
+
+- New `--at <ISO>` flag on `time start`. Validated client-side as an ISO 8601 timestamp (reuse the date-parsing helper used by `--due` in `tasks create`); on parse fail throw `ValidationError` (exit 2) with `hintNext` pointing at `--at YYYY-MM-DDTHH:MM:SSZ`.
+- Forwarded to the request body as `date_reported`. When `--at` is omitted, the body field is omitted entirely (server defaults to "now") — do NOT send `date_reported: null` to keep wire diffs clean.
+- `--dry-run` envelope's `data.would.body` reflects the `date_reported` value when present.
+- Decide during `/spec`: clamp clock-skew futures (refuse `--at` more than N seconds in the future), and whether `--at` is allowed at all when the result would be older than some sanity threshold (e.g. > 30 days back). Mirror whatever Freelo's server-side validation does, don't invent stricter rules.
+
+**Why it wasn't in R19:** the original R19 roadmap line specified only `--task` / `--note`, and the spec implemented exactly that surface. The `date_reported` body field is documented in the OpenAPI but was never surfaced as a CLI flag. Tracked here so the gap is explicit instead of silently absent.
+
+**Tier:** Yellow (additive flag on an existing user-visible command; no envelope schema change; no auth/HTTP defaults change).
+**Changeset:** `freelo-cli: minor` (new flag).
+**Depends on:** R19.
+
 ### R20 — `freelo time stop` / `time edit`
 
 **Endpoints:** `POST /timetracking/stop`, `PATCH /timetracking/edit`.
