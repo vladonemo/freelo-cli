@@ -346,11 +346,22 @@ Goal after this wave: the CLI replaces the Freelo web UI for 80% of individual-c
 **CLI:** `freelo comments add --task <id> (--message <str>|--from-file <path>|--editor|-)`.
 **Depends on:** R16, R15 (editor pattern).
 
-### R18 — `freelo comments edit` / `comments delete`
+### R18 — `freelo comments edit`
 
-**Endpoints:** `PATCH /comment/{comment_id}`, `DELETE /comment/{comment_id}`.
-**CLI:** `freelo comments edit <id> …` / `freelo comments delete <id> [--yes]`.
-**Depends on:** R17, R13 (confirm).
+**Endpoints:** `POST /comment/{comment_id}` (note: "POST for historical reasons, not PUT/PATCH" per OpenAPI yaml :2634).
+**CLI:** `freelo comments edit <id>... | --ids "a,b,c" | --stdin` with content from `--message <str>` / `--from-file <path>` / `--editor` / `-` (single-id stdin sentinel).
+**Depends on:** R17, R15 (`src/lib/input.ts`), R09 (`src/lib/batch.ts`).
+
+> **Note (2026-04-28, run `2026-04-28-1309-r18-comments-edit-delete`):** The original entry referenced `PATCH /comment/{comment_id}` and a sibling `DELETE /comment/{comment_id}`. Triage confirmed the OpenAPI disagrees on both — verb is POST (yaml :2634), and `comments delete` is **not in the OpenAPI**. Per `/resume Q1=A, Q2=A`, this slice ships only `comments edit` against the canonical POST endpoint. `comments delete` is deferred to R18.5 below.
+
+### R18.5 — `freelo comments delete` (queued)
+
+**Status:** **Blocked** on Freelo API confirmation.
+**Endpoints:** **Not in `docs/api/freelo-api.yaml` as of 2026-04-28.** The Comments tag declares exactly three operations (R16 list, R17 add, R18 edit); no `delete:` key on `/comment/{comment_id}`, no other comment-delete operationId.
+**First action:** invoke `freelo-api-specialist` to probe a live test account and confirm the real shape (could be `DELETE /comment/{id}`, `POST /comment/{id}/delete`, soft-delete via edit with a delete-flag, or genuinely unsupported in v1). Until that probe lands, **no command shipped**.
+**CLI (target shape, post-confirmation):** `freelo comments delete <id>... [--yes] [--dry-run]` / `--ids` / `--stdin`. Reuses `src/lib/confirm.ts` (R13) and `src/lib/idempotency.ts` (R11) — destructive op, `already_in_target_state` on a re-delete.
+**Depends on:** R18, R13, R11; **plus** OpenAPI confirmation.
+**Tier on resume:** Yellow if endpoint confirmed; Red if probe contradicts current expectations.
 
 ### R19 — `freelo time start` / `time status`
 

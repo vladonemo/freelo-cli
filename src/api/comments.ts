@@ -178,6 +178,88 @@ export function buildAddCommentBody(input: AddCommentInput): AddCommentBody {
   return { content: input.content };
 }
 
+/* ---------------------------------------------------------------------------
+ *  R18 — `freelo comments edit` (spec 0029)
+ *
+ *  Wire wrapper for `POST /comment/{comment_id}` (yaml :2619-2663,
+ *  `operationId: editComment`). The verb is POST (yaml :2634, "POST for
+ *  historical reasons, not PUT/PATCH"). Mirrors `addComment` byte-for-byte
+ *  except for the path and the validating schema reuse — we reuse
+ *  `CommentCreatedSchema` because the response is the same `Comment`
+ *  shape (yaml :2657-2663).
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Wire-shape of the POST body for `/comment/{comment_id}`. Subset of the
+ * OpenAPI request body (yaml :2642-2656) for the v1-supported field set —
+ * no `files[]` (multipart upload helper lands at R25). Per yaml :2632, the
+ * server treats `files[]` as a full replacement (not a delta), so omitting
+ * the field on edit leaves the existing attachment set untouched.
+ */
+export type EditCommentBody = {
+  content: string;
+};
+
+/**
+ * CLI-side input shape passed to `buildEditCommentBody`. Kept distinct from
+ * `EditCommentBody` so a future v1.x can grow CLI-ergonomic fields without
+ * touching the wire shape directly.
+ */
+export type EditCommentInput = {
+  content: string;
+};
+
+export type EditCommentOpts = FetchOpts & {
+  commentId: number;
+  body: EditCommentBody;
+};
+
+export type EditCommentResult = {
+  comment: CommentCreated;
+  raw: ApiResponse<CommentCreated>;
+};
+
+/**
+ * `POST /comment/{comment_id}` — overwrite the content of an existing
+ * comment. Validates the response through `CommentCreatedSchema`; rate-
+ * limit and request-id metadata travel on `raw` for the leaf command to
+ * surface in the envelope.
+ *
+ * Spec 0029 §4.
+ */
+export async function editComment(
+  client: HttpClient,
+  opts: EditCommentOpts,
+): Promise<EditCommentResult> {
+  const raw = await client.request({
+    method: 'POST',
+    path: editCommentPath(opts.commentId),
+    body: opts.body,
+    schema: CommentCreatedSchema,
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+  return { comment: raw.data, raw };
+}
+
+/**
+ * Resolve the wire path for an edit call. Exposed so `--dry-run` envelopes
+ * can echo the path without re-running the network branch.
+ */
+export function editCommentPath(commentId: number): string {
+  return `/comment/${commentId}`;
+}
+
+/**
+ * Map CLI input → wire body. Pure function — no I/O.
+ *
+ * v1 is a near-identity (just `content`). Adding `files[]` (R25) is a
+ * single-file change here, not a refactor of the leaf command.
+ */
+export function buildEditCommentBody(input: EditCommentInput): EditCommentBody {
+  return { content: input.content };
+}
+
 export function commentMatchesSince(
   c: { date_add: string; date_edited_at?: string | null },
   cutoffMs: number,

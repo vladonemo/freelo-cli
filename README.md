@@ -43,6 +43,7 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 ### comments
 
 - `freelo comments add [input]` — Post a single comment to a task from --message, --from-file, --editor, or stdin (-). Note: when the target task has no prior comments, the API converts this into the task description; use `freelo tasks description set` for explicit description writes.
+- `freelo comments edit [id...]` — Overwrite an existing comment's content. Single id or batch (positional <id>..., --ids, or --stdin NDJSON). Content from --message, --from-file, --editor, or stdin (-). Endpoint is POST /comment/{id} (yaml :2634 — POST for historical reasons).
 - `freelo comments list` — List comments across all projects, tasks, documents, files and links the caller can see.
 
 ### config
