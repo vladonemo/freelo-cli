@@ -87,6 +87,11 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 - `freelo tasks move [id]` — Move a task between tasklists (single id) or move many tasks via NDJSON --stdin batch.
 - `freelo tasks reopen [id...]` — Reopen finished tasks (move back to active). Idempotent: already-active tasks are skipped.
 - `freelo tasks show <id>` — Show one task's full detail, with optional side-cars.
+
+### time
+
+- `freelo time start` — Start a time tracking session (singleton per user). Both --task and --note are optional; omit --task for general work. A second start while one is already running returns 409 with a friendly hint.
+- `freelo time status` — Print the caller's currently-running time tracking session, or { active: false } when no timer is running. Returns exit 0 in both cases.
 <!-- END AUTOGEN COMMANDS -->
 
 The block above is generated from `freelo --introspect` by `scripts/check-readme.mjs` and verified in CI. Run `pnpm fix:readme` to refresh it after adding or changing a command.

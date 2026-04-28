@@ -203,6 +203,25 @@ export class HttpClient {
         });
       }
 
+      // 204 No Content — feed `null` to the schema (spec 0030 §2.5, R19).
+      // First documented use is `GET /timetracking/status`; any future 204
+      // endpoint inherits the same treatment. Pure addition — no existing
+      // schema accepts `null`, so existing callers see no behavior change.
+      if (response.status === 204) {
+        const parsed = schema.safeParse(null);
+        if (!parsed.success) {
+          throw new FreeloApiError(
+            `Unexpected 204 No Content from ${method} ${path}: ${parsed.error.message}`,
+            'VALIDATION_ERROR',
+            {
+              ...(requestId !== undefined ? { requestId } : {}),
+            },
+          );
+        }
+        const data = parsed.data as z.output<S>;
+        return { data, rateLimit, requestId: requestId ?? '' };
+      }
+
       // 2xx — parse through schema
       let rawBody: unknown;
       try {
