@@ -90,8 +90,10 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 
 ### time
 
+- `freelo time edit` — Edit the active time tracking session in flight (--task / --clear-task / --note). At least one flag is required. Returns 409 with a friendly hint when no session is running.
 - `freelo time start` — Start a time tracking session (singleton per user). Both --task and --note are optional; omit --task for general work. A second start while one is already running returns 409 with a friendly hint.
 - `freelo time status` — Print the caller's currently-running time tracking session, or { active: false } when no timer is running. Returns exit 0 in both cases.
+- `freelo time stop` — Stop the active time tracking session and emit the resulting work report. Returns 409 with a friendly hint when no session is running.
 <!-- END AUTOGEN COMMANDS -->
 
 The block above is generated from `freelo --introspect` by `scripts/check-readme.mjs` and verified in CI. Run `pnpm fix:readme` to refresh it after adding or changing a command.

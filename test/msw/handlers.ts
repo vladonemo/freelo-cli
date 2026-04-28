@@ -1910,6 +1910,83 @@ export const timeHandlers = {
       HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
     );
   },
+
+  /* -------------------------------------------------------------------------
+   *  R20 — `POST /timetracking/stop` / `POST /timetracking/edit` (spec 0032)
+   * ----------------------------------------------------------------------- */
+
+  /** `POST /timetracking/stop` — 200 with the supplied WorkReport body. */
+  stopOk(workReport: Record<string, unknown>): RequestHandler {
+    return http.post(`${API_BASE}/timetracking/stop`, () => HttpResponse.json(workReport));
+  },
+
+  /** `POST /timetracking/stop` — 409 (no active session). */
+  stopConflict(): RequestHandler {
+    return http.post(`${API_BASE}/timetracking/stop`, () =>
+      HttpResponse.json({ errors: ['Timetracking is not running.'] }, { status: 409 }),
+    );
+  },
+
+  /** `POST /timetracking/stop` — 401. */
+  stopUnauthorized(): RequestHandler {
+    return http.post(`${API_BASE}/timetracking/stop`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `POST /timetracking/stop` — 5xx. */
+  stopServerError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/timetracking/stop`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** `POST /timetracking/edit` — 200 with `{ uuid }`. */
+  editTimerOk(uuid = 'tt-uuid-edit-12345'): RequestHandler {
+    return http.post(`${API_BASE}/timetracking/edit`, () => HttpResponse.json({ uuid }));
+  },
+
+  /**
+   * Match-on-body variant — captures the request body. Returns 200 `{ uuid }`
+   * when the predicate accepts the body; 500 otherwise so a mismatch is
+   * loud in test output.
+   */
+  editTimerOkWhenBody(
+    predicate: (body: unknown, request: Request) => boolean,
+    uuid = 'tt-uuid-edit-12345',
+  ): RequestHandler {
+    return http.post(`${API_BASE}/timetracking/edit`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json({ uuid });
+    });
+  },
+
+  /** `POST /timetracking/edit` — 409 (no active session). */
+  editTimerConflict(): RequestHandler {
+    return http.post(`${API_BASE}/timetracking/edit`, () =>
+      HttpResponse.json({ errors: ['Timetracking is not running.'] }, { status: 409 }),
+    );
+  },
+
+  /** `POST /timetracking/edit` — 401. */
+  editTimerUnauthorized(): RequestHandler {
+    return http.post(`${API_BASE}/timetracking/edit`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `POST /timetracking/edit` — 5xx. */
+  editTimerServerError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/timetracking/edit`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
 };
 
 /**

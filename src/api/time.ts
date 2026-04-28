@@ -12,10 +12,14 @@
 
 import { type ApiResponse, type HttpClient } from './client.js';
 import {
+  TimeEditResponseSchema,
   TimeStartResponseSchema,
   TimeStatusWireSchema,
+  TimeStopResponseSchema,
+  type TimeEditResponse,
   type TimeStartResponse,
   type TimeStatusWire,
+  type TimeStopResponse,
 } from './schemas/time.js';
 
 /** Two-field opts shared by every `time` wire wrapper. */
@@ -31,6 +35,8 @@ export type FetchOpts = {
 
 export const START_TIMER_PATH = '/timetracking/start';
 export const TIMER_STATUS_PATH = '/timetracking/status';
+export const STOP_TIMER_PATH = '/timetracking/stop';
+export const EDIT_TIMER_PATH = '/timetracking/edit';
 
 /* ---------------------------------------------------------------------------
  *  POST /timetracking/start
@@ -142,4 +148,123 @@ export async function getTimerStatus(
     ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
   });
   return { status: raw.data, raw };
+}
+
+/* ---------------------------------------------------------------------------
+ *  POST /timetracking/stop  (R20, spec 0032)
+ *
+ *  No request body — the endpoint always targets the caller's own active
+ *  session (yaml :2793). 200 returns a `WorkReport`; 409 indicates no active
+ *  session (caller's leaf rewrites the hint to point at `time start`).
+ * ------------------------------------------------------------------------- */
+
+export type StopTimerOpts = FetchOpts;
+
+export type StopTimerResult = {
+  workReport: TimeStopResponse;
+  raw: ApiResponse<TimeStopResponse>;
+};
+
+/**
+ * `POST /timetracking/stop` — finalize the active session as a work report.
+ *
+ * Returns the parsed `WorkReport` (yaml :2799-2803). 409 (no active session)
+ * surfaces as `FreeloApiError` with `httpStatus: 409`; the leaf command
+ * (`src/commands/time/stop.ts`) catches and rewrites `hintNext` to point at
+ * `freelo time start` (spec 0032 §2.4).
+ */
+export async function stopTimer(
+  client: HttpClient,
+  opts: StopTimerOpts = {},
+): Promise<StopTimerResult> {
+  const raw = await client.request({
+    method: 'POST',
+    path: STOP_TIMER_PATH,
+    // No body. Pass `undefined` so the client serializes nothing.
+    schema: TimeStopResponseSchema,
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+  return { workReport: raw.data, raw };
+}
+
+/* ---------------------------------------------------------------------------
+ *  POST /timetracking/edit  (R20, spec 0032)
+ *
+ *  Body: `{ task_id?: int|null, note?: str|null }` (yaml :2830-2843). Both
+ *  fields are nullable. `task_id: null` disassociates the session from any
+ *  task. 200 returns `{ uuid }`; 409 indicates no active session.
+ *
+ *  NOTE: Verb is **POST**, not PATCH (the roadmap typo). See spec 0032
+ *  decision 8.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Wire-shape of the POST body for `/timetracking/edit`.
+ *
+ * Important: `task_id: null` is meaningful (disassociate from task), so this
+ * type permits `null` as a distinct value. `buildEditTimerBody` includes the
+ * key whenever the corresponding input is `!== undefined`, so `null` is sent
+ * as `null` and absent stays absent.
+ */
+export type EditTimerBody = {
+  task_id?: number | null;
+  note?: string | null;
+};
+
+/**
+ * CLI-side input shape passed to `buildEditTimerBody`.
+ *
+ * `taskId`:
+ *   - `undefined` — neither `--task` nor `--no-task` supplied; key omitted.
+ *   - `number`    — `--task <id>` supplied; sent as `task_id: <id>`.
+ *   - `null`      — `--no-task` supplied; sent as `task_id: null` (disassociate).
+ *
+ * `note`:
+ *   - `undefined` — `--note` not supplied; key omitted.
+ *   - `string`    — `--note <str>` supplied; sent as `note: <str>` (empty
+ *     string allowed — server accepts).
+ */
+export type EditTimerInput = {
+  taskId?: number | null;
+  note?: string;
+};
+
+export type EditTimerOpts = FetchOpts & {
+  body: EditTimerBody;
+};
+
+export type EditTimerResult = {
+  response: TimeEditResponse;
+  raw: ApiResponse<TimeEditResponse>;
+};
+
+/**
+ * `POST /timetracking/edit` — modify the running session's `task_id` and/or
+ * `note` in flight (yaml :2811-2861). Spec 0032 §3.2.
+ */
+export async function editTimer(client: HttpClient, opts: EditTimerOpts): Promise<EditTimerResult> {
+  const raw = await client.request({
+    method: 'POST',
+    path: EDIT_TIMER_PATH,
+    body: opts.body,
+    schema: TimeEditResponseSchema,
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+  return { response: raw.data, raw };
+}
+
+/**
+ * Map CLI input → wire body. Pure function — no I/O.
+ *
+ * Includes a key only when the corresponding input is `!== undefined`. For
+ * `taskId`, `null` is a valid value (disassociate from task) — the `!==
+ * undefined` check preserves it on the wire.
+ */
+export function buildEditTimerBody(input: EditTimerInput): EditTimerBody {
+  const body: EditTimerBody = {};
+  if (input.taskId !== undefined) body.task_id = input.taskId;
+  if (input.note !== undefined) body.note = input.note;
+  return body;
 }

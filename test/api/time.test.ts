@@ -14,7 +14,14 @@ import { afterAll, beforeAll, afterEach, describe, expect, it } from 'vitest';
 import { server, API_BASE, timeHandlers } from '../msw/handlers.js';
 import { HttpClient } from '../../src/api/client.js';
 import { VERSION } from '../../src/lib/version.js';
-import { buildStartTimerBody, getTimerStatus, startTimer } from '../../src/api/time.js';
+import {
+  buildEditTimerBody,
+  buildStartTimerBody,
+  editTimer,
+  getTimerStatus,
+  startTimer,
+  stopTimer,
+} from '../../src/api/time.js';
 import { FreeloApiError } from '../../src/errors/freelo-api-error.js';
 
 const TEST_OPTS = {
@@ -170,5 +177,207 @@ describe('getTimerStatus', () => {
     }
     expect(caught).toBeInstanceOf(FreeloApiError);
     expect((caught as FreeloApiError).httpStatus).toBe(502);
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ *  R20 — stopTimer (POST /timetracking/stop)
+ * ------------------------------------------------------------------------- */
+
+const SAMPLE_WORK_REPORT = {
+  id: 987,
+  date_add: '2026-04-28T15:30:00Z',
+  date_reported: '2026-04-28',
+  minutes: 42,
+  note: 'WIP',
+  cost: { amount: '0', currency: 'CZK' },
+  author: { id: 1, fullname: 'agent' },
+  worker: { id: 1, fullname: 'agent' },
+  task: { id: 4567, name: 'Investigate bug' },
+};
+
+describe('stopTimer', () => {
+  it('returns the parsed WorkReport on 200 OK', async () => {
+    server.use(timeHandlers.stopOk(SAMPLE_WORK_REPORT));
+    const client = new HttpClient(TEST_OPTS);
+    const { workReport } = await stopTimer(client);
+    expect(workReport.id).toBe(987);
+    expect(workReport.minutes).toBe(42);
+    expect(workReport.task?.id).toBe(4567);
+  });
+
+  it('parses a WorkReport with task: null (general work)', async () => {
+    server.use(
+      timeHandlers.stopOk({
+        id: 988,
+        date_add: '2026-04-28T15:31:00Z',
+        date_reported: '2026-04-28',
+        minutes: 7,
+        note: null,
+        cost: null,
+        author: { id: 1, fullname: 'agent' },
+        worker: { id: 1, fullname: 'agent' },
+        task: null,
+      }),
+    );
+    const client = new HttpClient(TEST_OPTS);
+    const { workReport } = await stopTimer(client);
+    expect(workReport.task).toBeNull();
+    expect(workReport.minutes).toBe(7);
+  });
+
+  it('throws FreeloApiError on 409 (no active session)', async () => {
+    server.use(timeHandlers.stopConflict());
+    const client = new HttpClient(TEST_OPTS);
+    let caught: unknown;
+    try {
+      await stopTimer(client);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(FreeloApiError);
+    const e = caught as FreeloApiError;
+    expect(e.httpStatus).toBe(409);
+    expect(e.code).toBe('FREELO_API_ERROR');
+    expect(e.exitCode).toBe(4);
+  });
+
+  it('throws FreeloApiError on 401', async () => {
+    server.use(timeHandlers.stopUnauthorized());
+    const client = new HttpClient(TEST_OPTS);
+    let caught: unknown;
+    try {
+      await stopTimer(client);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(FreeloApiError);
+    expect((caught as FreeloApiError).exitCode).toBe(3);
+  });
+
+  it('throws FreeloApiError on 5xx (retryable)', async () => {
+    server.use(timeHandlers.stopServerError(503));
+    const client = new HttpClient(TEST_OPTS);
+    let caught: unknown;
+    try {
+      await stopTimer(client);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(FreeloApiError);
+    const e = caught as FreeloApiError;
+    expect(e.httpStatus).toBe(503);
+    expect(e.retryable).toBe(true);
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ *  R20 — buildEditTimerBody / editTimer (POST /timetracking/edit)
+ * ------------------------------------------------------------------------- */
+
+describe('buildEditTimerBody', () => {
+  it('returns {} when no input fields are provided', () => {
+    expect(buildEditTimerBody({})).toEqual({});
+  });
+
+  it('includes only task_id when only taskId is supplied', () => {
+    expect(buildEditTimerBody({ taskId: 4567 })).toEqual({ task_id: 4567 });
+  });
+
+  it('includes task_id: null when taskId is explicitly null (--no-task)', () => {
+    expect(buildEditTimerBody({ taskId: null })).toEqual({ task_id: null });
+  });
+
+  it('includes only note when only note is supplied', () => {
+    expect(buildEditTimerBody({ note: 'updated' })).toEqual({ note: 'updated' });
+  });
+
+  it('includes both fields when both are supplied', () => {
+    expect(buildEditTimerBody({ taskId: 4567, note: 'updated' })).toEqual({
+      task_id: 4567,
+      note: 'updated',
+    });
+  });
+
+  it('preserves empty-string note (server accepts)', () => {
+    expect(buildEditTimerBody({ note: '' })).toEqual({ note: '' });
+  });
+});
+
+describe('editTimer', () => {
+  it('returns the uuid on 200 OK', async () => {
+    server.use(timeHandlers.editTimerOk('tt-uuid-edited-1'));
+    const client = new HttpClient(TEST_OPTS);
+    const { response } = await editTimer(client, { body: { task_id: 4567 } });
+    expect(response.uuid).toBe('tt-uuid-edited-1');
+  });
+
+  it('captures the request body (task_id + note)', async () => {
+    let captured: unknown;
+    server.use(
+      timeHandlers.editTimerOkWhenBody((body) => {
+        captured = body;
+        return true;
+      }, 'tt-uuid-edited-cap'),
+    );
+    const client = new HttpClient(TEST_OPTS);
+    await editTimer(client, { body: { task_id: 99, note: 'capture me' } });
+    expect(captured).toEqual({ task_id: 99, note: 'capture me' });
+  });
+
+  it('captures task_id: null on the wire (--no-task)', async () => {
+    let captured: unknown;
+    server.use(
+      timeHandlers.editTimerOkWhenBody((body) => {
+        captured = body;
+        return true;
+      }, 'tt-uuid-edited-null'),
+    );
+    const client = new HttpClient(TEST_OPTS);
+    await editTimer(client, { body: { task_id: null } });
+    expect(captured).toEqual({ task_id: null });
+  });
+
+  it('throws FreeloApiError on 409 (no active session)', async () => {
+    server.use(timeHandlers.editTimerConflict());
+    const client = new HttpClient(TEST_OPTS);
+    let caught: unknown;
+    try {
+      await editTimer(client, { body: { note: 'x' } });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(FreeloApiError);
+    const e = caught as FreeloApiError;
+    expect(e.httpStatus).toBe(409);
+    expect(e.exitCode).toBe(4);
+  });
+
+  it('throws FreeloApiError on 401', async () => {
+    server.use(timeHandlers.editTimerUnauthorized());
+    const client = new HttpClient(TEST_OPTS);
+    let caught: unknown;
+    try {
+      await editTimer(client, { body: { note: 'x' } });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(FreeloApiError);
+    expect((caught as FreeloApiError).exitCode).toBe(3);
+  });
+
+  it('throws FreeloApiError on 5xx (retryable)', async () => {
+    server.use(timeHandlers.editTimerServerError(502));
+    const client = new HttpClient(TEST_OPTS);
+    let caught: unknown;
+    try {
+      await editTimer(client, { body: { note: 'x' } });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(FreeloApiError);
+    const e = caught as FreeloApiError;
+    expect(e.httpStatus).toBe(502);
+    expect(e.retryable).toBe(true);
   });
 });

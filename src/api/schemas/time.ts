@@ -187,3 +187,171 @@ export const TimeStatusDataSchema = z.discriminatedUnion('active', [
   z.object({ active: z.literal(false) }),
 ]);
 export type TimeStatusData = z.infer<typeof TimeStatusDataSchema>;
+
+/* ---------------------------------------------------------------------------
+ *  R20 — `freelo time stop` / `time edit`  (spec 0032)
+ *
+ *  Wire shapes for `POST /timetracking/stop` (returns `WorkReport`) and
+ *  `POST /timetracking/edit` (returns `{ uuid }`). The "POST" verb on edit
+ *  follows the OpenAPI spec (yaml :2812); the roadmap's `PATCH` was a typo.
+ *  See spec 0032 decision 8.
+ * ------------------------------------------------------------------------- */
+
+/** Inner refs for the WorkReport wire shape (yaml :5669-5698). */
+const TimeStopWireWorkerSchema = z
+  .object({
+    id: z.number().int(),
+    fullname: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+const TimeStopWireTaskSchema = z
+  .object({
+    id: z.number().int(),
+    name: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+const TimeStopWireCostSchema = z
+  .object({
+    amount: z.string(),
+    currency: z.string(),
+  })
+  .passthrough();
+
+/**
+ * 200-body shape for `POST /timetracking/stop` — a `WorkReport` (yaml :5669-5698).
+ *
+ * Permissive: every leaf field is `nullable+optional` because Freelo's
+ * response shape varies with whether the session was task-bound and which
+ * cost / billing settings applied. Inner refs are `.passthrough()` so future
+ * field additions ride through.
+ *
+ * Spec 0032 §3.1.
+ */
+export const TimeStopResponseSchema = z
+  .object({
+    id: z.number().int(),
+    date_add: z.string(),
+    date_reported: z.string(),
+    minutes: z.number().int(),
+    note: z.string().nullable().optional(),
+    cost: TimeStopWireCostSchema.nullable().optional(),
+    author: TimeStopWireWorkerSchema.nullable().optional(),
+    worker: TimeStopWireWorkerSchema.nullable().optional(),
+    task: TimeStopWireTaskSchema.nullable().optional(),
+  })
+  .passthrough();
+export type TimeStopResponse = z.infer<typeof TimeStopResponseSchema>;
+
+/**
+ * 200-body shape for `POST /timetracking/edit` (yaml :2844-2855). Only `uuid`
+ * is documented; passthrough so future additions ride through.
+ */
+export const TimeEditResponseSchema = z
+  .object({
+    uuid: z.string(),
+  })
+  .passthrough();
+export type TimeEditResponse = z.infer<typeof TimeEditResponseSchema>;
+
+/* ---------------------------------------------------------------------------
+ *  Envelope `data` — `freelo.time.stop/v1`
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Public-contract `WorkReport` shape carried on the `freelo.time.stop/v1`
+ * envelope's `data.work_report`. Differs from the wire (`TimeStopResponseSchema`)
+ * by tightening inner refs — the envelope is the public contract and we own
+ * the shape.
+ *
+ * Fields agents read most:
+ *   - `id`, `minutes`: the headline result.
+ *   - `task`: `null` when general work; `{ id, name }` otherwise.
+ *   - `cost`: `null` when not applicable; `{ amount, currency }` otherwise.
+ *
+ * Spec 0032 §2.3 / decision 5.
+ */
+export const TimeStopWorkReportSchema = z.object({
+  id: z.number().int(),
+  date_add: z.string(),
+  date_reported: z.string(),
+  minutes: z.number().int(),
+  note: z.string().nullable(),
+  task: z
+    .object({
+      id: z.number().int(),
+      name: z.string().nullable(),
+    })
+    .nullable(),
+  cost: z
+    .object({
+      amount: z.string(),
+      currency: z.string(),
+    })
+    .nullable(),
+  worker: z
+    .object({
+      id: z.number().int(),
+      fullname: z.string().nullable(),
+    })
+    .nullable(),
+  author: z
+    .object({
+      id: z.number().int(),
+      fullname: z.string().nullable(),
+    })
+    .nullable(),
+});
+export type TimeStopWorkReport = z.infer<typeof TimeStopWorkReportSchema>;
+
+/**
+ * Live `data` shape for `freelo.time.stop/v1`. `would` is added by
+ * `dryRunEnvelope` in the dry-run branch.
+ */
+export const TimeStopLiveDataSchema = z.object({
+  work_report: TimeStopWorkReportSchema,
+});
+export type TimeStopLiveData = z.infer<typeof TimeStopLiveDataSchema>;
+
+/**
+ * Dry-run `data` shape for `freelo.time.stop/v1`. The body field is empty
+ * (no fields in the wire body) — `dryRunEnvelope` splices the `would`
+ * descriptor into `data` itself.
+ */
+export const TimeStopDryRunDataSchema = z.object({});
+export type TimeStopDryRunData = z.infer<typeof TimeStopDryRunDataSchema>;
+
+/* ---------------------------------------------------------------------------
+ *  Envelope `data` — `freelo.time.edit/v1`
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Echo of the wire body — mirrors what the user actually passed (see spec
+ * 0032 decision 6). `task_id` is `int|null|absent`; `note` is `str|null|absent`.
+ *
+ * `task_id: null` means `--no-task` was supplied (disassociate from any task).
+ * `task_id: absent` means neither `--task` nor `--no-task` were passed.
+ */
+export const TimeEditAppliedChangesSchema = z.object({
+  task_id: z.number().int().nullable().optional(),
+  note: z.string().nullable().optional(),
+});
+export type TimeEditAppliedChanges = z.infer<typeof TimeEditAppliedChangesSchema>;
+
+/**
+ * Live `data` shape for `freelo.time.edit/v1`.
+ */
+export const TimeEditLiveDataSchema = z.object({
+  uuid: z.string(),
+  applied_changes: TimeEditAppliedChangesSchema,
+});
+export type TimeEditLiveData = z.infer<typeof TimeEditLiveDataSchema>;
+
+/**
+ * Dry-run `data` shape for `freelo.time.edit/v1` (no `uuid`, no POST happened).
+ */
+export const TimeEditDryRunDataSchema = z.object({
+  applied_changes: TimeEditAppliedChangesSchema,
+});
+export type TimeEditDryRunData = z.infer<typeof TimeEditDryRunDataSchema>;
