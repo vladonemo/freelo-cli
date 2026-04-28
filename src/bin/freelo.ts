@@ -102,6 +102,7 @@ export async function run(argv: readonly string[]): Promise<void> {
   const { register: registerTasks } = await import('../commands/tasks.js');
   const { register: registerSubtasks } = await import('../commands/subtasks.js');
   const { register: registerComments } = await import('../commands/comments.js');
+  const { register: registerTime } = await import('../commands/time.js');
   const { registerHelp } = await import('../commands/help.js');
   const program = buildProgram();
   // Use exitOverride so Commander throws CommanderError instead of calling
@@ -138,6 +139,7 @@ export async function run(argv: readonly string[]): Promise<void> {
   registerTasks(program, getAppConfig, env);
   registerSubtasks(program, getAppConfig, env);
   registerComments(program, getAppConfig, env);
+  registerTime(program, getAppConfig, env);
   registerHelp(program, getAppConfig);
 
   // Root-level `--introspect` short-circuits before any subcommand action.

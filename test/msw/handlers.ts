@@ -1819,6 +1819,100 @@ export const commentsListHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo time start` / `time status` (R19, spec 0030).
+ *
+ * Two endpoints:
+ *   - `POST /timetracking/start` — singleton 200 `{ uuid }`, 409 on conflict.
+ *   - `GET  /timetracking/status` — 200 active session JSON, **204 No Content**
+ *     when no session is active.
+ *
+ * Singleton-409 is the load-bearing case (spec 0030 §2.4); 204 is the
+ * load-bearing read case (spec 0030 §2.5).
+ */
+export const timeHandlers = {
+  /** `POST /timetracking/start` — 200 with `{ uuid }`. */
+  startOk(uuid = 'tt-uuid-12345'): RequestHandler {
+    return http.post(`${API_BASE}/timetracking/start`, () => HttpResponse.json({ uuid }));
+  },
+
+  /**
+   * Match-on-body variant — captures the request body. Returns 200 `{ uuid }`
+   * when the predicate accepts the body; 500 otherwise (so a mismatch shows
+   * up clearly in test output).
+   */
+  startOkWhenBody(
+    predicate: (body: unknown, request: Request) => boolean,
+    uuid = 'tt-uuid-12345',
+  ): RequestHandler {
+    return http.post(`${API_BASE}/timetracking/start`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json({ uuid });
+    });
+  },
+
+  /** `POST /timetracking/start` — 409 (singleton already running). */
+  startConflict(): RequestHandler {
+    return http.post(`${API_BASE}/timetracking/start`, () =>
+      HttpResponse.json({ errors: ['Timetracking is already running.'] }, { status: 409 }),
+    );
+  },
+
+  /** `POST /timetracking/start` — 401. */
+  startUnauthorized(): RequestHandler {
+    return http.post(`${API_BASE}/timetracking/start`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `POST /timetracking/start` — 404 (task not found). */
+  startNotFound(): RequestHandler {
+    return http.post(`${API_BASE}/timetracking/start`, () =>
+      HttpResponse.json({ errors: ['Task not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `POST /timetracking/start` — 5xx. */
+  startServerError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/timetracking/start`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** `GET /timetracking/status` — 200 active session with the supplied body. */
+  statusActive(body: Record<string, unknown>): RequestHandler {
+    return http.get(`${API_BASE}/timetracking/status`, () => HttpResponse.json(body));
+  },
+
+  /** `GET /timetracking/status` — **204 No Content** (no active timer). */
+  statusInactive(): RequestHandler {
+    return http.get(
+      `${API_BASE}/timetracking/status`,
+      () => new HttpResponse(null, { status: 204 }),
+    );
+  },
+
+  /** `GET /timetracking/status` — 401. */
+  statusUnauthorized(): RequestHandler {
+    return http.get(`${API_BASE}/timetracking/status`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `GET /timetracking/status` — 5xx. */
+  statusServerError(status = 500): RequestHandler {
+    return http.get(`${API_BASE}/timetracking/status`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
