@@ -1819,6 +1819,145 @@ export const commentsListHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo reports list` (R21, spec 0033).
+ *
+ * One endpoint:
+ *   - `GET /work-reports` — `PaginatedResponse` of `WorkReportFull[]`
+ *
+ * The query parameters are exposed via the optional `onRequest` callback so
+ * tests can assert wire shape (`tasks_ids[]=...`, `projects_ids[]=...`,
+ * `users_ids[]=...`, `date_reported_range[date_from]=...`, `p=...`).
+ *
+ * Mirrors `commentsListHandlers` byte-for-byte modulo URL and inner key.
+ */
+export const workReportsListHandlers = {
+  /**
+   * `GET /work-reports?p=N` — paginated. `pages` keyed by 0-indexed page
+   * number; missing pages return an empty page using the last-known
+   * `per_page` and `total`. Same past-end behaviour as
+   * `commentsListHandlers.paged`.
+   */
+  paged(
+    pages: Record<number, PagedFixture>,
+    opts?: { onRequest?: (req: Request) => void },
+  ): RequestHandler {
+    return http.get(`${API_BASE}/work-reports`, ({ request }) => {
+      opts?.onRequest?.(request);
+      const u = new URL(request.url);
+      const p = Number(u.searchParams.get('p') ?? '0');
+      const known = Object.keys(pages)
+        .map(Number)
+        .sort((a, b) => a - b);
+      const lastKnown = known[known.length - 1] ?? 0;
+      const fixture = pages[p];
+      if (fixture !== undefined) return HttpResponse.json(fixture);
+      const ref = pages[lastKnown];
+      if (!ref) {
+        return HttpResponse.json({
+          total: 0,
+          count: 0,
+          page: p,
+          per_page: 25,
+          data: { reports: [] },
+        });
+      }
+      return HttpResponse.json({
+        total: ref.total,
+        count: 0,
+        page: p,
+        per_page: ref.per_page,
+        data: { reports: [] },
+      });
+    });
+  },
+
+  /** `GET /work-reports` — 401. */
+  unauthorized(): RequestHandler {
+    return http.get(`${API_BASE}/work-reports`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `GET /work-reports` — 403. */
+  forbidden(): RequestHandler {
+    return http.get(`${API_BASE}/work-reports`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** `GET /work-reports` — 404. */
+  notFound(): RequestHandler {
+    return http.get(`${API_BASE}/work-reports`, () =>
+      HttpResponse.json({ errors: ['Not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `GET /work-reports` — 5xx for any page. */
+  serverError(status = 500): RequestHandler {
+    return http.get(`${API_BASE}/work-reports`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** `GET /work-reports` — 429 (Retry-After: 0 so retry exhaustion is fast). */
+  rateLimited(): RequestHandler {
+    return http.get(
+      `${API_BASE}/work-reports`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** `GET /work-reports` — connection-closed (network error). */
+  networkError(): RequestHandler {
+    return http.get(`${API_BASE}/work-reports`, () => HttpResponse.error());
+  },
+
+  /**
+   * Mid-stream fetch failure: succeeds for `p < failPage`, errors at
+   * `p === failPage`. Drives the `PartialPagesError` unwrap path in the
+   * command.
+   */
+  midStreamError(opts: {
+    pages: Record<number, PagedFixture>;
+    failPage: number;
+    status?: number;
+  }): RequestHandler {
+    const { pages, failPage, status = 500 } = opts;
+    return http.get(`${API_BASE}/work-reports`, ({ request }) => {
+      const u = new URL(request.url);
+      const p = Number(u.searchParams.get('p') ?? '0');
+      if (p === failPage) {
+        return HttpResponse.json({ errors: ['mid-stream'] }, { status });
+      }
+      const fixture = pages[p];
+      if (fixture !== undefined) return HttpResponse.json(fixture);
+      return HttpResponse.json({ errors: ['unexpected'] }, { status: 500 });
+    });
+  },
+
+  /**
+   * Malformed 200 — the response body has the right wrapper but a `reports[0]`
+   * with the wrong types. Drives the schema-validation error path
+   * (`FreeloApiError` with `code: 'VALIDATION_ERROR'`).
+   */
+  malformed(): RequestHandler {
+    return http.get(`${API_BASE}/work-reports`, () =>
+      HttpResponse.json({
+        total: 1,
+        count: 1,
+        page: 0,
+        per_page: 25,
+        data: { reports: [{ id: 'not-a-number', date_reported: '2026-04-25', minutes: 30 }] },
+      }),
+    );
+  },
+};
+
+/**
  * MSW handlers for `freelo time start` / `time status` (R19, spec 0030).
  *
  * Two endpoints:
