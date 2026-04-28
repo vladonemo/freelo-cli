@@ -396,9 +396,39 @@ freelo time start --task <id> [--note <str>] [--at <ISO>] [--dry-run]
 
 ### R20 — `freelo time stop` / `time edit`
 
-**Endpoints:** `POST /timetracking/stop`, `PATCH /timetracking/edit`.
-**CLI:** `freelo time stop [--note <str>]` / `freelo time edit [--note <str>] [--started-at <ISO>]`.
+**Endpoints:** `POST /timetracking/stop`, `POST /timetracking/edit`.
+**CLI:** `freelo time stop` / `freelo time edit [--note <str>] [--task <id> | --clear-task]`.
 **Depends on:** R19.
+
+**Shipped surface differs from the original line above** — reconciled against the OpenAPI spec during the autonomous run (see `docs/runs/2026-04-28-2100-r20-time-stop-edit/`):
+
+- Verb is `POST`, not `PATCH` (`docs/api/freelo-api.yaml:2812`).
+- `--note` dropped from `time stop` — `/timetracking/stop` documents no body. Workflow: `freelo time edit --note "…" && freelo time stop`.
+- `--started-at <ISO>` deferred to R20.5 — the documented edit body has only `task_id` and `note`.
+- Bonus: `--task` / `--clear-task` mutex pair surfaces the OpenAPI-documented `task_id: null` capability.
+
+### R20.5 — `freelo time edit --started-at <ISO>` (backdate edit, queued)
+
+**Outcome:** Adjust the start timestamp of the currently running session — the symmetric counterpart to R19.5's start-time backdate. Useful when a user started the timer late (or early) and wants to correct the live session without stopping it.
+**Endpoints:** same as R20 — `POST /timetracking/edit`. **Blocked on the OpenAPI:** the request body schema at `docs/api/freelo-api.yaml:2812` currently documents only `task_id` and `note` — there is no field for backdating the live session's start time. R20.5 unblocks when either (a) the OpenAPI is updated to document a `date_reported` (or equivalent) field on edit, or (b) the freelo-api-specialist confirms via fixture that the server accepts and applies such a field even when undocumented.
+**Surface (additive on top of R20):**
+
+```
+freelo time edit [--note <str>] [--task <id> | --clear-task] [--started-at <ISO>] [--dry-run]
+```
+
+**Ships with this slice:**
+
+- New `--started-at <ISO>` flag on `time edit`. Reuse the same ISO-timestamp helper and clock-skew clamp from R19.5 (`src/lib/iso-timestamp.ts`).
+- Forwarded as the documented backdate field (name TBD when the API is updated). When `--started-at` is omitted, the body field is omitted entirely — same wire-clean rule as R19.5.
+- `--dry-run` envelope's `data.would.body` reflects the value when present.
+- Empty-edit rule still applies: a bare `freelo time edit` with no note / task / started-at change is a `VALIDATION_ERROR` (exit 2).
+
+**Why it wasn't in R20:** the OpenAPI did not document a backdate field on `/timetracking/edit` at the time of the autonomous run. Per the orchestrator hard rule "API behavior not in `docs/api/freelo-api.yaml` → pause / don't guess the API", the flag was deferred rather than implemented speculatively. Tracked here so the gap is explicit.
+
+**Tier:** Yellow (additive flag on an existing user-visible command; no envelope schema change; no auth/HTTP defaults change).
+**Changeset:** `freelo-cli: minor` (new flag).
+**Depends on:** R20 + an OpenAPI / freelo-api-specialist update confirming the backdate field.
 
 ### R21 — `freelo reports list`
 
