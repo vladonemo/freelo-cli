@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { type ApiResponse, type HttpClient } from './client.js';
-import { CommentFullSchema, type CommentFull } from './schemas/comment.js';
+import {
+  CommentCreatedSchema,
+  CommentFullSchema,
+  type CommentCreated,
+  type CommentFull,
+} from './schemas/comment.js';
 import { type NormalizedPage, normalizePaginated } from './pagination.js';
 import { buildQuery } from '../lib/query.js';
 
@@ -89,6 +94,90 @@ export async function getAllComments(
  *
  * Spec 0027 §4.3.
  */
+/* ---------------------------------------------------------------------------
+ *  R17 — `freelo comments add` (spec 0028)
+ *
+ *  Wire wrapper for `POST /task/{task_id}/comments`. Mirrors
+ *  `setTaskDescription` in `src/api/tasks-description.ts` byte-for-byte; only
+ *  the validating schema and the path differ.
+ *
+ *  Note on server-side behavior: the API auto-flips the first POST on a
+ *  task with no prior comments to a description (yaml :2589-2592). The
+ *  CLI does not branch on this — `is_description` rides through on the
+ *  response, the leaf command surfaces it on the envelope.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Wire-shape of the POST body for `/task/{task_id}/comments`. Subset of the
+ * OpenAPI request body (yaml :2602-2611) for the v1-supported field set —
+ * no `files[]` (multipart upload helper lands at R25).
+ */
+export type AddCommentBody = {
+  content: string;
+};
+
+/**
+ * CLI-side input shape passed to `buildAddCommentBody`.
+ *
+ * Distinct from `AddCommentBody` so a future v1.x can grow CLI-ergonomic
+ * fields (e.g. `--mention <id>`) without touching the wire shape directly.
+ */
+export type AddCommentInput = {
+  content: string;
+};
+
+export type AddCommentOpts = FetchOpts & {
+  taskId: number;
+  body: AddCommentBody;
+};
+
+export type AddCommentResult = {
+  comment: CommentCreated;
+  raw: ApiResponse<CommentCreated>;
+};
+
+/**
+ * `POST /task/{task_id}/comments` — create a single comment on a task.
+ * Validates the response through `CommentCreatedSchema`; rate-limit and
+ * request-id metadata travel on `raw` for the leaf command to surface in
+ * the envelope.
+ *
+ * Spec 0028 §4.
+ */
+export async function addComment(
+  client: HttpClient,
+  opts: AddCommentOpts,
+): Promise<AddCommentResult> {
+  const raw = await client.request({
+    method: 'POST',
+    path: addCommentPath(opts.taskId),
+    body: opts.body,
+    schema: CommentCreatedSchema,
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+  return { comment: raw.data, raw };
+}
+
+/**
+ * Resolve the wire path for an add call. Exposed so `--dry-run` envelopes
+ * can echo the path without re-running the network branch.
+ */
+export function addCommentPath(taskId: number): string {
+  return `/task/${taskId}/comments`;
+}
+
+/**
+ * Map CLI input → wire body. Pure function — no I/O.
+ *
+ * In v1 this is a near-identity: the CLI doesn't accept `files[]` (R25
+ * multipart helper). Adding that in R25 is a single-file change here, not a
+ * refactor of the leaf command.
+ */
+export function buildAddCommentBody(input: AddCommentInput): AddCommentBody {
+  return { content: input.content };
+}
+
 export function commentMatchesSince(
   c: { date_add: string; date_edited_at?: string | null },
   cutoffMs: number,
