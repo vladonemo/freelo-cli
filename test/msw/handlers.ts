@@ -1610,6 +1610,95 @@ export const commentsAddHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo comments edit` (R18, spec 0029).
+ *
+ * One endpoint:
+ *   - `POST /comment/{comment_id}` — `Comment` (singleton 200).
+ *
+ * Mirrors `commentsAddHandlers` byte-for-byte; only the path differs.
+ */
+export const commentsEditHandlers = {
+  /** `POST /comment/{id}` — 200 with the supplied response body. */
+  editOk(commentId: number, body: Record<string, unknown>): RequestHandler {
+    return http.post(`${API_BASE}/comment/${commentId}`, () => HttpResponse.json(body));
+  },
+
+  /**
+   * Match-on-body variant: `predicate(body, request)` decides whether the
+   * supplied response or a 500 diagnostic comes back. Useful when a test
+   * needs to assert the exact wire body.
+   */
+  editOkWhenBody(
+    commentId: number,
+    predicate: (body: unknown, request: Request) => boolean,
+    response: Record<string, unknown>,
+  ): RequestHandler {
+    return http.post(`${API_BASE}/comment/${commentId}`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json(response);
+    });
+  },
+
+  /** `POST /comment/{id}` — 401. */
+  editUnauthorized(commentId: number): RequestHandler {
+    return http.post(`${API_BASE}/comment/${commentId}`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `POST /comment/{id}` — 403 (defensive; yaml says 404 on ACL). */
+  editForbidden(commentId: number): RequestHandler {
+    return http.post(`${API_BASE}/comment/${commentId}`, () =>
+      HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** `POST /comment/{id}` — 404 (comment missing or ACL violation per yaml :2633). */
+  editNotFound(commentId: number): RequestHandler {
+    return http.post(`${API_BASE}/comment/${commentId}`, () =>
+      HttpResponse.json({ errors: ['Comment not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `POST /comment/{id}` — 422 (server-side validation). */
+  editUnprocessable(commentId: number, message = 'Server-side validation failed.'): RequestHandler {
+    return http.post(`${API_BASE}/comment/${commentId}`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 422 }),
+    );
+  },
+
+  /** `POST /comment/{id}` — 5xx. */
+  editServerError(commentId: number, status = 500): RequestHandler {
+    return http.post(`${API_BASE}/comment/${commentId}`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** `POST /comment/{id}` — 429 (Retry-After: 0). */
+  editRateLimited(commentId: number): RequestHandler {
+    return http.post(
+      `${API_BASE}/comment/${commentId}`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** `POST /comment/{id}` — connection-closed (network error). */
+  editNetworkError(commentId: number): RequestHandler {
+    return http.post(`${API_BASE}/comment/${commentId}`, () => HttpResponse.error());
+  },
+};
+
+/**
  * MSW handlers for `freelo comments list` (R16, spec 0027).
  *
  * One endpoint:

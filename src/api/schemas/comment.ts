@@ -192,6 +192,72 @@ export type CommentCreated = z.infer<typeof CommentCreatedSchema>;
 export const AddCommentSourceSchema = z.enum(['message', 'file', 'editor', 'stdin']);
 export type AddCommentSource = z.infer<typeof AddCommentSourceSchema>;
 
+/* ---------------------------------------------------------------------------
+ *  R18 — `freelo comments edit` (spec 0029)
+ *
+ *  POST /comment/{comment_id} (yaml :2619-2663). Same `Comment` response
+ *  shape as R17's `createComment` — we reuse `CommentCreatedSchema` rather
+ *  than declaring a parallel one. Only the source enum and the envelope
+ *  data shape are R18-specific.
+ *
+ *  Spec 0029 §3.4 / decision 4.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Source of the content for `comments edit`. Strict superset of R17's
+ * `AddCommentSourceSchema`:
+ *
+ *   - `'message'` — `--message <str>` (inline pass-through, shared content
+ *     across every id in batch).
+ *   - `'file'`    — `--from-file <path>` (shared content across every id).
+ *   - `'editor'`  — `--editor` (TTY-only; shared content across every id).
+ *   - `'stdin'`   — single id with `-` positional sentinel.
+ *   - `'ndjson'`  — `--stdin` batch mode; per-row `content` from each line.
+ *
+ * R17's enum is **untouched** — adding `'ndjson'` to it would be a
+ * passthrough-schema breaking change for R17's envelope. R18 owns its own
+ * enum (decision 4).
+ */
+export const EditCommentSourceSchema = z.enum(['message', 'file', 'editor', 'stdin', 'ndjson']);
+export type EditCommentSource = z.infer<typeof EditCommentSourceSchema>;
+
+/**
+ * `freelo.comments.edit/v1` envelope `data` shape.
+ *
+ *   - `comment_id`: target comment id (echoed; always present).
+ *   - `comment`: server response (post-edit), validated through
+ *     `CommentCreatedSchema`. **Always present** in live envelopes; **absent**
+ *     in `--dry-run`.
+ *   - `source`: `'message' | 'file' | 'editor' | 'stdin' | 'ndjson'`.
+ *     **Always present** in live; **absent** in `--dry-run`.
+ *   - `byte_length`: UTF-8 byte length of the content sent (or that would have
+ *     been sent in dry-run). **Always present**.
+ *   - `line_index`: 0-indexed line number in `--stdin` batch mode. **Present
+ *     only** for NDJSON-derived envelopes; **absent** for positional / --ids /
+ *     single-id flows.
+ *   - `would`: only in `--dry-run` envelopes (mirrors R09 / R13 / R15 / R17).
+ *
+ * No `is_description` echo: edit cannot flip a comment to/from a description
+ * (server-side that's handled by the original create call only).
+ *
+ * Spec 0029 §3.2.
+ */
+export const CommentsEditDataSchema = z.object({
+  comment_id: z.number().int(),
+  comment: CommentCreatedSchema.optional(),
+  source: EditCommentSourceSchema.optional(),
+  byte_length: z.number().int().nonnegative(),
+  line_index: z.number().int().nonnegative().optional(),
+  would: z
+    .object({
+      method: z.literal('POST'),
+      path: z.string(),
+      body: z.object({ content: z.string() }),
+    })
+    .optional(),
+});
+export type CommentsEditData = z.infer<typeof CommentsEditDataSchema>;
+
 /**
  * `freelo.comments.add/v1` envelope `data` shape.
  *
