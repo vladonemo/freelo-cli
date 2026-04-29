@@ -58,6 +58,7 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 
 ### files
 
+- `freelo files list` — List every directory, link, file, and document the caller can see (paginated). Filter by --project / --type. No --task filter — endpoint does not surface one.
 - `freelo files upload <path...>` — Upload one or more local files to Freelo. Returns a UUID per file. Optionally attach the uploads to a task by posting a comment with embedded references (the only documented attach mechanism — yaml :3876).
 
 ### help

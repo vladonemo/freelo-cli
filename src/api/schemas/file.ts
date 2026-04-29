@@ -100,3 +100,81 @@ export const FilesUploadDataSchema = z.object({
   would: z.array(WouldEntrySchema).optional(),
 });
 export type FilesUploadData = z.infer<typeof FilesUploadDataSchema>;
+
+/* ---------------------------------------------------------------------------
+ *  R26 — `freelo files list`  (spec 0038)
+ *
+ *  Wire endpoint: `GET /all-docs-and-files` (yaml :3909-3954).
+ *  Inner key: `items` (NOT `reports`/`comments`/`tasks`).
+ *
+ *  `FileItem` (yaml :5973-6026) is union-ish — fields like `filename`,
+ *  `mime_type`, `size`, `link`, `link_type`, `items_count` apply to a subset
+ *  of the four type values. Loose-by-design: all of them are
+ *  `.nullable().optional()` so a `directory` row missing `mime_type` doesn't
+ *  trip the schema. `type` itself is the only required-non-null field beyond
+ *  `uuid` — required because the renderer's size column branches on it.
+ *
+ *  `UserBasicSchema` is local rather than imported from `schemas/project.ts`:
+ *  the project copy is NOT passthrough, and `FileItem.author` may carry
+ *  avatar/email/role on some endpoints. Same divergence rationale as
+ *  `report.ts` (spec 0033 §10).
+ * ------------------------------------------------------------------------- */
+
+const UserBasicSchema = z
+  .object({
+    id: z.number().int(),
+    fullname: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+const ProjectRefSchema = z
+  .object({
+    id: z.number().int(),
+    name: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+export const FileItemTypeSchema = z.enum(['directory', 'link', 'file', 'document']);
+export type FileItemType = z.infer<typeof FileItemTypeSchema>;
+
+export const FileItemSchema = z
+  .object({
+    uuid: z.string().min(1),
+    name: z.string().nullable().optional(),
+    author: UserBasicSchema.nullable().optional(),
+    project: ProjectRefSchema.nullable().optional(),
+    directory_uuid: z.string().nullable().optional(),
+    date_add: z.string().nullable().optional(),
+    order: z.number().int().nullable().optional(),
+    type: FileItemTypeSchema,
+    filename: z.string().nullable().optional(),
+    caption: z.string().nullable().optional(),
+    mime_type: z.string().nullable().optional(),
+    extension: z.string().nullable().optional(),
+    size: z.number().int().nullable().optional(),
+    color: z.string().nullable().optional(),
+    items_count: z.number().int().nullable().optional(),
+    link: z.string().nullable().optional(),
+    link_type: z.string().nullable().optional(),
+    note: z.string().nullable().optional(),
+  })
+  .passthrough();
+export type FileItem = z.infer<typeof FileItemSchema>;
+
+/**
+ * Echo of the user's filter set in the `freelo.files.list/v1` envelope.
+ * `type` carries the **wire form** (`document` / `directory` / `file` /
+ * `link`) — see decision 03 in the spec-0038 run docs. Agents round-tripping
+ * to Freelo's REST get a string they can pass straight through.
+ */
+export const FilesListAppliedFiltersSchema = z.object({
+  projects: z.array(z.number().int()).optional(),
+  type: FileItemTypeSchema.optional(),
+});
+export type FilesListAppliedFilters = z.infer<typeof FilesListAppliedFiltersSchema>;
+
+export const FilesListDataSchema = z.object({
+  applied_filters: FilesListAppliedFiltersSchema,
+  items: z.array(FileItemSchema),
+});
+export type FilesListData = z.infer<typeof FilesListDataSchema>;

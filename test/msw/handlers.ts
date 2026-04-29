@@ -2833,6 +2833,139 @@ export const filesUploadHandlers = {
 };
 
 /**
+ * MSW handlers for `GET /all-docs-and-files` (R26, spec 0038).
+ *
+ * Mirrors `workReportsListHandlers` byte-for-byte modulo URL and inner key
+ * (`items` here, not `reports`). Realistic FileItem fixtures live alongside
+ * the test (`test/commands/files/list.test.ts`).
+ */
+export const allDocsAndFilesListHandlers = {
+  /**
+   * `GET /all-docs-and-files?p=N` — paginated. `pages` keyed by 0-indexed
+   * page number; missing pages return an empty page using the last-known
+   * `per_page` and `total`. Same past-end behaviour as
+   * `commentsListHandlers.paged` / `workReportsListHandlers.paged`.
+   */
+  paged(
+    pages: Record<number, PagedFixture>,
+    opts?: { onRequest?: (req: Request) => void },
+  ): RequestHandler {
+    return http.get(`${API_BASE}/all-docs-and-files`, ({ request }) => {
+      opts?.onRequest?.(request);
+      const u = new URL(request.url);
+      const p = Number(u.searchParams.get('p') ?? '0');
+      const known = Object.keys(pages)
+        .map(Number)
+        .sort((a, b) => a - b);
+      const lastKnown = known[known.length - 1] ?? 0;
+      const fixture = pages[p];
+      if (fixture !== undefined) return HttpResponse.json(fixture);
+      const ref = pages[lastKnown];
+      if (!ref) {
+        return HttpResponse.json({
+          total: 0,
+          count: 0,
+          page: p,
+          per_page: 25,
+          data: { items: [] },
+        });
+      }
+      return HttpResponse.json({
+        total: ref.total,
+        count: 0,
+        page: p,
+        per_page: ref.per_page,
+        data: { items: [] },
+      });
+    });
+  },
+
+  /** `GET /all-docs-and-files` — 401. */
+  unauthorized(): RequestHandler {
+    return http.get(`${API_BASE}/all-docs-and-files`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `GET /all-docs-and-files` — 403. */
+  forbidden(): RequestHandler {
+    return http.get(`${API_BASE}/all-docs-and-files`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** `GET /all-docs-and-files` — 404. */
+  notFound(): RequestHandler {
+    return http.get(`${API_BASE}/all-docs-and-files`, () =>
+      HttpResponse.json({ errors: ['Not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `GET /all-docs-and-files` — 5xx for any page. */
+  serverError(status = 500): RequestHandler {
+    return http.get(`${API_BASE}/all-docs-and-files`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** `GET /all-docs-and-files` — 429 (Retry-After: 0 so retry exhaustion is fast). */
+  rateLimited(): RequestHandler {
+    return http.get(
+      `${API_BASE}/all-docs-and-files`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** `GET /all-docs-and-files` — connection-closed (network error). */
+  networkError(): RequestHandler {
+    return http.get(`${API_BASE}/all-docs-and-files`, () => HttpResponse.error());
+  },
+
+  /**
+   * Mid-stream fetch failure: succeeds for `p < failPage`, errors at
+   * `p === failPage`. Drives the `PartialPagesError` unwrap path in the
+   * leaf command.
+   */
+  midStreamError(opts: {
+    pages: Record<number, PagedFixture>;
+    failPage: number;
+    status?: number;
+  }): RequestHandler {
+    const { pages, failPage, status = 500 } = opts;
+    return http.get(`${API_BASE}/all-docs-and-files`, ({ request }) => {
+      const u = new URL(request.url);
+      const p = Number(u.searchParams.get('p') ?? '0');
+      if (p === failPage) {
+        return HttpResponse.json({ errors: ['mid-stream'] }, { status });
+      }
+      const fixture = pages[p];
+      if (fixture !== undefined) return HttpResponse.json(fixture);
+      return HttpResponse.json({ errors: ['unexpected'] }, { status: 500 });
+    });
+  },
+
+  /**
+   * Malformed 200 — `items[0].type` is not in the wire enum. Drives the
+   * schema-validation error path (`FreeloApiError VALIDATION_ERROR`).
+   */
+  malformed(): RequestHandler {
+    return http.get(`${API_BASE}/all-docs-and-files`, () =>
+      HttpResponse.json({
+        total: 1,
+        count: 1,
+        page: 0,
+        per_page: 25,
+        data: { items: [{ uuid: 'aaa', type: 'unknown_kind' }] },
+      }),
+    );
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
