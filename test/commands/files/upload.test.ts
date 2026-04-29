@@ -539,12 +539,6 @@ describe('freelo files upload — error paths', () => {
  * ------------------------------------------------------------------------- */
 
 describe('freelo files upload — spinner gating', () => {
-  // NOTE: Commander stores --no-spinner as opts.spinner = false, not opts.noSpinner.
-  // The upload command checks opts.noSpinner !== true (always true since noSpinner
-  // is undefined). This is a known source bug — the --no-spinner flag does not
-  // currently suppress the spinner. The `spinnerEnabled` branch is tested via
-  // isInteractive() toggling (CI env var and TTY flags).
-
   it('spinner is activated when isInteractive() is true and --no-spinner is not set', async () => {
     // Simulate a TTY session: clear CI, set TTY flags, mock ora to capture
     // spinner creation and verify it was instantiated.
@@ -583,6 +577,49 @@ describe('freelo files upload — spinner gating', () => {
       expect(oraInstantiated).toBe(true);
       expect(startCalled).toBe(true);
       expect(stopCalled).toBe(true);
+    } finally {
+      vi.doUnmock('ora');
+      vi.resetModules();
+      if (savedCI !== undefined) {
+        process.env['CI'] = savedCI;
+      } else {
+        delete process.env['CI'];
+      }
+      Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
+      Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
+    }
+  });
+
+  it('--no-spinner suppresses the spinner even on a TTY', async () => {
+    const savedCI = process.env['CI'];
+    delete process.env['CI'];
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+
+    server.use(filesUploadHandlers.uploadOk('aaa33333-0000-0000-0000-000000000003'));
+
+    let oraInstantiated = false;
+    vi.resetModules();
+    vi.doMock('ora', () => {
+      const factory = vi.fn(() => {
+        oraInstantiated = true;
+        return { text: '', start: vi.fn(), stop: vi.fn() };
+      });
+      return { default: factory };
+    });
+
+    try {
+      const { run } = await import('../../../src/bin/freelo.js');
+      const { exitCode } = await runCli(run, [
+        'files',
+        'upload',
+        pathA,
+        '--no-spinner',
+        '--output',
+        'json',
+      ]);
+      expect(exitCode).toBe(0);
+      expect(oraInstantiated).toBe(false);
     } finally {
       vi.doUnmock('ora');
       vi.resetModules();

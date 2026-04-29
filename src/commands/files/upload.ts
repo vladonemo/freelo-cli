@@ -65,7 +65,9 @@ type UploadOpts = {
   attachToTask?: number;
   message?: string;
   dryRun?: boolean;
-  noSpinner?: boolean;
+  // Commander stores `--no-spinner` as `spinner: false` (negation of an
+  // implicit `--spinner` boolean). Default is `true` when the flag is absent.
+  spinner?: boolean;
 };
 
 /* ---------------------------------------------------------------------------
@@ -284,7 +286,7 @@ async function runLive(
 
   // Spinner setup — gate on isInteractive() AND --no-spinner. Lazy-import
   // ora only when we actually start a spinner (Calibration #7 / decision 06).
-  const spinnerEnabled = isInteractive() && opts.noSpinner !== true;
+  const spinnerEnabled = isInteractive() && opts.spinner !== false;
   let spinner: { text: string; start: () => unknown; stop: () => unknown } | undefined;
   if (spinnerEnabled) {
     const { default: ora } = await import('ora');
