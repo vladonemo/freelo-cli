@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { mkdir, rm } from 'node:fs/promises';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { http, HttpResponse } from 'msw';
 import { server, projectLabelsHandlers } from '../../msw/handlers.js';
 import { isIdempotentDetachSkip } from '../../../src/commands/labels/detach.js';
 import { FreeloApiError } from '../../../src/errors/freelo-api-error.js';
@@ -477,6 +478,182 @@ describe('freelo labels detach — error paths', () => {
       'json',
     ]);
     expect(exitCode).toBe(4);
+  });
+});
+
+describe('freelo labels detach — human output', () => {
+  it('dry-run --output human: prints "(dry-run) Would detach..."', async () => {
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'labels',
+      'detach',
+      '--project',
+      '7',
+      '--label',
+      '12',
+      '--dry-run',
+      '--output',
+      'human',
+    ]);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('dry-run');
+    expect(stdout).toContain('12');
+  });
+
+  it('batch with one failure --output human: emits human error line for failed item', async () => {
+    server.use(
+      projectLabelsHandlers.detachPerIdRouter({
+        '12': () => Response.json({ result: 'success' }),
+        '13': () =>
+          new Response(JSON.stringify({ errors: ['Gone.'] }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      }),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'labels',
+      'detach',
+      '--project',
+      '7',
+      '--label',
+      '12',
+      '--label',
+      '13',
+      '--output',
+      'human',
+    ]);
+    expect(exitCode).toBe(4);
+    // Success line for label 12
+    expect(stdout).toContain('Detached label #12');
+    // writeBatchError human branch for label 13
+    expect(stdout).toContain('Failed item 2');
+    expect(stdout).toContain('label #13');
+    expect(stdout).toContain('project #7');
+  });
+});
+
+describe('freelo labels detach — writeBatchError envelope shape', () => {
+  it('batch --ids failure: error envelope has input_index and label_id in context', async () => {
+    server.use(
+      projectLabelsHandlers.detachPerIdRouter({
+        '12': () => Response.json({ result: 'success' }),
+        '13': () =>
+          new Response(JSON.stringify({ errors: ['Server error.'] }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      }),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'labels',
+      'detach',
+      '--project',
+      '7',
+      '--ids',
+      '12,13',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(4);
+    const lines = parseAllJsonLines(stdout);
+    const errEnv = lines[1] as { schema: string; error: { context: Record<string, unknown> } };
+    expect(errEnv.schema).toBe('freelo.error/v1');
+    // fromStdin=false → input_index
+    expect(errEnv.error.context).toHaveProperty('input_index', 1);
+    expect(errEnv.error.context).toHaveProperty('label_id', 13);
+    expect(errEnv.error.context).toHaveProperty('project_id', 7);
+  });
+
+  it('--stdin batch with parse failure: error envelope has line_index and no label_id', async () => {
+    // Sending a line missing both `label` and `id` fields → parseNdjsonLine returns !ok
+    // → writeBatchError(result.error, i, projectId, null, mode, true) — idMaybe === null
+    server.use(projectLabelsHandlers.detachOk());
+    const restore = pipeStdin('{"bad_key":12}\n');
+    try {
+      const { run } = await import('../../../src/bin/freelo.js');
+      const { stdout, exitCode } = await runCli(run, [
+        'labels',
+        'detach',
+        '--project',
+        '7',
+        '--stdin',
+        '--output',
+        'json',
+      ]);
+      expect(exitCode).toBeGreaterThan(0);
+      const env = parseFirstJson(stdout) as {
+        schema: string;
+        error: { context: Record<string, unknown> };
+      };
+      expect(env.schema).toBe('freelo.error/v1');
+      // fromStdin → line_index in context
+      expect(env.error.context).toHaveProperty('line_index', 0);
+      // idMaybe is null → label_id absent
+      expect(env.error.context).not.toHaveProperty('label_id');
+    } finally {
+      restore();
+    }
+  });
+
+  it('batch error envelope with errors[] array: errors field forwarded from API', async () => {
+    server.use(
+      projectLabelsHandlers.detachPerIdRouter({
+        '12': () => Response.json({ result: 'success' }),
+        '13': () =>
+          new Response(JSON.stringify({ errors: ['constraint violation', 'db locked'] }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      }),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout } = await runCli(run, [
+      'labels',
+      'detach',
+      '--project',
+      '7',
+      '--label',
+      '12',
+      '--label',
+      '13',
+      '--output',
+      'json',
+    ]);
+    const lines = parseAllJsonLines(stdout);
+    const errEnv = lines[1] as { error: { errors?: string[] } };
+    expect(errEnv.error.errors).toBeDefined();
+    expect(Array.isArray(errEnv.error.errors)).toBe(true);
+  });
+
+  it('toBaseError non-BaseError path: network TypeError wrapped into error envelope', async () => {
+    let callCount = 0;
+    server.use(
+      http.post('https://api.freelo.io/v1/project-labels/remove-from-project/:projectId', () => {
+        callCount++;
+        if (callCount === 1) return HttpResponse.json({ result: 'success' });
+        return HttpResponse.error();
+      }),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'labels',
+      'detach',
+      '--project',
+      '7',
+      '--label',
+      '12',
+      '--label',
+      '13',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBeGreaterThan(0);
+    const lines = parseAllJsonLines(stdout);
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    expect((lines[1] as { schema: string }).schema).toBe('freelo.error/v1');
   });
 });
 

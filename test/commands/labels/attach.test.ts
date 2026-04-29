@@ -21,6 +21,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { mkdir, rm } from 'node:fs/promises';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { http, HttpResponse } from 'msw';
 import { server, projectLabelsHandlers } from '../../msw/handlers.js';
 
 function captureOutput() {
@@ -480,6 +481,138 @@ describe('freelo labels attach — batch continue-on-error', () => {
     expect((lines[0] as { schema: string }).schema).toBe('freelo.labels.attach/v1');
     expect((lines[1] as { schema: string }).schema).toBe('freelo.error/v1');
     expect((lines[2] as { schema: string }).schema).toBe('freelo.labels.attach/v1');
+  });
+});
+
+describe('freelo labels attach — human output on batch error', () => {
+  it('--output human batch failure: emits human error line for failed item', async () => {
+    server.use(
+      projectLabelsHandlers.attachPerNameRouter({
+        Billable: () => Response.json({ result: 'success' }),
+        Bad: () =>
+          new Response(JSON.stringify({ errors: ['Internal error.'] }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      }),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'labels',
+      'attach',
+      '--project',
+      '7',
+      '--name',
+      'Billable',
+      '--name',
+      'Bad',
+      '--output',
+      'human',
+    ]);
+    expect(exitCode).toBe(4);
+    // First name succeeds (human success line)
+    expect(stdout).toContain('Attached');
+    expect(stdout).toContain('Billable');
+    // Second name fails (writeBatchError human branch)
+    expect(stdout).toContain('Failed item 2');
+    expect(stdout).toContain('project #7');
+  });
+
+  it('batch error envelope: carries input_index, project_id, and name in context', async () => {
+    server.use(
+      projectLabelsHandlers.attachPerNameRouter({
+        Billable: () => Response.json({ result: 'success' }),
+        Bad: () =>
+          new Response(JSON.stringify({ errors: ['Boom.'] }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      }),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'labels',
+      'attach',
+      '--project',
+      '7',
+      '--name',
+      'Billable',
+      '--name',
+      'Bad',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(4);
+    const lines = parseAllJsonLines(stdout);
+    const errEnv = lines[1] as {
+      schema: string;
+      error: { context: Record<string, unknown>; errors?: string[] };
+    };
+    expect(errEnv.schema).toBe('freelo.error/v1');
+    expect(errEnv.error.context).toHaveProperty('input_index', 1);
+    expect(errEnv.error.context).toHaveProperty('project_id', 7);
+    expect(errEnv.error.context).toHaveProperty('name', 'Bad');
+  });
+
+  it('batch error envelope with errors[] array: errors field present in error envelope', async () => {
+    // FreeloApiError from a 5xx with body `{ errors: ['...'] }` carries an errors
+    // array on the error object — exercises the `errors.length > 0` branch in writeBatchError.
+    server.use(
+      projectLabelsHandlers.attachPerNameRouter({
+        Billable: () => Response.json({ result: 'success' }),
+        Bad: () =>
+          new Response(JSON.stringify({ errors: ['server melted', 'disk full'] }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      }),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout } = await runCli(run, [
+      'labels',
+      'attach',
+      '--project',
+      '7',
+      '--name',
+      'Billable',
+      '--name',
+      'Bad',
+      '--output',
+      'json',
+    ]);
+    const lines = parseAllJsonLines(stdout);
+    const errEnv = lines[1] as { error: { errors?: string[] } };
+    // The errors[] array from the API response should be forwarded into the envelope
+    expect(errEnv.error.errors).toBeDefined();
+    expect(Array.isArray(errEnv.error.errors)).toBe(true);
+  });
+
+  it('toBaseError non-BaseError path: network TypeError wrapped into error envelope', async () => {
+    let callCount = 0;
+    server.use(
+      http.post('https://api.freelo.io/v1/project-labels/add-to-project/:projectId', () => {
+        callCount++;
+        if (callCount === 1) return HttpResponse.json({ result: 'success' });
+        return HttpResponse.error();
+      }),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'labels',
+      'attach',
+      '--project',
+      '7',
+      '--name',
+      'Billable',
+      '--name',
+      'Bad',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBeGreaterThan(0);
+    const lines = parseAllJsonLines(stdout);
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    expect((lines[1] as { schema: string }).schema).toBe('freelo.error/v1');
   });
 });
 

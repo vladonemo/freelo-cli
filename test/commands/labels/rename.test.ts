@@ -434,6 +434,28 @@ describe('freelo labels rename — error paths', () => {
   });
 });
 
+describe('freelo labels rename — request-id propagation', () => {
+  it('--request-id is forwarded into the response envelope', async () => {
+    const reqId = '550e8400-e29b-41d4-a716-446655440001';
+    server.use(projectLabelsHandlers.editOk());
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      '--request-id',
+      reqId,
+      'labels',
+      'rename',
+      '12',
+      '--name',
+      'Billable',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(0);
+    const env = parseFirstJson(stdout) as { request_id?: string };
+    expect(env.request_id).toBe(reqId);
+  });
+});
+
 describe('freelo labels rename — introspect', () => {
   it('lists labels rename with output_schema and destructive: false', async () => {
     const { run } = await import('../../../src/bin/freelo.js');

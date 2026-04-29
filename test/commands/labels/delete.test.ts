@@ -24,6 +24,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { mkdir, rm } from 'node:fs/promises';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { http, HttpResponse } from 'msw';
 import { server, projectLabelsHandlers } from '../../msw/handlers.js';
 import { isIdempotentDeleteSkip } from '../../../src/commands/labels/delete.js';
 import { FreeloApiError } from '../../../src/errors/freelo-api-error.js';
@@ -429,6 +430,177 @@ describe('freelo labels delete — error paths', () => {
     const { run } = await import('../../../src/bin/freelo.js');
     const { exitCode } = await runCli(run, ['labels', 'delete', '12', '--yes', '--output', 'json']);
     expect(exitCode).toBe(6);
+  });
+});
+
+describe('freelo labels delete — human output', () => {
+  it('single delete --output human: prints "Deleted label #12."', async () => {
+    server.use(projectLabelsHandlers.deleteOk());
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'labels',
+      'delete',
+      '12',
+      '--yes',
+      '--output',
+      'human',
+    ]);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('Deleted label #12.');
+  });
+
+  it('404 idempotent --output human: prints "already deleted"', async () => {
+    server.use(projectLabelsHandlers.deleteNotFound());
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'labels',
+      'delete',
+      '12',
+      '--yes',
+      '--output',
+      'human',
+    ]);
+    expect(exitCode).toBe(0);
+    expect(stdout).toMatch(/already deleted/i);
+  });
+
+  it('dry-run --output human: prints "(dry-run) Would delete..."', async () => {
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'labels',
+      'delete',
+      '12',
+      '--dry-run',
+      '--output',
+      'human',
+    ]);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('dry-run');
+    expect(stdout).toContain('delete label #12');
+  });
+
+  it('batch --output human with one failure: emits human error line for failed item', async () => {
+    server.use(
+      projectLabelsHandlers.deletePerIdRouter({
+        '12': () => Response.json({ result: 'success' }),
+        '13': () =>
+          new Response(JSON.stringify({ errors: ['Server went boom.'] }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      }),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'labels',
+      'delete',
+      '12',
+      '13',
+      '--yes',
+      '--output',
+      'human',
+    ]);
+    expect(exitCode).toBe(4);
+    // first item succeeds (human line)
+    expect(stdout).toContain('Deleted label #12.');
+    // second item fails (writeBatchError human branch: "Failed item 2 (label #13): ...")
+    expect(stdout).toContain('Failed item 2');
+    expect(stdout).toContain('label #13');
+  });
+});
+
+describe('freelo labels delete — writeBatchError envelope shape', () => {
+  it('batch --stdin failure with parse error: error envelope has line_index, no label_id', async () => {
+    // Send a line with invalid NDJSON shape (missing required "id" field) so
+    // parseNdjsonLine returns !ok — hitting the idMaybe===null code path.
+    server.use(projectLabelsHandlers.deleteOk());
+    const restore = pipeStdin('{"not_id":99}\n');
+    try {
+      const { run } = await import('../../../src/bin/freelo.js');
+      const { stdout, exitCode } = await runCli(run, [
+        'labels',
+        'delete',
+        '--stdin',
+        '--yes',
+        '--output',
+        'json',
+      ]);
+      expect(exitCode).toBeGreaterThan(0);
+      const env = parseFirstJson(stdout) as {
+        schema: string;
+        error: { context: Record<string, unknown> };
+      };
+      expect(env.schema).toBe('freelo.error/v1');
+      // fromStdin=true → context carries line_index, NOT input_index
+      expect(env.error.context).toHaveProperty('line_index', 0);
+      // idMaybe is null so label_id must be absent
+      expect(env.error.context).not.toHaveProperty('label_id');
+    } finally {
+      restore();
+    }
+  });
+
+  it('batch with 5xx: error envelope carries label_id in context and input_index (not line_index)', async () => {
+    server.use(
+      projectLabelsHandlers.deletePerIdRouter({
+        '12': () => Response.json({ result: 'success' }),
+        '13': () =>
+          new Response(JSON.stringify({ errors: ['Gone.'] }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      }),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'labels',
+      'delete',
+      '12',
+      '13',
+      '--yes',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(4);
+    const lines = parseAllJsonLines(stdout);
+    // line 0 is the success envelope; line 1 is the error envelope
+    const errEnv = lines[1] as { schema: string; error: { context: Record<string, unknown> } };
+    expect(errEnv.schema).toBe('freelo.error/v1');
+    // fromStdin=false → context carries input_index
+    expect(errEnv.error.context).toHaveProperty('input_index', 1);
+    // idMaybe is 13 → label_id present
+    expect(errEnv.error.context).toHaveProperty('label_id', 13);
+  });
+
+  it('toBaseError non-BaseError path: network TypeError is wrapped and emitted as error envelope', async () => {
+    // Two-id batch: id 12 succeeds, id 13 gets a network-level error (TypeError).
+    // toBaseError catches the non-BaseError and wraps it in a ValidationError so
+    // writeBatchError can still emit a structured envelope.
+    let callCount = 0;
+    server.use(
+      http.delete('https://api.freelo.io/v1/project-labels/:labelId', () => {
+        callCount++;
+        if (callCount === 1) return HttpResponse.json({ result: 'success' });
+        return HttpResponse.error(); // causes a TypeError in undici/fetch → not a BaseError
+      }),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'labels',
+      'delete',
+      '12',
+      '13',
+      '--yes',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBeGreaterThan(0);
+    const lines = parseAllJsonLines(stdout);
+    // First line: success envelope for id 12
+    // Second line: error envelope emitted by writeBatchError via toBaseError wrapping
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    const errEnv = lines[1] as { schema: string };
+    expect(errEnv.schema).toBe('freelo.error/v1');
   });
 });
 

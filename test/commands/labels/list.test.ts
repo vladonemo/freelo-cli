@@ -241,6 +241,25 @@ describe('freelo labels list — error paths', () => {
   });
 });
 
+describe('freelo labels list — request-id propagation', () => {
+  it('--request-id is forwarded into the response envelope', async () => {
+    const reqId = '550e8400-e29b-41d4-a716-446655440000';
+    server.use(projectLabelsHandlers.findAvailableOk([BILLABLE]));
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      '--request-id',
+      reqId,
+      'labels',
+      'list',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(0);
+    const env = parseFirstJson(stdout) as { request_id?: string };
+    expect(env.request_id).toBe(reqId);
+  });
+});
+
 describe('freelo labels list — introspect', () => {
   it('lists labels list with output_schema and destructive: false', async () => {
     const { run } = await import('../../../src/bin/freelo.js');
