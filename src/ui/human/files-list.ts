@@ -1,5 +1,11 @@
 import { renderTable, truncateCell } from '../table.js';
 import { type FileItem, type FilesListData } from '../../api/schemas/file.js';
+import { humanizeBytes } from '../../lib/format.js';
+
+// Re-export for backward compatibility with existing tests that import
+// `humanizeBytes` from this module. Helper now lives in `lib/format.ts`
+// (spec 0039 decision 04 — three callsites).
+export { humanizeBytes };
 
 /**
  * Human renderer for `freelo files list` (R26, spec 0038 §3.4).
@@ -74,20 +80,4 @@ function formatSize(item: FileItem): string {
   const size = item.size;
   if (typeof size !== 'number' || !Number.isFinite(size) || size < 0) return '-';
   return humanizeBytes(size);
-}
-
-/**
- * Format a non-negative byte count as a human-readable string with one
- * decimal of precision: `<1 KB`, `<1 MB`, `<1 GB`, otherwise `GB`.
- *
- * Exported for unit testing in `test/ui/human/files-list.test.ts` (the
- * boundaries between units are easy to off-by-one). Decimal SI multipliers
- * (1 KB = 1024 B) — matches what most desktop OS file managers display
- * when showing file sizes.
- */
-export function humanizeBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }

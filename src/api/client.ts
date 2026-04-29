@@ -396,6 +396,151 @@ export class HttpClient {
     const data = parsed.data as z.output<S>;
     return { data, rateLimit, requestId: requestId ?? '' };
   }
+
+  /**
+   * Binary GET. Additive companion to `request()` — does NOT share its
+   * code path. Built for `GET /file/{file_uuid}` (R27, spec 0039 §5.1).
+   *
+   * Differences from `request()`:
+   *   - Response body is returned as an unconsumed `AsyncIterable<Uint8Array>`
+   *     so the caller streams it to a sink (file or stdout). No JSON parse,
+   *     no zod schema validation on the body.
+   *   - No 429-retry. Retrying a streaming GET would need to either re-issue
+   *     and re-pump (fragile after partial consumption) or buffer in memory
+   *     (defeats streaming). Caller retries the whole command.
+   *   - `Accept: *\/*` (binary endpoint).
+   *
+   * Shares with `request()`:
+   *   - Authorization (Basic) and User-Agent headers.
+   *   - 401 / 4xx / 5xx error path: attempts JSON parse for Freelo error
+   *     envelope; falls through to `FREELO_API_ERROR` if non-JSON.
+   *   - Network failure → `NetworkError`.
+   *   - 429 → `RateLimitedError` (no retry).
+   *   - Rate-limit header extraction.
+   */
+  async requestBinary(opts: { path: string; signal?: AbortSignal; requestId?: string }): Promise<{
+    body: AsyncIterable<Uint8Array>;
+    contentLength: number | null;
+    contentType: string | null;
+    contentDisposition: string | null;
+    rateLimit: RateLimit;
+    requestId: string;
+  }> {
+    const { path } = opts;
+    const requestId = opts.requestId;
+    const signal = opts.signal ?? this.#signal;
+    const url = `${this.#apiBaseUrl}${path.startsWith('/') ? path : `/${path}`}`;
+
+    const headers: Record<string, string> = {
+      Authorization: `Basic ${Buffer.from(`${this.#email}:${this.#apiKey}`).toString('base64')}`,
+      'User-Agent': this.#userAgent,
+      Accept: '*/*',
+    };
+    if (requestId) headers['X-Request-Id'] = requestId;
+
+    const fetchInit: RequestInit = {
+      method: 'GET',
+      headers,
+    };
+    if (signal !== undefined) fetchInit.signal = signal;
+
+    let response: Response;
+    try {
+      response = await fetch(url, fetchInit);
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw err;
+      }
+      throw new NetworkError(
+        `Network error calling GET ${path}: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err },
+      );
+    }
+
+    const rateLimit = extractRateLimit(response.headers);
+
+    if (response.status === 429) {
+      const retryAfterMs = parseRetryAfter(response.headers.get('Retry-After'));
+      const retryAfterSec = retryAfterMs !== null ? retryAfterMs / 1000 : undefined;
+      throw new RateLimitedError(`Rate limited on GET ${path}.`, {
+        ...(retryAfterSec !== undefined ? { retryAfterSec } : {}),
+        ...(requestId !== undefined ? { requestId } : {}),
+      });
+    }
+
+    if (response.status === 401) {
+      let errors: string[] | undefined;
+      try {
+        const raw = await response.json();
+        const parsed = FreeloErrorBodySchema.safeParse(raw);
+        if (parsed.success) errors = normalizeErrors(parsed.data);
+      } catch {
+        // Ignore parse errors on error bodies — fall through to typed error.
+      }
+      throw FreeloApiError.fromResponse({
+        status: 401,
+        ...(errors !== undefined ? { errors } : {}),
+        ...(requestId !== undefined ? { requestId } : {}),
+      });
+    }
+
+    if (!response.ok) {
+      let errors: string[] | undefined;
+      let rawBody: unknown;
+      try {
+        rawBody = await response.json();
+        const parsed = FreeloErrorBodySchema.safeParse(rawBody);
+        if (parsed.success) errors = normalizeErrors(parsed.data);
+      } catch {
+        // Non-JSON error body — surface as generic FreeloApiError.
+      }
+      throw FreeloApiError.fromResponse({
+        status: response.status,
+        ...(errors !== undefined ? { errors } : {}),
+        ...(rawBody !== undefined ? { rawBody } : {}),
+        ...(requestId !== undefined ? { requestId } : {}),
+      });
+    }
+
+    // 2xx — extract metadata; return body as async iterable.
+    const cl = response.headers.get('Content-Length');
+    const contentLength = cl !== null && cl.trim().length > 0 ? Number(cl) : null;
+    const contentLengthSafe =
+      contentLength !== null && Number.isFinite(contentLength) && contentLength >= 0
+        ? contentLength
+        : null;
+    const contentType = response.headers.get('Content-Type');
+    const contentDisposition = response.headers.get('Content-Disposition');
+
+    if (response.body === null) {
+      // Spec edge: 200 with no body. Surface a synthetic empty iterable.
+      const emptyBody = (async function* (): AsyncIterable<Uint8Array> {
+        // intentional empty iterator — the loop body never runs
+      })();
+      return {
+        body: emptyBody,
+        contentLength: contentLengthSafe,
+        contentType,
+        contentDisposition,
+        rateLimit,
+        requestId: requestId ?? '',
+      };
+    }
+
+    // `response.body` is a `ReadableStream<Uint8Array>` in WHATWG-fetch.
+    // Node 20+ exposes async iteration on it natively. Assert the shape so
+    // TypeScript's lib.dom doesn't widen it back to plain ReadableStream.
+    const iterable = response.body as unknown as AsyncIterable<Uint8Array>;
+
+    return {
+      body: iterable,
+      contentLength: contentLengthSafe,
+      contentType,
+      contentDisposition,
+      rateLimit,
+      requestId: requestId ?? '',
+    };
+  }
 }
 
 /** Factory function — preferred over `new HttpClient()` in command code. */

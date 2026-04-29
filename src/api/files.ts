@@ -12,7 +12,7 @@
  */
 
 import { z } from 'zod';
-import { type ApiResponse, type HttpClient } from './client.js';
+import { type ApiResponse, type HttpClient, type RateLimit } from './client.js';
 import {
   FileItemSchema,
   FileUploadResponseSchema,
@@ -23,6 +23,7 @@ import {
 import { type MultipartFile } from '../lib/multipart.js';
 import { type NormalizedPage, normalizePaginated } from './pagination.js';
 import { buildQuery } from '../lib/query.js';
+import { parseContentDisposition } from '../lib/filename.js';
 
 /** Path constant — exposed so dry-run envelopes can echo it without a wire call. */
 export const FILE_UPLOAD_PATH = '/file/upload';
@@ -155,4 +156,67 @@ export async function getAllDocsAndFiles(
   });
   const page = normalizePaginated(raw.data, 'items', FileItemSchema);
   return { page, raw };
+}
+
+/* ---------------------------------------------------------------------------
+ *  R27 — `freelo files download`  (spec 0039)
+ *
+ *  Wire endpoint: `GET /file/{file_uuid}` (yaml :3835-3865) — streams binary
+ *  bytes (`application/octet-stream`). No JSON, no schema validation on the
+ *  body. Caller drains the iterable into a sink.
+ * ------------------------------------------------------------------------- */
+
+/** Build the wire path for a UUID. `encodeURIComponent` defends against any
+ *  unexpected characters even after the strict UUID regex check. */
+export function fileDownloadPath(uuid: string): string {
+  return `/file/${encodeURIComponent(uuid)}`;
+}
+
+export type DownloadFileOpts = FetchOpts & {
+  uuid: string;
+};
+
+export type DownloadFileResult = {
+  /** Async iterable of byte chunks. Caller pumps to a sink. */
+  body: AsyncIterable<Uint8Array>;
+  /** Total bytes, when `Content-Length` is set; null otherwise. Spec 0039 §5.1. */
+  contentLength: number | null;
+  /** Server-provided MIME (`Content-Type` header); null otherwise. */
+  contentType: string | null;
+  /**
+   * Sanitized filename parsed from `Content-Disposition` (post percent-decode
+   * for `filename*`). The wire wrapper hands the **raw** parsed value here;
+   * the leaf command applies `sanitizeBasename` before using it as a path
+   * component. `null` when the header is absent or has no recognizable
+   * `filename` parameter.
+   */
+  filename: string | null;
+  /** Rate-limit + request-id metadata for the envelope. */
+  raw: { rateLimit: RateLimit; requestId: string };
+};
+
+/**
+ * `GET /file/{file_uuid}` — single-file binary download. Returns metadata
+ * + an unconsumed body iterable. The leaf command owns the consumption
+ * side (atomic file write or stdout pipe).
+ *
+ * Spec 0039 §5.1 / §5.2.
+ */
+export async function downloadFile(
+  client: HttpClient,
+  opts: DownloadFileOpts,
+): Promise<DownloadFileResult> {
+  const path = fileDownloadPath(opts.uuid);
+  const r = await client.requestBinary({
+    path,
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+  return {
+    body: r.body,
+    contentLength: r.contentLength,
+    contentType: r.contentType,
+    filename: parseContentDisposition(r.contentDisposition),
+    raw: { rateLimit: r.rateLimit, requestId: r.requestId },
+  };
 }
