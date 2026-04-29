@@ -56,6 +56,10 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 - `freelo config unset <key>` — Remove a configuration key from the user conf store. Read-only keys cannot be unset via 'config'; use 'freelo auth logout' for credentials.
 - `freelo config use <profile>` — Switch the active profile. The profile must already exist (created via 'freelo auth login'). No network call is made — use auth whoami to verify credentials afterward.
 
+### files
+
+- `freelo files upload <path...>` — Upload one or more local files to Freelo. Returns a UUID per file. Optionally attach the uploads to a task by posting a comment with embedded references (the only documented attach mechanism — yaml :3876).
+
 ### help
 
 - `freelo help [commandPath...]` — Print the command tree as JSON (--output json) or as the same text as --help (default).

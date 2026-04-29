@@ -257,6 +257,145 @@ export class HttpClient {
 
     return attempt(1);
   }
+
+  /**
+   * Multipart POST. Additive companion to `request()` — does NOT share its
+   * code path. Built for `POST /file/upload` (R25, spec 0037 §5.2).
+   *
+   * Differences from `request()`:
+   *   - Body is a `FormData` (not JSON-stringified). `fetch` automatically
+   *     sets `Content-Type: multipart/form-data; boundary=…`.
+   *   - No 429-retry. Writes never retry today; multipart writes inherit the
+   *     same rule.
+   *   - Method is fixed at POST. The Freelo API has no GET/PUT/PATCH/DELETE
+   *     multipart endpoints.
+   *
+   * Shares with `request()`:
+   *   - Authorization (Basic) and User-Agent headers.
+   *   - 401 / 4xx / 5xx error path → `FreeloApiError.fromResponse`.
+   *   - Network failure → `NetworkError`.
+   *   - 429 → `RateLimitedError` (no retry).
+   *   - 2xx → JSON parse → schema-validate.
+   *   - Rate-limit header extraction.
+   */
+  async requestMultipart<S extends ZodTypeAny>(opts: {
+    path: string;
+    body: FormData;
+    schema: S;
+    signal?: AbortSignal;
+    requestId?: string;
+  }): Promise<ApiResponse<z.output<S>>> {
+    const { path, body, schema } = opts;
+    const requestId = opts.requestId;
+    const signal = opts.signal ?? this.#signal;
+    const url = `${this.#apiBaseUrl}${path.startsWith('/') ? path : `/${path}`}`;
+
+    const headers: Record<string, string> = {
+      Authorization: `Basic ${Buffer.from(`${this.#email}:${this.#apiKey}`).toString('base64')}`,
+      'User-Agent': this.#userAgent,
+      Accept: 'application/json',
+    };
+    if (requestId) headers['X-Request-Id'] = requestId;
+    // NOTE: do NOT set Content-Type — fetch sets it (with boundary) when the
+    // body is a FormData instance.
+
+    // The undici FormData type and the global RequestInit['body'] type
+    // overlap structurally but TypeScript can't prove it. Build the init
+    // and cast through unknown so we don't depend on lib.dom typings.
+    const fetchInit = {
+      method: 'POST',
+      headers,
+      body,
+    } as unknown as RequestInit;
+    if (signal !== undefined) (fetchInit as { signal?: AbortSignal }).signal = signal;
+
+    let response: Response;
+    try {
+      response = await fetch(url, fetchInit);
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw err;
+      }
+      throw new NetworkError(
+        `Network error calling POST ${path}: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err },
+      );
+    }
+
+    const rateLimit = extractRateLimit(response.headers);
+
+    if (response.status === 429) {
+      const retryAfterMs = parseRetryAfter(response.headers.get('Retry-After'));
+      const retryAfterSec = retryAfterMs !== null ? retryAfterMs / 1000 : undefined;
+      throw new RateLimitedError(`Rate limited on POST ${path}.`, {
+        ...(retryAfterSec !== undefined ? { retryAfterSec } : {}),
+        ...(requestId !== undefined ? { requestId } : {}),
+      });
+    }
+
+    if (response.status === 401) {
+      let errors: string[] | undefined;
+      try {
+        const raw = await response.json();
+        const parsed = FreeloErrorBodySchema.safeParse(raw);
+        if (parsed.success) errors = normalizeErrors(parsed.data);
+      } catch {
+        // Ignore parse errors on error bodies.
+      }
+      throw FreeloApiError.fromResponse({
+        status: 401,
+        ...(errors !== undefined ? { errors } : {}),
+        ...(requestId !== undefined ? { requestId } : {}),
+      });
+    }
+
+    if (!response.ok) {
+      let errors: string[] | undefined;
+      let rawBody: unknown;
+      try {
+        rawBody = await response.json();
+        const parsed = FreeloErrorBodySchema.safeParse(rawBody);
+        if (parsed.success) errors = normalizeErrors(parsed.data);
+      } catch {
+        // Ignore.
+      }
+      throw FreeloApiError.fromResponse({
+        status: response.status,
+        ...(errors !== undefined ? { errors } : {}),
+        ...(rawBody !== undefined ? { rawBody } : {}),
+        ...(requestId !== undefined ? { requestId } : {}),
+      });
+    }
+
+    let rawBody: unknown;
+    try {
+      rawBody = await response.json();
+    } catch (err) {
+      throw new FreeloApiError(
+        `Failed to parse JSON response from POST ${path}.`,
+        'FREELO_API_ERROR',
+        {
+          cause: err,
+          ...(requestId !== undefined ? { requestId } : {}),
+        },
+      );
+    }
+
+    const parsed = schema.safeParse(rawBody);
+    if (!parsed.success) {
+      throw new FreeloApiError(
+        `Unexpected response shape from POST ${path}: ${parsed.error.message}`,
+        'VALIDATION_ERROR',
+        {
+          rawBody,
+          ...(requestId !== undefined ? { requestId } : {}),
+        },
+      );
+    }
+
+    const data = parsed.data as z.output<S>;
+    return { data, rateLimit, requestId: requestId ?? '' };
+  }
 }
 
 /** Factory function — preferred over `new HttpClient()` in command code. */
