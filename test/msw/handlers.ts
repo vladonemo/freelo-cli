@@ -2659,6 +2659,108 @@ export const projectLabelsHandlers = {
 };
 
 /**
+ * MSW handler factories for `task-labels` endpoints (R24, spec 0036).
+ *
+ *   POST /task-labels                                  — bulk-create
+ *   POST /task-labels/add-to-task/{task_id}            — attach
+ *   POST /task-labels/remove-from-task/{task_id}       — detach
+ *
+ * Note: detach is POST per OpenAPI (decision 01), not DELETE.
+ */
+export const taskLabelsHandlers = {
+  /* ---------------------------------------------------------------------
+   *  POST /task-labels — bulk-create
+   * ------------------------------------------------------------------- */
+
+  createOk(): RequestHandler {
+    return http.post(`${API_BASE}/task-labels`, () => HttpResponse.json({ result: 'success' }));
+  },
+
+  createOkWhenBody(predicate: (body: unknown, request: Request) => boolean): RequestHandler {
+    return http.post(`${API_BASE}/task-labels`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json({ result: 'success' });
+    });
+  },
+
+  createServerError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/task-labels`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /* ---------------------------------------------------------------------
+   *  POST /task-labels/add-to-task/{task_id} — attach
+   * ------------------------------------------------------------------- */
+
+  attachOk(): RequestHandler {
+    return http.post(`${API_BASE}/task-labels/add-to-task/:taskId`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  attachOkWhenBody(predicate: (body: unknown, request: Request) => boolean): RequestHandler {
+    return http.post(`${API_BASE}/task-labels/add-to-task/:taskId`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json({ result: 'success' });
+    });
+  },
+
+  attachBadRequest(message = 'Unsupported color (#zzzzzz) provided.'): RequestHandler {
+    return http.post(`${API_BASE}/task-labels/add-to-task/:taskId`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  attachServerError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/task-labels/add-to-task/:taskId`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /* ---------------------------------------------------------------------
+   *  POST /task-labels/remove-from-task/{task_id} — detach
+   * ------------------------------------------------------------------- */
+
+  detachOk(): RequestHandler {
+    return http.post(`${API_BASE}/task-labels/remove-from-task/:taskId`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  detachOkWhenBody(predicate: (body: unknown, request: Request) => boolean): RequestHandler {
+    return http.post(`${API_BASE}/task-labels/remove-from-task/:taskId`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json({ result: 'success' });
+    });
+  },
+
+  detachServerError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/task-labels/remove-from-task/:taskId`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
