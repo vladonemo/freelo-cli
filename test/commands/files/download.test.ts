@@ -852,3 +852,117 @@ describe('freelo files download — pumpToStdout error branches', () => {
     expect(env.error.code).toBe('NETWORK_ERROR');
   });
 });
+
+/* ---------------------------------------------------------------------------
+ *  pumpToFile rename-failure branch (Calibration §4 — cover the catch arm
+ *  at src/commands/files/download.ts lines 364-373).
+ * ------------------------------------------------------------------------- */
+
+describe('freelo files download — pumpToFile rename failure', () => {
+  it('rename failure after temp write is wrapped in NetworkError, temp file is cleaned up', async () => {
+    // Mock node:fs/promises.rename to throw on its first call so the temp file
+    // is written successfully but the atomic rename step fails. Spread the real
+    // module so every other fs op (open, write, unlink) keeps working.
+    vi.doMock('node:fs/promises', async () => {
+      const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+      let renameCalls = 0;
+      return {
+        ...actual,
+        rename: vi.fn(async (oldPath: string, newPath: string) => {
+          renameCalls += 1;
+          if (renameCalls === 1) {
+            throw Object.assign(new Error('rename failed (synthetic)'), { code: 'EISDIR' });
+          }
+          return actual.rename(oldPath, newPath);
+        }),
+      };
+    });
+    vi.resetModules();
+
+    const fixture = Buffer.from('content');
+    server.use(filesDownloadHandlers.downloadOk({ bytes: fixture, contentType: 'text/plain' }));
+    const dest = join(testDir, 'rename-fail.bin');
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stderr, exitCode } = await runCli(run, [
+      'files',
+      'download',
+      TEST_UUID,
+      '-o',
+      dest,
+      '--output',
+      'json',
+    ]);
+
+    // Rename failure surfaces as NetworkError (exit 5).
+    expect(exitCode).toBe(5);
+    const env = parseFirstJson(stderr) as { error: { code: string; message: string } };
+    expect(env.error.code).toBe('NETWORK_ERROR');
+    expect(env.error.message).toMatch(/Failed to finalize/);
+
+    // Temp file cleanup: the destination directory should not contain a
+    // leftover .tmp file from this run.
+    const remaining = await readdir(testDir);
+    expect(remaining.some((f) => f.endsWith('.tmp'))).toBe(false);
+    // And the destination itself was never created.
+    await expect(stat(dest)).rejects.toMatchObject({ code: 'ENOENT' });
+
+    vi.doUnmock('node:fs/promises');
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ *  pumpToStdout backpressure-drain branch (Calibration §4 — cover the
+ *  `if (!ok) await drain` branch at src/commands/files/download.ts 388-393).
+ * ------------------------------------------------------------------------- */
+
+describe('freelo files download — pumpToStdout backpressure drain', () => {
+  it('awaits drain when process.stdout.write signals backpressure (returns false)', async () => {
+    // Override the default captureOutput stdout spy: return false for the
+    // first chunk to trigger the if (!ok) branch and a synthetic 'drain'
+    // event so the awaiting Promise resolves promptly.
+    const writeCallbacks: Array<string | Uint8Array> = [];
+    let firstChunkSeen = false;
+    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      const c = typeof chunk === 'string' || chunk instanceof Uint8Array ? chunk : String(chunk);
+      writeCallbacks.push(c);
+      if (!firstChunkSeen) {
+        firstChunkSeen = true;
+        // Schedule a 'drain' immediately — pumpToStdout will register a
+        // one-shot listener after we return false; setImmediate fires once
+        // the microtask queue clears, after the listener is attached.
+        setImmediate(() => process.stdout.emit('drain'));
+        return false;
+      }
+      return true;
+    });
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((code?: string | number | null) => {
+        throw new Error(`EXIT:${Number(code ?? 0)}`);
+      });
+
+    const fixture = Buffer.from('xxxxxxxxxxxxxxxxxx'); // 18 bytes; one chunk plenty
+    server.use(filesDownloadHandlers.downloadOk({ bytes: fixture, contentType: 'text/plain' }));
+
+    try {
+      const { run } = await import('../../../src/bin/freelo.js');
+      let exitCode = 0;
+      try {
+        await run(['node', 'freelo', 'files', 'download', TEST_UUID, '--stdout']);
+      } catch (err) {
+        const m = /^EXIT:(\d+)$/.exec(err instanceof Error ? err.message : '');
+        if (m !== null && m[1] !== undefined) exitCode = Number(m[1]);
+      }
+      // Backpressure path is graceful — process should exit 0.
+      expect(exitCode).toBe(0);
+      // The drain branch was hit at least once (write returned false then true).
+      expect(firstChunkSeen).toBe(true);
+    } finally {
+      writeSpy.mockRestore();
+      stderrSpy.mockRestore();
+      exitSpy.mockRestore();
+    }
+  });
+});
