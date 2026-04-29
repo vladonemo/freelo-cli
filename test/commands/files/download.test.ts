@@ -15,8 +15,10 @@
 
 import { join, dirname, isAbsolute } from 'node:path';
 import { tmpdir } from 'node:os';
+import { realpathSync } from 'node:fs';
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { http, HttpResponse } from 'msw';
 import { server, filesDownloadHandlers } from '../../msw/handlers.js';
 
 const TEST_UUID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
@@ -117,12 +119,15 @@ afterAll(() => {
 });
 
 beforeEach(async () => {
-  testDir = join(
+  const raw = join(
     tmpdir(),
     `freelo-files-download-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
+  await mkdir(raw, { recursive: true });
+  // Canonicalize so that on macOS (where /var → /private/var) the test's
+  // expected paths match what process.cwd() returns after chdir.
+  testDir = realpathSync(raw);
   configDir = join(testDir, 'config');
-  await mkdir(testDir, { recursive: true });
   await mkdir(configDir, { recursive: true });
 
   originalCwd = process.cwd();
@@ -732,5 +737,118 @@ describe('freelo files download — introspection', () => {
     expect(dl).toBeDefined();
     expect(dl?.output_schema).toBe('freelo.files.download/v1');
     expect(dl?.destructive).toBe(false);
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ *  renderFilesDownloadHuman — unit tests (branch coverage for null filename)
+ * ------------------------------------------------------------------------- */
+
+describe('renderFilesDownloadHuman', () => {
+  it('omits filename when null (UUID-fallback path)', async () => {
+    const { renderFilesDownloadHuman } = await import('../../../src/ui/human/files-download.js');
+    const out = renderFilesDownloadHuman({
+      uuid: 'abc',
+      destination: '/tmp/abc.bin',
+      bytes: 1024,
+      filename: null,
+      content_type: null,
+      overwrote: false,
+    });
+    expect(out).toBe('Downloaded 1.0 KB → /tmp/abc.bin');
+  });
+
+  it('includes filename when present', async () => {
+    const { renderFilesDownloadHuman } = await import('../../../src/ui/human/files-download.js');
+    const out = renderFilesDownloadHuman({
+      uuid: 'abc',
+      destination: '/tmp/foo.txt',
+      bytes: 1024,
+      filename: 'foo.txt',
+      content_type: null,
+      overwrote: false,
+    });
+    expect(out).toBe('Downloaded foo.txt (1.0 KB) → /tmp/foo.txt');
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ *  pumpToStdout error branches — EPIPE treated as success, other errors
+ *  wrapped in NetworkError.
+ * ------------------------------------------------------------------------- */
+
+describe('freelo files download — pumpToStdout error branches', () => {
+  it('EPIPE from body stream is treated as success (exit 0)', async () => {
+    // Simulate EPIPE by providing a ReadableStream body that yields one chunk
+    // then throws an error with code 'EPIPE'. pumpToStdout's catch block treats
+    // EPIPE as a graceful end-of-pipe rather than a hard failure.
+    server.use(
+      http.get('https://api.freelo.io/v1/file/:uuid', () => {
+        const firstChunk = new Uint8Array([0xde, 0xad]);
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(firstChunk);
+            const epipe = Object.assign(new Error('write EPIPE'), { code: 'EPIPE' });
+            controller.error(epipe);
+          },
+        });
+        return new HttpResponse(stream, {
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'Content-Disposition': 'attachment; filename="epipe.bin"',
+            'Content-Length': '4',
+          },
+        });
+      }),
+    );
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stderr, exitCode } = await runCli(run, [
+      'files',
+      'download',
+      TEST_UUID,
+      '--stdout',
+      '--output',
+      'json',
+    ]);
+
+    // EPIPE is graceful: the process should exit 0.
+    expect(exitCode).toBe(0);
+    // The envelope must still be emitted on stderr.
+    const env = parseFirstJson(stderr) as {
+      schema: string;
+      data: { destination: string; bytes: number };
+    };
+    expect(env.schema).toBe('freelo.files.download/v1');
+    expect(env.data.destination).toBe('stdout');
+    // bytes reflects how many were counted before the EPIPE.
+    expect(typeof env.data.bytes).toBe('number');
+  });
+
+  it('non-EPIPE error from body iterator piped to stdout is wrapped in NetworkError (exit 5)', async () => {
+    // Use a mid-stream MSW handler that throws a generic error (not EPIPE).
+    // By passing --stdout, this exercises the pumpToStdout catch branch for
+    // non-EPIPE errors rather than the pumpToFile branch.
+    server.use(
+      filesDownloadHandlers.midStreamError({
+        firstChunk: new Uint8Array([0x01, 0x02]),
+        declaredLength: 1024,
+      }),
+    );
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stderr, exitCode } = await runCli(run, [
+      'files',
+      'download',
+      TEST_UUID,
+      '--stdout',
+      '--output',
+      'json',
+    ]);
+
+    // A non-EPIPE stream error must surface as NetworkError (exit 5).
+    expect(exitCode).toBe(5);
+    const env = parseFirstJson(stderr) as { error: { code: string } };
+    expect(env.error.code).toBe('NETWORK_ERROR');
   });
 });
