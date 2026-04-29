@@ -3092,6 +3092,139 @@ export const filesDownloadHandlers = {
 };
 
 /**
+ * MSW handlers for the `notifications` resource group, R28 (spec 0040).
+ *
+ * Three endpoints:
+ *   - `GET  /all-notifications`                                — paginated list
+ *   - `POST /notification/{notification_id}/mark-as-read`      — flip is_unread → false
+ *   - `POST /notification/{notification_id}/mark-as-unread`    — flip is_unread → true
+ */
+export const notificationsHandlers = {
+  /* ---------------------------------------------------------------------
+   *  GET /all-notifications — paginated list
+   * ------------------------------------------------------------------- */
+
+  /** Paged 200 keyed by 0-indexed page; missing pages return an empty page. */
+  paged(
+    pages: Record<number, PagedFixture>,
+    opts?: { onRequest?: (req: Request) => void },
+  ): RequestHandler {
+    return http.get(`${API_BASE}/all-notifications`, ({ request }) => {
+      opts?.onRequest?.(request);
+      const u = new URL(request.url);
+      const p = Number(u.searchParams.get('p') ?? '0');
+      const known = Object.keys(pages)
+        .map(Number)
+        .sort((a, b) => a - b);
+      const lastKnown = known[known.length - 1] ?? 0;
+      const fixture = pages[p];
+      if (fixture !== undefined) return HttpResponse.json(fixture);
+      const ref = pages[lastKnown];
+      if (!ref) {
+        return HttpResponse.json({
+          total: 0,
+          count: 0,
+          page: p,
+          per_page: 25,
+          data: { notifications: [] },
+        });
+      }
+      return HttpResponse.json({
+        total: ref.total,
+        count: 0,
+        page: p,
+        per_page: ref.per_page,
+        data: { notifications: [] },
+      });
+    });
+  },
+
+  /** Captures the request URL via the supplied callback (for query-string assertions). */
+  spy(body: PagedFixture, capture: (req: Request) => void): RequestHandler {
+    return http.get(`${API_BASE}/all-notifications`, ({ request }) => {
+      capture(request);
+      return HttpResponse.json(body);
+    });
+  },
+
+  unauthorized(): RequestHandler {
+    return http.get(`${API_BASE}/all-notifications`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  serverError(status = 500): RequestHandler {
+    return http.get(`${API_BASE}/all-notifications`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /* ---------------------------------------------------------------------
+   *  POST /notification/{id}/mark-as-read
+   * ------------------------------------------------------------------- */
+
+  markReadOk(): RequestHandler {
+    return http.post(`${API_BASE}/notification/:id/mark-as-read`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  markReadOkSpy(capture: (req: Request) => void | Promise<void>): RequestHandler {
+    return http.post(`${API_BASE}/notification/:id/mark-as-read`, async ({ request }) => {
+      await capture(request);
+      return HttpResponse.json({ result: 'success' });
+    });
+  },
+
+  markReadFor(id: number): RequestHandler {
+    return http.post(`${API_BASE}/notification/${id}/mark-as-read`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  markReadNotFound(id: number): RequestHandler {
+    return http.post(`${API_BASE}/notification/${id}/mark-as-read`, () =>
+      HttpResponse.json({ errors: ['Notification not found.'] }, { status: 404 }),
+    );
+  },
+
+  markReadServerError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/notification/:id/mark-as-read`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /* ---------------------------------------------------------------------
+   *  POST /notification/{id}/mark-as-unread
+   * ------------------------------------------------------------------- */
+
+  markUnreadOk(): RequestHandler {
+    return http.post(`${API_BASE}/notification/:id/mark-as-unread`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  markUnreadOkSpy(capture: (req: Request) => void | Promise<void>): RequestHandler {
+    return http.post(`${API_BASE}/notification/:id/mark-as-unread`, async ({ request }) => {
+      await capture(request);
+      return HttpResponse.json({ result: 'success' });
+    });
+  },
+
+  markUnreadNotFound(id: number): RequestHandler {
+    return http.post(`${API_BASE}/notification/${id}/mark-as-unread`, () =>
+      HttpResponse.json({ errors: ['Notification not found.'] }, { status: 404 }),
+    );
+  },
+
+  markUnreadServerError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/notification/:id/mark-as-unread`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
