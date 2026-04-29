@@ -909,6 +909,53 @@ describe('freelo files download — pumpToFile rename failure', () => {
 
     vi.doUnmock('node:fs/promises');
   });
+
+  it('rename failure + unlink cleanup failure: NetworkError still surfaces (inner catch is silent)', async () => {
+    // Both rename AND the cleanup unlink throw. The inner catch at
+    // src/commands/files/download.ts:366-368 swallows the unlink error so
+    // the rename failure is still the surfaced error.
+    vi.doMock('node:fs/promises', async () => {
+      const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+      return {
+        ...actual,
+        rename: vi.fn(() => {
+          return Promise.reject(
+            Object.assign(new Error('rename failed (synthetic)'), { code: 'EISDIR' }),
+          );
+        }),
+        unlink: vi.fn(() => {
+          return Promise.reject(
+            Object.assign(new Error('unlink failed (synthetic)'), { code: 'EACCES' }),
+          );
+        }),
+      };
+    });
+    vi.resetModules();
+
+    const fixture = Buffer.from('content');
+    server.use(filesDownloadHandlers.downloadOk({ bytes: fixture, contentType: 'text/plain' }));
+    const dest = join(testDir, 'rename-and-unlink-fail.bin');
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stderr, exitCode } = await runCli(run, [
+      'files',
+      'download',
+      TEST_UUID,
+      '-o',
+      dest,
+      '--output',
+      'json',
+    ]);
+
+    // Rename failure still surfaces; the unlink-cleanup failure is silently
+    // swallowed by the inner catch.
+    expect(exitCode).toBe(5);
+    const env = parseFirstJson(stderr) as { error: { code: string; message: string } };
+    expect(env.error.code).toBe('NETWORK_ERROR');
+    expect(env.error.message).toMatch(/Failed to finalize/);
+
+    vi.doUnmock('node:fs/promises');
+  });
 });
 
 /* ---------------------------------------------------------------------------
