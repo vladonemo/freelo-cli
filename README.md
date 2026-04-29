@@ -67,7 +67,10 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 
 ### reports
 
+- `freelo reports delete [id...]` — Delete one or more work reports. Destructive — requires --yes (non-TTY) or interactive confirmation (TTY). 404 (and 400 with "not found" body) treated as idempotent already-deleted; 400 with UserCannotDeleteWorkReport surfaces as a hard ACL error.
+- `freelo reports edit [id]` — Edit an existing work report (minutes / note / date). At least one change flag is required. Single-mode (<id> + flags) or NDJSON batch via --stdin.
 - `freelo reports list` — List work reports (time entries) across all projects, with optional task / project / worker / date filters.
+- `freelo reports log` — Log a finalized work report on a task (bypasses the live-timer flow). Single-mode (--task / --minutes …) or NDJSON batch via --stdin.
 
 ### subtasks
 

@@ -153,3 +153,189 @@ export const ReportsListDataSchema = z.object({
   reports: z.array(WorkReportFullSchema),
 });
 export type ReportsListData = z.infer<typeof ReportsListDataSchema>;
+
+/* ---------------------------------------------------------------------------
+ *  R22 — write commands (spec 0034)
+ *
+ *  Three envelope schemas:
+ *    - `freelo.reports.log/v1`     — POST /task/{id}/work-reports
+ *    - `freelo.reports.edit/v1`    — POST /work-reports/{id}
+ *    - `freelo.reports.delete/v1`  — DELETE /work-reports/{id}
+ *
+ *  Plus a public-contract `ReportProjection` shape (tightened from
+ *  `WorkReportFullSchema`) carried on the live envelopes.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Public-contract `WorkReport` projection — the shape emitted on the
+ * `freelo.reports.log/v1` and `freelo.reports.edit/v1` envelopes. Same
+ * field set as `TimeStopWorkReportSchema` from spec 0032 but local to
+ * the reports family for module-locality (avoid cross-domain pulls).
+ *
+ * Differs from `WorkReportFullSchema` (the wire/list schema) in:
+ *   - inner refs are tightened (no `.passthrough()`);
+ *   - every nullable wire field is normalized to `null` (never `undefined`);
+ *   - the `tasklist` and `project` blocks are dropped — the create / edit
+ *     responses don't include them, and surfacing them as `null` would
+ *     mislead consumers reading `report.project` and getting `null` even
+ *     when the report IS attached to a project (just not in the response).
+ *
+ * Spec 0034 §6.
+ */
+export const ReportProjectionSchema = z.object({
+  id: z.number().int(),
+  date_add: z.string().nullable(),
+  date_reported: z.string(),
+  minutes: z.number().int(),
+  note: z.string().nullable(),
+  task: z
+    .object({
+      id: z.number().int(),
+      name: z.string().nullable(),
+    })
+    .nullable(),
+  cost: z
+    .object({
+      amount: z.string(),
+      currency: z.string(),
+    })
+    .nullable(),
+  worker: z
+    .object({
+      id: z.number().int(),
+      fullname: z.string().nullable(),
+    })
+    .nullable(),
+  author: z
+    .object({
+      id: z.number().int(),
+      fullname: z.string().nullable(),
+    })
+    .nullable(),
+});
+export type ReportProjection = z.infer<typeof ReportProjectionSchema>;
+
+/**
+ * Project the wire `WorkReportFull` onto the public `ReportProjection`
+ * shape. Pure function — no I/O. Mirrors `projectWorkReport` from
+ * `src/commands/time/stop.ts` byte-for-byte modulo the type names.
+ *
+ * Spec 0034 §6.
+ */
+export function projectReport(wire: WorkReportFull): ReportProjection {
+  const task: ReportProjection['task'] =
+    wire.task !== null && wire.task !== undefined
+      ? { id: wire.task.id, name: wire.task.name ?? null }
+      : null;
+  const cost: ReportProjection['cost'] =
+    wire.cost !== null && wire.cost !== undefined
+      ? { amount: wire.cost.amount, currency: wire.cost.currency }
+      : null;
+  const worker: ReportProjection['worker'] =
+    wire.worker !== null && wire.worker !== undefined
+      ? { id: wire.worker.id, fullname: wire.worker.fullname ?? null }
+      : null;
+  const author: ReportProjection['author'] =
+    wire.author !== null && wire.author !== undefined
+      ? { id: wire.author.id, fullname: wire.author.fullname ?? null }
+      : null;
+  return {
+    id: wire.id,
+    date_add: wire.date_add ?? null,
+    date_reported: wire.date_reported,
+    minutes: wire.minutes,
+    note: wire.note ?? null,
+    task,
+    cost,
+    worker,
+    author,
+  };
+}
+
+/* ---------------------------------------------------------------------------
+ *  freelo.reports.log/v1
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Echo of the user's `reports log` input. Always includes `task_id` and
+ * `minutes` (both required); `date_reported` and `note` are present iff
+ * the user passed them. Mirrors the wire body shape (spec 0034 §5.1).
+ */
+export const ReportsLogAppliedInputSchema = z.object({
+  task_id: z.number().int(),
+  minutes: z.number().int(),
+  date_reported: z.string().optional(),
+  note: z.string().optional(),
+});
+export type ReportsLogAppliedInput = z.infer<typeof ReportsLogAppliedInputSchema>;
+
+/** Live `data` shape for `freelo.reports.log/v1` (post-POST). */
+export const ReportsLogLiveDataSchema = z.object({
+  report: ReportProjectionSchema,
+  applied_input: ReportsLogAppliedInputSchema,
+  line_index: z.number().int().min(0).optional(),
+});
+export type ReportsLogLiveData = z.infer<typeof ReportsLogLiveDataSchema>;
+
+/** Dry-run `data` shape for `freelo.reports.log/v1` (no POST happened). */
+export const ReportsLogDryRunDataSchema = z.object({
+  applied_input: ReportsLogAppliedInputSchema,
+  line_index: z.number().int().min(0).optional(),
+});
+export type ReportsLogDryRunData = z.infer<typeof ReportsLogDryRunDataSchema>;
+
+/* ---------------------------------------------------------------------------
+ *  freelo.reports.edit/v1
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Echo of the wire body for `reports edit`. Each key is present iff the
+ * user actually passed the corresponding flag. At least one key is
+ * always present (empty edit rejected at the command layer).
+ */
+export const ReportsEditAppliedChangesSchema = z.object({
+  minutes: z.number().int().optional(),
+  note: z.string().optional(),
+  date_reported: z.string().optional(),
+});
+export type ReportsEditAppliedChanges = z.infer<typeof ReportsEditAppliedChangesSchema>;
+
+/** Live `data` shape for `freelo.reports.edit/v1`. */
+export const ReportsEditLiveDataSchema = z.object({
+  report: ReportProjectionSchema,
+  applied_changes: ReportsEditAppliedChangesSchema,
+  line_index: z.number().int().min(0).optional(),
+});
+export type ReportsEditLiveData = z.infer<typeof ReportsEditLiveDataSchema>;
+
+/** Dry-run `data` shape for `freelo.reports.edit/v1`. */
+export const ReportsEditDryRunDataSchema = z.object({
+  applied_changes: ReportsEditAppliedChangesSchema,
+  line_index: z.number().int().min(0).optional(),
+});
+export type ReportsEditDryRunData = z.infer<typeof ReportsEditDryRunDataSchema>;
+
+/* ---------------------------------------------------------------------------
+ *  freelo.reports.delete/v1
+ *
+ *  Mirrors `TasksDeleteDataSchema` (spec 0024) modulo the field rename
+ *  `task_id` → `report_id`. Same idempotency convention: a 404 (or a
+ *  body-text-distinguished 400) on DELETE re-classifies as
+ *  `already_in_target_state: true` and exit 0.
+ * ------------------------------------------------------------------------- */
+
+export const ReportsDeleteDataSchema = z.object({
+  report_id: z.number().int(),
+  previous_state: z.literal(null),
+  current_state: z.literal('deleted'),
+  already_in_target_state: z.boolean(),
+  would: z
+    .object({
+      method: z.literal('DELETE'),
+      path: z.string(),
+      body: z.unknown(),
+    })
+    .optional(),
+  line_index: z.number().int().min(0).optional(),
+});
+export type ReportsDeleteData = z.infer<typeof ReportsDeleteDataSchema>;

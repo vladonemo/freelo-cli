@@ -2129,6 +2129,240 @@ export const timeHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo reports log` / `reports edit` / `reports delete`
+ * (R22, spec 0034).
+ *
+ * Three endpoints:
+ *   - `POST   /task/{taskId}/work-reports`  — log a new work report.
+ *   - `POST   /work-reports/{id}`           — edit an existing report.
+ *   - `DELETE /work-reports/{id}`           — delete a report.
+ *
+ * The match-on-body variants expose the captured wire body via the optional
+ * predicate argument so tests can assert exact `minutes` / `note` /
+ * `date_reported` round-trip.
+ *
+ * Mirrors `timeHandlers` byte-for-byte modulo URL/verb.
+ */
+export const workReportsWriteHandlers = {
+  /* ---------------------------------------------------------------------
+   *  POST /task/{taskId}/work-reports
+   * ------------------------------------------------------------------- */
+
+  /** 200 with the supplied WorkReport body. Path matches any `taskId`. */
+  createOk(report: Record<string, unknown>): RequestHandler {
+    return http.post(`${API_BASE}/task/:taskId/work-reports`, () => HttpResponse.json(report));
+  },
+
+  /**
+   * Match-on-body variant — the predicate sees the parsed body and the raw
+   * request (so tests can also assert path → taskId). Returns 200 when the
+   * predicate accepts; 500 otherwise.
+   */
+  createOkWhenBody(
+    predicate: (body: unknown, request: Request) => boolean,
+    report: Record<string, unknown>,
+  ): RequestHandler {
+    return http.post(`${API_BASE}/task/:taskId/work-reports`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json(report);
+    });
+  },
+
+  /** 400 with a custom message (e.g. `WorkReportCanNotBeCreatedException`). */
+  createBadRequest(message = 'WorkReportCanNotBeCreatedException'): RequestHandler {
+    return http.post(`${API_BASE}/task/:taskId/work-reports`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  /** 401. */
+  createUnauthorized(): RequestHandler {
+    return http.post(`${API_BASE}/task/:taskId/work-reports`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** 5xx. */
+  createServerError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/task/:taskId/work-reports`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** 429 with `Retry-After: 0` so retry exhaustion is fast in tests. */
+  createRateLimited(): RequestHandler {
+    return http.post(
+      `${API_BASE}/task/:taskId/work-reports`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** Connection-closed (network error). */
+  createNetworkError(): RequestHandler {
+    return http.post(`${API_BASE}/task/:taskId/work-reports`, () => HttpResponse.error());
+  },
+
+  /** 200 with a malformed body to drive the schema-validation error path. */
+  createMalformed(): RequestHandler {
+    return http.post(`${API_BASE}/task/:taskId/work-reports`, () =>
+      HttpResponse.json({ id: 'not-a-number', minutes: 30, date_reported: '2026-04-25' }),
+    );
+  },
+
+  /* ---------------------------------------------------------------------
+   *  POST /work-reports/{id}
+   * ------------------------------------------------------------------- */
+
+  /** 200 with the supplied WorkReport body. Path matches any `id`. */
+  editOk(report: Record<string, unknown>): RequestHandler {
+    return http.post(`${API_BASE}/work-reports/:id`, () => HttpResponse.json(report));
+  },
+
+  editOkWhenBody(
+    predicate: (body: unknown, request: Request) => boolean,
+    report: Record<string, unknown>,
+  ): RequestHandler {
+    return http.post(`${API_BASE}/work-reports/:id`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json(report);
+    });
+  },
+
+  /** 404 (NotFoundException — used both for genuine missing and ACL-as-404). */
+  editNotFound(): RequestHandler {
+    return http.post(`${API_BASE}/work-reports/:id`, () =>
+      HttpResponse.json({ errors: ['NotFoundException'] }, { status: 404 }),
+    );
+  },
+
+  editUnauthorized(): RequestHandler {
+    return http.post(`${API_BASE}/work-reports/:id`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  editServerError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/work-reports/:id`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /* ---------------------------------------------------------------------
+   *  DELETE /work-reports/{id}  (four-arm idempotency matrix)
+   * ------------------------------------------------------------------- */
+
+  /** Live success: 200 `{ result: 'success' }`. */
+  deleteOk(): RequestHandler {
+    return http.delete(`${API_BASE}/work-reports/:id`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /**
+   * Idempotency arm 1 — 404. The leaf re-classifies as
+   * `already_in_target_state: true`.
+   */
+  deleteNotFound(): RequestHandler {
+    return http.delete(`${API_BASE}/work-reports/:id`, () =>
+      HttpResponse.json({ errors: ['Not found.'] }, { status: 404 }),
+    );
+  },
+
+  /**
+   * Idempotency arm 2 — 400 with a body text that matches "not found"
+   * or "does not exist". The leaf re-classifies as idempotent skip.
+   *
+   * Default message uses both phrases to exercise the regex in either order.
+   */
+  deleteBadRequestNotFound(message = 'Work report does not exist.'): RequestHandler {
+    return http.delete(`${API_BASE}/work-reports/:id`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  /**
+   * Idempotency arm 3 — 400 with `UserCannotDeleteWorkReport` ACL marker.
+   * The leaf surfaces this as a hard `FreeloApiError`.
+   */
+  deleteBadRequestAcl(): RequestHandler {
+    return http.delete(`${API_BASE}/work-reports/:id`, () =>
+      HttpResponse.json(
+        { errors: ['UserCannotDeleteWorkReport: caller is not the report author.'] },
+        { status: 400 },
+      ),
+    );
+  },
+
+  /**
+   * Idempotency arm 4 — 400 without either marker. The leaf bubbles as a
+   * hard error. Edge case used to prove the catch falls through.
+   */
+  deleteBadRequestOther(): RequestHandler {
+    return http.delete(`${API_BASE}/work-reports/:id`, () =>
+      HttpResponse.json(
+        { errors: ['Some other 400 reason that the heuristic should NOT eat.'] },
+        { status: 400 },
+      ),
+    );
+  },
+
+  deleteUnauthorized(): RequestHandler {
+    return http.delete(`${API_BASE}/work-reports/:id`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  deleteServerError(status = 500): RequestHandler {
+    return http.delete(`${API_BASE}/work-reports/:id`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  deleteRateLimited(): RequestHandler {
+    return http.delete(
+      `${API_BASE}/work-reports/:id`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /**
+   * Sequential per-id responder — used by tests that want different
+   * responses per id (e.g. delete two reports, second is already-deleted).
+   * The router maps the captured `:id` to the supplied per-id handler.
+   *
+   * Unmatched ids return a generic 200 success (deletion succeeded).
+   */
+  perIdRouter(routes: Record<string, () => Response | HttpResponse>): RequestHandler {
+    return http.delete(`${API_BASE}/work-reports/:id`, ({ params }) => {
+      const idStr = String(params['id']);
+      const route = routes[idStr];
+      if (route) return route();
+      return HttpResponse.json({ result: 'success' });
+    });
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
