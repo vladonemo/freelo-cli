@@ -2761,6 +2761,78 @@ export const taskLabelsHandlers = {
 };
 
 /**
+ * MSW handlers for `POST /file/upload` (R25, spec 0037).
+ *
+ * The Freelo upload endpoint accepts `multipart/form-data` with a single
+ * `file` field. Real responses return `{ uuid }`. The predicate variants
+ * verify the multipart body shape (presence of the `file` form part).
+ */
+export const filesUploadHandlers = {
+  /** 200 with a fixed UUID (or a custom one). */
+  uploadOk(uuid = '11111111-1111-1111-1111-111111111111'): RequestHandler {
+    return http.post(`${API_BASE}/file/upload`, () => HttpResponse.json({ uuid }));
+  },
+
+  /** 200 only when the predicate matches the parsed multipart FormData. */
+  uploadOkWhenMultipart(
+    predicate: (form: FormData, request: Request) => boolean,
+    uuid = '11111111-1111-1111-1111-111111111111',
+  ): RequestHandler {
+    return http.post(`${API_BASE}/file/upload`, async ({ request }) => {
+      const form = await request.clone().formData();
+      if (!predicate(form, request)) {
+        return HttpResponse.json(
+          { errors: [`Multipart body did not match predicate.`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json({ uuid });
+    });
+  },
+
+  /**
+   * Sequential multi-call handler — returns a different uuid for each
+   * incoming POST in the order provided. Internal counter is fresh per
+   * factory invocation (handlers are reset between tests via
+   * `server.resetHandlers()`).
+   */
+  uploadOkSequential(uuids: readonly string[]): RequestHandler {
+    let idx = 0;
+    return http.post(`${API_BASE}/file/upload`, () => {
+      const uuid = uuids[idx] ?? uuids[uuids.length - 1] ?? 'fallback-uuid';
+      idx += 1;
+      return HttpResponse.json({ uuid });
+    });
+  },
+
+  /** 400 oversize / forbidden type. */
+  uploadBadRequest(message = 'File too large.'): RequestHandler {
+    return http.post(`${API_BASE}/file/upload`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  /** 401 — auth expired. */
+  uploadAuthExpired(): RequestHandler {
+    return http.post(`${API_BASE}/file/upload`, () =>
+      HttpResponse.json({ errors: [{ message: 'Invalid token' }] }, { status: 401 }),
+    );
+  },
+
+  /** 5xx server error. */
+  uploadServerError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/file/upload`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** Malformed 200 — missing uuid field. */
+  uploadMalformed(): RequestHandler {
+    return http.post(`${API_BASE}/file/upload`, () => HttpResponse.json({ result: 'success' }));
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
