@@ -4,6 +4,19 @@ import { WorkReportFullSchema, type WorkReportFull } from './schemas/report.js';
 import { type NormalizedPage, normalizePaginated } from './pagination.js';
 import { buildQuery } from '../lib/query.js';
 
+/* ---------------------------------------------------------------------------
+ *  Path helpers
+ *
+ *  Exposed so dry-run envelopes echo paths without re-running the network
+ *  branch. Mirrors `START_TIMER_PATH` etc. in `src/api/time.ts`.
+ * ------------------------------------------------------------------------- */
+
+/** `POST /task/{taskId}/work-reports` — log a finalized work report. */
+export const createReportPath = (taskId: number): string => `/task/${taskId}/work-reports`;
+
+/** `POST` (edit) and `DELETE` both use this path. */
+export const reportPath = (id: number): string => `/work-reports/${id}`;
+
 /**
  * Wire wrappers for the `reports` (work-reports) resource group, R21
  * (spec 0033).
@@ -108,4 +121,176 @@ export async function getWorkReports(
   });
   const page = normalizePaginated(raw.data, 'reports', WorkReportFullSchema);
   return { page, raw };
+}
+
+/* ---------------------------------------------------------------------------
+ *  R22 — write wrappers (spec 0034)
+ *
+ *  Three endpoints:
+ *    - `POST /task/{taskId}/work-reports` — log a new work report.
+ *    - `POST /work-reports/{id}`          — edit an existing work report.
+ *    - `DELETE /work-reports/{id}`        — delete a work report.
+ *
+ *  Mirrors the `time.ts` write-wrapper shape: a typed body, a typed input,
+ *  a `buildXBody` pure mapper, and the wire-call function.
+ *
+ *  Note: the verb on edit is **POST**, not PATCH — see spec 0034 decision 01
+ *  (and prior precedent: R18 comments-edit, R20 time-edit).
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Wire-shape of the POST body for `/task/{taskId}/work-reports`
+ * (yaml :3066-3086). `minutes` is the only required field; CLI does not
+ * surface `worker_id` or `cost` in v1 (spec 0034 §4.1, decision 03).
+ */
+export type CreateReportBody = {
+  minutes: number;
+  date_reported?: string;
+  note?: string;
+};
+
+/** CLI-side input to `buildCreateReportBody`. Pure mapper, no I/O. */
+export type CreateReportInput = {
+  minutes: number;
+  /** Pre-validated `YYYY-MM-DD`. */
+  dateReported?: string;
+  note?: string;
+};
+
+export type CreateReportOpts = FetchOpts & {
+  body: CreateReportBody;
+};
+
+export type CreateReportResult = {
+  report: WorkReportFull;
+  raw: ApiResponse<WorkReportFull>;
+};
+
+/** Map CLI input → wire body. Pure. Omits keys the user didn't set. */
+export function buildCreateReportBody(input: CreateReportInput): CreateReportBody {
+  const body: CreateReportBody = { minutes: input.minutes };
+  if (input.dateReported !== undefined) body.date_reported = input.dateReported;
+  if (input.note !== undefined) body.note = input.note;
+  return body;
+}
+
+/**
+ * `POST /task/{taskId}/work-reports` — log a finalized work report.
+ *
+ * Returns the parsed `WorkReportFull`. Wire-side errors (400 / 401 / etc.)
+ * surface as `FreeloApiError`; the leaf command's catch arm decides
+ * whether to rewrite hints.
+ *
+ * Spec 0034 §4.1.
+ */
+export async function createReport(
+  client: HttpClient,
+  taskId: number,
+  opts: CreateReportOpts,
+): Promise<CreateReportResult> {
+  const raw = await client.request({
+    method: 'POST',
+    path: createReportPath(taskId),
+    body: opts.body,
+    schema: WorkReportFullSchema,
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+  return { report: raw.data, raw };
+}
+
+/**
+ * Wire-shape of the POST body for `/work-reports/{id}` (yaml :3119-3137).
+ * Every field optional. CLI in v1 omits `task_id` (re-parent) and `cost`
+ * — out of scope per spec 0034 §3.3.
+ */
+export type EditReportBody = {
+  minutes?: number;
+  date_reported?: string;
+  note?: string;
+};
+
+export type EditReportInput = {
+  minutes?: number;
+  /** Pre-validated `YYYY-MM-DD`. */
+  dateReported?: string;
+  note?: string;
+};
+
+export type EditReportOpts = FetchOpts & {
+  body: EditReportBody;
+};
+
+export type EditReportResult = {
+  report: WorkReportFull;
+  raw: ApiResponse<WorkReportFull>;
+};
+
+/** Map CLI input → wire body. Pure. Omits keys the user didn't set. */
+export function buildEditReportBody(input: EditReportInput): EditReportBody {
+  const body: EditReportBody = {};
+  if (input.minutes !== undefined) body.minutes = input.minutes;
+  if (input.dateReported !== undefined) body.date_reported = input.dateReported;
+  if (input.note !== undefined) body.note = input.note;
+  return body;
+}
+
+/**
+ * `POST /work-reports/{id}` — edit an existing work report. Verb is POST,
+ * not PATCH (spec 0034 decision 01). Spec 0034 §4.2.
+ */
+export async function editReport(
+  client: HttpClient,
+  id: number,
+  opts: EditReportOpts,
+): Promise<EditReportResult> {
+  const raw = await client.request({
+    method: 'POST',
+    path: reportPath(id),
+    body: opts.body,
+    schema: WorkReportFullSchema,
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+  return { report: raw.data, raw };
+}
+
+/**
+ * Generic Freelo success envelope (`{ result: 'success' }`). Tolerates
+ * additional fields via `passthrough()`. Mirrors the local schema in
+ * `src/api/tasks-delete.ts`.
+ */
+const DeleteSuccessResponseSchema = z
+  .object({
+    result: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+export type DeleteReportOpts = FetchOpts;
+
+export type DeleteReportResult = {
+  raw: ApiResponse<unknown>;
+};
+
+/**
+ * `DELETE /work-reports/{id}` — delete a work report. Empty body. The
+ * leaf command (`src/commands/reports/delete.ts`) catches `FreeloApiError`
+ * and applies the four-arm idempotency heuristic (spec 0034 §4.3,
+ * decision 02). This wrapper does NOT special-case any status.
+ *
+ * Spec 0034 §4.3.
+ */
+export async function deleteReport(
+  client: HttpClient,
+  id: number,
+  opts: DeleteReportOpts = {},
+): Promise<DeleteReportResult> {
+  const raw = await client.request({
+    method: 'DELETE',
+    path: reportPath(id),
+    schema: DeleteSuccessResponseSchema,
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+  return { raw };
 }
