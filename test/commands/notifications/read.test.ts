@@ -389,7 +389,7 @@ describe('freelo notifications read — happy paths', () => {
   it('--dry-run single id: no POST, dry_run + would echoed, exit 0', async () => {
     let postCount = 0;
     server.use(
-      http.post(`${API_BASE}/notification/:id/mark-as-read`, () => {
+      http.post(`${API_BASE}/notification/:id/mark-read`, () => {
         postCount += 1;
         return HttpResponse.json({ result: 'success' });
       }),
@@ -413,7 +413,7 @@ describe('freelo notifications read — happy paths', () => {
     };
     expect(env.dry_run).toBe(true);
     expect(env.data.would.method).toBe('POST');
-    expect(env.data.would.path).toBe('/notification/42/mark-as-read');
+    expect(env.data.would.path).toBe('/notification/42/mark-read');
     expect(env.data.would.body).toEqual({});
   });
 
@@ -431,7 +431,7 @@ describe('freelo notifications read — happy paths', () => {
           data: { notifications: [NOTIF(1001), NOTIF(1002)] },
         });
       }),
-      http.post(`${API_BASE}/notification/:id/mark-as-read`, () => {
+      http.post(`${API_BASE}/notification/:id/mark-read`, () => {
         postCount += 1;
         return HttpResponse.json({ result: 'success' });
       }),
@@ -549,7 +549,7 @@ describe('freelo notifications read — mutex / validation', () => {
 describe('freelo notifications read — HTTP errors', () => {
   it('multi-id mode: 404 on first id → per-id error env, others succeed, exit 4', async () => {
     server.use(
-      http.post(`${API_BASE}/notification/:id/mark-as-read`, ({ params }) => {
+      http.post(`${API_BASE}/notification/:id/mark-read`, ({ params }) => {
         if (params.id === '42') {
           return HttpResponse.json({ errors: ['Notification not found.'] }, { status: 404 });
         }
@@ -607,7 +607,7 @@ describe('freelo notifications read — HTTP errors', () => {
           data: { notifications: [NOTIF(1001), NOTIF(1002)] },
         },
       }),
-      http.post(`${API_BASE}/notification/:id/mark-as-read`, ({ params }) => {
+      http.post(`${API_BASE}/notification/:id/mark-read`, ({ params }) => {
         if (params.id === '1001') {
           return HttpResponse.json({ errors: ['oops'] }, { status: 500 });
         }
@@ -674,7 +674,7 @@ describe('freelo notifications read — HTTP errors', () => {
 
   it('--stdin: 5xx mid-batch → per-line error env, exit 4', async () => {
     server.use(
-      http.post(`${API_BASE}/notification/:id/mark-as-read`, ({ params }) => {
+      http.post(`${API_BASE}/notification/:id/mark-read`, ({ params }) => {
         if (params.id === '43') {
           return HttpResponse.json({ errors: ['oops'] }, { status: 500 });
         }

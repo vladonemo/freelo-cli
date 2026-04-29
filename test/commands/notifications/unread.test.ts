@@ -241,7 +241,7 @@ describe('freelo notifications unread — happy paths', () => {
   it('--dry-run: no POST, dry_run + would echoed, exit 0', async () => {
     let postCount = 0;
     server.use(
-      http.post(`${API_BASE}/notification/:id/mark-as-unread`, () => {
+      http.post(`${API_BASE}/notification/:id/mark-unread`, () => {
         postCount += 1;
         return HttpResponse.json({ result: 'success' });
       }),
@@ -264,7 +264,7 @@ describe('freelo notifications unread — happy paths', () => {
       data: { would: { method: string; path: string } };
     };
     expect(env.dry_run).toBe(true);
-    expect(env.data.would.path).toBe('/notification/42/mark-as-unread');
+    expect(env.data.would.path).toBe('/notification/42/mark-unread');
   });
 });
 

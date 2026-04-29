@@ -4,7 +4,7 @@
  * Mirrors `test/commands/files/list.test.ts` byte-for-byte modulo
  * URL/handler/schema discriminant. Covers:
  *   - Default invocation (?p=0, applied_filters {})
- *   - --unread → only_unread=true on the wire
+ *   - --unread → only_unread=1 on the wire (string; live API ignores boolean)
  *   - --project (repeatable) → projects_ids[]
  *   - --type (repeatable) → notification_types[]
  *   - --page N (1-indexed CLI → 0-indexed wire)
@@ -222,7 +222,7 @@ describe('freelo notifications list — happy paths', () => {
     expect(env.paging.total).toBe(2);
   });
 
-  it('--unread sends only_unread=true on the wire', async () => {
+  it('--unread sends only_unread=1 on the wire (string; live API ignores boolean true)', async () => {
     let observedQuery: string | null = null;
     server.use(
       notificationsHandlers.paged(
@@ -253,7 +253,7 @@ describe('freelo notifications list — happy paths', () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(observedQuery).toContain('only_unread=true');
+    expect(observedQuery).toContain('only_unread=1');
     const env = parseFirstJson(stdout) as {
       data: { applied_filters: { only_unread?: boolean } };
     };
