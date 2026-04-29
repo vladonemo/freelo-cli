@@ -74,6 +74,12 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 - `freelo labels list` — List the caller's available project labels (their private labels plus public labels from accessible projects). No filters in v1 — `--project` is deferred until the API surfaces an attachments map.
 - `freelo labels rename <id>` — Rename, recolor, or toggle private/public on an existing project label. At least one change flag is required.
 
+### notifications
+
+- `freelo notifications list` — List notifications addressed to the calling user (paginated). Filter by --unread / --project / --type. Server-side ACL-filtered.
+- `freelo notifications read [id...]` — Mark notifications as read. Server-side idempotent: re-marking an already-read notification is a safe 200. Supports positional <id>... / --ids / --stdin / --all-unread.
+- `freelo notifications unread [id...]` — Mark notifications as unread (re-surface). Server-side idempotent: re-marking is safe. Supports positional <id>... / --ids / --stdin.
+
 ### projects
 
 - `freelo projects list` — List projects in the chosen scope. Default scope is 'owned'.
