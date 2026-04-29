@@ -348,6 +348,10 @@ describe('freelo labels delete — confirmation policy', () => {
 
   it('confirmation copy explicitly says "GLOBALLY" in TTY mode', async () => {
     // Switch to TTY mode but mock prompt-decline to assert the message.
+    // GitHub Actions sets CI=true, which makes isInteractive() return false
+    // regardless of isTTY — temporarily clear it so the TTY-prompt branch runs.
+    const savedCI = process.env['CI'];
+    delete process.env['CI'];
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
     let captured = '';
@@ -357,10 +361,14 @@ describe('freelo labels delete — confirmation policy', () => {
         return Promise.resolve(false);
       }),
     }));
-    const { run } = await import('../../../src/bin/freelo.js');
-    const { exitCode } = await runCli(run, ['labels', 'delete', '12', '--output', 'json']);
-    expect(exitCode).toBe(2);
-    expect(captured).toContain('GLOBALLY');
+    try {
+      const { run } = await import('../../../src/bin/freelo.js');
+      const { exitCode } = await runCli(run, ['labels', 'delete', '12', '--output', 'json']);
+      expect(exitCode).toBe(2);
+      expect(captured).toContain('GLOBALLY');
+    } finally {
+      if (savedCI !== undefined) process.env['CI'] = savedCI;
+    }
   });
 });
 
