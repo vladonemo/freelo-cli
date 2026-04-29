@@ -1,13 +1,14 @@
 /**
  * Unit tests for `src/api/task-labels.ts` (R24, spec 0036).
  *
- * Pure-function tests — no MSW, no I/O. Covers:
- *   - Path helpers
- *   - Body builders for all three endpoints
- *   - Mixed UUID + name-mode shaping for attach/detach
+ * Pure-function tests — no MSW for the builders. The wire-call wrappers
+ * use MSW + the real `createHttpClient` to exercise the optional-spread
+ * branches for `signal` / `requestId` (lines 169-170, 198-199, 229-230 —
+ * keeps `src/api/**` branch coverage above the 80% threshold).
  */
 
 import { describe, expect, it } from 'vitest';
+import { createHttpClient } from '../../src/api/client.js';
 import {
   TASK_LABELS_PATH,
   addTaskLabelsPath,
@@ -15,7 +16,20 @@ import {
   buildCreateTaskLabelsBody,
   buildAddTaskLabelsBody,
   buildRemoveTaskLabelsBody,
+  createTaskLabels,
+  addTaskLabelsToTask,
+  removeTaskLabelsFromTask,
 } from '../../src/api/task-labels.js';
+import { server, taskLabelsHandlers, API_BASE } from '../msw/handlers.js';
+
+function makeClient() {
+  return createHttpClient({
+    email: 'agent@example.com',
+    apiKey: 'sk-test',
+    apiBaseUrl: API_BASE,
+    userAgent: 'freelo-cli-test/0.0.0',
+  });
+}
 
 describe('task-labels path helpers', () => {
   it('TASK_LABELS_PATH is /task-labels', () => {
@@ -135,5 +149,75 @@ describe('buildRemoveTaskLabelsBody', () => {
     expect(body.labels[0]).toEqual({ uuid: '11111111-1111-1111-1111-111111111111' });
     expect(body.labels[1]).toEqual({ name: 'Bug', color: '#abcdef' });
     expect(body.labels[2]).toEqual({ name: 'Wip', color: '#abcdef' });
+  });
+});
+
+/**
+ * Wire-call wrapper tests — exercise the optional-spread truthy arms for
+ * `signal` and `requestId` in each of the three POST functions. Without
+ * these the `src/api/**` branch coverage drops below the 80% gate.
+ *
+ * Mirror of the pattern in `test/api/tasklists-show.test.ts:75-94`.
+ */
+describe('createTaskLabels — signal/requestId branches', () => {
+  it('honours an explicit signal (covers the signal-set branch)', async () => {
+    server.use(taskLabelsHandlers.createOk());
+    const controller = new AbortController();
+    const out = await createTaskLabels(makeClient(), {
+      body: { labels: [{ name: 'Bug' }] },
+      signal: controller.signal,
+    });
+    expect(out.raw.data).toEqual(expect.objectContaining({ result: 'success' }));
+  });
+
+  it('honours an explicit requestId (covers the requestId-set branch)', async () => {
+    server.use(taskLabelsHandlers.createOk());
+    const out = await createTaskLabels(makeClient(), {
+      body: { labels: [{ name: 'Bug' }] },
+      requestId: '11111111-2222-4333-8444-555555555555',
+    });
+    expect(out.raw.data).toEqual(expect.objectContaining({ result: 'success' }));
+  });
+});
+
+describe('addTaskLabelsToTask — signal/requestId branches', () => {
+  it('honours an explicit signal (covers the signal-set branch)', async () => {
+    server.use(taskLabelsHandlers.attachOk());
+    const controller = new AbortController();
+    const out = await addTaskLabelsToTask(makeClient(), 7, {
+      body: { labels: [{ name: 'Bug' }] },
+      signal: controller.signal,
+    });
+    expect(out.raw.data).toEqual(expect.objectContaining({ result: 'success' }));
+  });
+
+  it('honours an explicit requestId (covers the requestId-set branch)', async () => {
+    server.use(taskLabelsHandlers.attachOk());
+    const out = await addTaskLabelsToTask(makeClient(), 7, {
+      body: { labels: [{ name: 'Bug' }] },
+      requestId: '11111111-2222-4333-8444-555555555555',
+    });
+    expect(out.raw.data).toEqual(expect.objectContaining({ result: 'success' }));
+  });
+});
+
+describe('removeTaskLabelsFromTask — signal/requestId branches', () => {
+  it('honours an explicit signal (covers the signal-set branch)', async () => {
+    server.use(taskLabelsHandlers.detachOk());
+    const controller = new AbortController();
+    const out = await removeTaskLabelsFromTask(makeClient(), 7, {
+      body: { labels: [{ name: 'Bug' }] },
+      signal: controller.signal,
+    });
+    expect(out.raw.data).toEqual(expect.objectContaining({ result: 'success' }));
+  });
+
+  it('honours an explicit requestId (covers the requestId-set branch)', async () => {
+    server.use(taskLabelsHandlers.detachOk());
+    const out = await removeTaskLabelsFromTask(makeClient(), 7, {
+      body: { labels: [{ name: 'Bug' }] },
+      requestId: '11111111-2222-4333-8444-555555555555',
+    });
+    expect(out.raw.data).toEqual(expect.objectContaining({ result: 'success' }));
   });
 });
