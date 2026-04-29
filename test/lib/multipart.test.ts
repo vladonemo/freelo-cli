@@ -120,4 +120,57 @@ describe('buildFileMultipart', () => {
     expect(FILE_UPLOAD_FIELD_NAME).toBe('file');
     expect(FILE_UPLOAD_MAX_BYTES).toBe(100 * 1024 * 1024);
   });
+
+  it('wraps a non-Error stat throw (string rejection) in ValidationError', async () => {
+    // Cover the `String(err)` branch in the stat catch: `err instanceof Error`
+    // is false when the rejection value is a plain string.
+    vi.doMock('node:fs/promises', async () => {
+      const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+      return {
+        ...actual,
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- intentionally exercises the non-Error branch
+        stat: () => Promise.reject('ENOENT: string rejection'),
+      };
+    });
+    vi.resetModules();
+    try {
+      const { buildFileMultipart: bfm } = await import('../../src/lib/multipart.js');
+      const { ValidationError: VE } = await import('../../src/errors/validation-error.js');
+      await expect(bfm('/any/path')).rejects.toBeInstanceOf(VE);
+      await expect(bfm('/any/path')).rejects.toMatchObject({
+        message: expect.stringContaining('ENOENT: string rejection') as unknown,
+      });
+    } finally {
+      vi.doUnmock('node:fs/promises');
+      vi.resetModules();
+    }
+  });
+
+  it('wraps a non-Error readFile throw (string rejection) in ValidationError', async () => {
+    // Cover the `String(err)` branch in the readFile catch.
+    const path = join(tmpDir, 'readable.bin');
+    await writeFile(path, 'hello');
+
+    vi.doMock('node:fs/promises', async () => {
+      const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+      return {
+        ...actual,
+        // stat succeeds (real file), readFile rejects with a non-Error
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- intentionally exercises the non-Error branch
+        readFile: () => Promise.reject('IO string error'),
+      };
+    });
+    vi.resetModules();
+    try {
+      const { buildFileMultipart: bfm } = await import('../../src/lib/multipart.js');
+      const { ValidationError: VE } = await import('../../src/errors/validation-error.js');
+      await expect(bfm(path)).rejects.toBeInstanceOf(VE);
+      await expect(bfm(path)).rejects.toMatchObject({
+        message: expect.stringContaining('IO string error') as unknown,
+      });
+    } finally {
+      vi.doUnmock('node:fs/promises');
+      vi.resetModules();
+    }
+  });
 });

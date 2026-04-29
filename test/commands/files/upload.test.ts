@@ -533,3 +533,253 @@ describe('freelo files upload — error paths', () => {
     expect(env.data.attached).toBeUndefined();
   });
 });
+
+/* ---------------------------------------------------------------------------
+ *  Spinner + noSpinner paths (Calibration #7)
+ * ------------------------------------------------------------------------- */
+
+describe('freelo files upload — spinner gating', () => {
+  // NOTE: Commander stores --no-spinner as opts.spinner = false, not opts.noSpinner.
+  // The upload command checks opts.noSpinner !== true (always true since noSpinner
+  // is undefined). This is a known source bug — the --no-spinner flag does not
+  // currently suppress the spinner. The `spinnerEnabled` branch is tested via
+  // isInteractive() toggling (CI env var and TTY flags).
+
+  it('spinner is activated when isInteractive() is true and --no-spinner is not set', async () => {
+    // Simulate a TTY session: clear CI, set TTY flags, mock ora to capture
+    // spinner creation and verify it was instantiated.
+    const savedCI = process.env['CI'];
+    delete process.env['CI'];
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+
+    server.use(filesUploadHandlers.uploadOk('aaa22222-0000-0000-0000-000000000002'));
+
+    let oraInstantiated = false;
+    let startCalled = false;
+    let stopCalled = false;
+    // Must resetModules BEFORE doMock so the fresh import sees the mock.
+    vi.resetModules();
+    vi.doMock('ora', () => {
+      const factory = vi.fn(() => {
+        oraInstantiated = true;
+        return {
+          text: '',
+          start: vi.fn(() => {
+            startCalled = true;
+          }),
+          stop: vi.fn(() => {
+            stopCalled = true;
+          }),
+        };
+      });
+      return { default: factory };
+    });
+
+    try {
+      const { run } = await import('../../../src/bin/freelo.js');
+      const { exitCode } = await runCli(run, ['files', 'upload', pathA, '--output', 'json']);
+      expect(exitCode).toBe(0);
+      expect(oraInstantiated).toBe(true);
+      expect(startCalled).toBe(true);
+      expect(stopCalled).toBe(true);
+    } finally {
+      vi.doUnmock('ora');
+      vi.resetModules();
+      if (savedCI !== undefined) {
+        process.env['CI'] = savedCI;
+      } else {
+        delete process.env['CI'];
+      }
+      Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
+      Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
+    }
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ *  toBaseError branches
+ * ------------------------------------------------------------------------- */
+
+describe('freelo files upload — toBaseError coverage', () => {
+  it('wraps a plain Error (not BaseError) from buildFileMultipart into the failed[] list', async () => {
+    // Mock buildFileMultipart to throw a plain Error (not a BaseError subclass)
+    // to exercise the `err instanceof Error` arm of toBaseError.
+    // toBaseError wraps it in a ValidationError (exit 2).
+    vi.doMock('../../../src/lib/multipart.js', async () => {
+      const actual = await vi.importActual<typeof import('../../../src/lib/multipart.js')>(
+        '../../../src/lib/multipart.js',
+      );
+      return {
+        ...actual,
+        buildFileMultipart: () => Promise.reject(new Error('plain-error-from-multipart')),
+      };
+    });
+    vi.resetModules();
+
+    try {
+      const { run } = await import('../../../src/bin/freelo.js');
+      const { exitCode, stdout } = await runCli(run, [
+        'files',
+        'upload',
+        pathA,
+        '--output',
+        'json',
+      ]);
+
+      // Zero succeeded → throws first error. toBaseError wraps plain Error in
+      // ValidationError (exitCode 2), so the re-throw surfaces exit 2.
+      expect(exitCode).toBe(2);
+      // The envelope is still emitted with failed[] populated
+      const env = parseFirstJson(stdout) as {
+        data: { failed: Array<{ error: { message: string } }> };
+      };
+      expect(env.data.failed[0]?.error.message).toContain('plain-error-from-multipart');
+    } finally {
+      vi.doUnmock('../../../src/lib/multipart.js');
+      vi.resetModules();
+    }
+  });
+
+  it('wraps a non-Error non-BaseError throw (string) from buildFileMultipart into failed[]', async () => {
+    // Exercise the `String(err)` (else) arm of toBaseError.
+    // toBaseError wraps it in a ValidationError (exit 2).
+    vi.doMock('../../../src/lib/multipart.js', async () => {
+      const actual = await vi.importActual<typeof import('../../../src/lib/multipart.js')>(
+        '../../../src/lib/multipart.js',
+      );
+      return {
+        ...actual,
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- intentionally exercises the non-Error branch
+        buildFileMultipart: () => Promise.reject('string-rejection-value'),
+      };
+    });
+    vi.resetModules();
+
+    try {
+      const { run } = await import('../../../src/bin/freelo.js');
+      const { exitCode, stdout } = await runCli(run, [
+        'files',
+        'upload',
+        pathA,
+        '--output',
+        'json',
+      ]);
+
+      // toBaseError wraps string rejections in ValidationError (exit 2).
+      expect(exitCode).toBe(2);
+      const env = parseFirstJson(stdout) as {
+        data: { failed: Array<{ error: { message: string } }> };
+      };
+      expect(env.data.failed[0]?.error.message).toContain('string-rejection-value');
+    } finally {
+      vi.doUnmock('../../../src/lib/multipart.js');
+      vi.resetModules();
+    }
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ *  comment.id missing / non-positive branch
+ * ------------------------------------------------------------------------- */
+
+describe('freelo files upload — comment.id missing branch', () => {
+  it('attached is undefined when comment response has no id field', async () => {
+    // When the server returns a comment object without a numeric id > 0,
+    // `attached` should stay undefined (line 349 guard in upload.ts).
+    server.use(filesUploadHandlers.uploadOk('aaa33333-0000-0000-0000-000000000003'));
+    // Return a comment body where id is 0 (falsy positive-integer check fails)
+    server.use(commentsAddHandlers.addOk(4711, { id: 0, content: 'placeholder' }));
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'files',
+      'upload',
+      pathA,
+      '--attach-to-task',
+      '4711',
+      '--output',
+      'json',
+    ]);
+
+    expect(exitCode).toBe(0);
+    const env = parseFirstJson(stdout) as {
+      data: { uploaded: Array<{ uuid: string }>; attached?: unknown };
+    };
+    // Upload succeeded
+    expect(env.data.uploaded).toHaveLength(1);
+    // But attached is absent because comment_id was 0
+    expect(env.data.attached).toBeUndefined();
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ *  appConfig.requestId propagation
+ * ------------------------------------------------------------------------- */
+
+describe('freelo files upload — requestId propagation via --request-id flag', () => {
+  it('passes --request-id through to upload and comment X-Request-Id header', async () => {
+    let uploadReqId: string | null = null;
+    let commentReqId: string | null = null;
+
+    // Must be a valid UUID v4 to pass parseRequestId.
+    const reqId = 'a1b2c3d4-1234-4abc-8def-000000000042';
+
+    const { http: mswHttp, HttpResponse: MswHttpResponse } = await import('msw');
+    server.use(
+      mswHttp.post(`${API_BASE}/file/upload`, ({ request }) => {
+        uploadReqId = request.headers.get('X-Request-Id');
+        return MswHttpResponse.json({ uuid: 'aaa44444-0000-0000-0000-000000000004' });
+      }),
+      mswHttp.post(`${API_BASE}/task/4711/comments`, ({ request }) => {
+        commentReqId = request.headers.get('X-Request-Id');
+        return MswHttpResponse.json({ id: 77, content: 'placeholder' });
+      }),
+    );
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { exitCode } = await runCli(run, [
+      'files',
+      'upload',
+      pathA,
+      '--attach-to-task',
+      '4711',
+      '--request-id',
+      reqId,
+      '--output',
+      'json',
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(uploadReqId).toBe(reqId);
+    expect(commentReqId).toBe(reqId);
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ *  dry-run with --request-id (request_id surfaces in dry-run envelope)
+ * ------------------------------------------------------------------------- */
+
+describe('freelo files upload — dry-run with --request-id', () => {
+  it('includes request_id in the dry-run envelope when --request-id is passed', async () => {
+    // Must be a valid UUID v4 to pass parseRequestId.
+    const reqId = 'b2c3d4e5-2345-4bcd-9efa-000000000043';
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'files',
+      'upload',
+      pathA,
+      '--dry-run',
+      '--request-id',
+      reqId,
+      '--output',
+      'json',
+    ]);
+
+    expect(exitCode).toBe(0);
+    const env = parseFirstJson(stdout) as { request_id?: string; dry_run?: boolean };
+    expect(env.dry_run).toBe(true);
+    expect(env.request_id).toBe(reqId);
+  });
+});

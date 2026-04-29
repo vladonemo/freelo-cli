@@ -184,3 +184,44 @@ describe('uploadFile (error paths — Calibration §2 exit-code coverage)', () =
     expect(caught).toMatchObject({ code: 'RATE_LIMITED' });
   });
 });
+
+describe('uploadFile — optional-spread branches for signal / requestId absence', () => {
+  it('succeeds without signal or requestId (both optional-spread arms omitted)', async () => {
+    const path = join(tmpDir, 'no-opts.txt');
+    await writeFile(path, 'data');
+    server.use(filesUploadHandlers.uploadOk('dddd0000-0000-0000-0000-000000000004'));
+
+    const client = makeClient();
+    const multipart = await buildFileMultipart(path);
+    // No signal or requestId — exercises the `...(signal !== undefined ? ...)` false branch
+    const result = await uploadFile(client, { multipart });
+    expect(result.uuid).toBe('dddd0000-0000-0000-0000-000000000004');
+  });
+
+  it('uploadFile threads a signal through to requestMultipart', async () => {
+    const path = join(tmpDir, 'signal.txt');
+    await writeFile(path, 'x');
+    // Never responds — abort fires immediately
+    const { http: mswHttp, HttpResponse: MswHttpResponse } = await import('msw');
+    server.use(
+      mswHttp.post(`${API_BASE}/file/upload`, async () => {
+        await new Promise((r) => setTimeout(r, 5000));
+        return MswHttpResponse.json({ uuid: 'never' });
+      }),
+    );
+
+    const controller = new AbortController();
+    controller.abort();
+
+    const client = makeClient();
+    const multipart = await buildFileMultipart(path);
+    let caught: unknown;
+    try {
+      await uploadFile(client, { multipart, signal: controller.signal });
+    } catch (err) {
+      caught = err;
+    }
+    // AbortError is re-thrown as-is (not a NetworkError)
+    expect((caught as Error).name).toMatch(/Abort/i);
+  });
+});
