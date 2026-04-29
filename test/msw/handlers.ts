@@ -2383,16 +2383,19 @@ export const projectLabelsHandlers = {
    * ------------------------------------------------------------------- */
 
   /**
-   * 200 with a `{ label: ProjectLabel[] }` body. Note the singular outer
-   * key — same anomaly as other Freelo list endpoints.
+   * 200 with a `{ labels: ProjectLabel[] }` body.
+   *
+   * The OpenAPI spec documents the key as `label` (singular) but the
+   * live API returns `labels` (plural). Schema and handler follow
+   * reality, not the spec. See src/api/schemas/project-label.ts.
    */
   findAvailableOk(labels: Record<string, unknown>[]): RequestHandler {
     return http.get(`${API_BASE}/project-labels/find-available`, () =>
-      HttpResponse.json({ label: labels }),
+      HttpResponse.json({ labels }),
     );
   },
 
-  /** 200 with malformed body — `label` missing → schema validation fails. */
+  /** 200 with malformed body — `labels` missing → schema validation fails. */
   findAvailableMalformed(): RequestHandler {
     return http.get(`${API_BASE}/project-labels/find-available`, () =>
       HttpResponse.json({ result: 'success' }),

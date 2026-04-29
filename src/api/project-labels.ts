@@ -68,7 +68,7 @@ export async function findAvailableLabels(
     ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
     ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
   });
-  return { labels: raw.data.label, raw };
+  return { labels: raw.data.labels, raw };
 }
 
 /* ---------------------------------------------------------------------------

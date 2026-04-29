@@ -34,15 +34,16 @@ export const ProjectLabelSchema = z
 export type ProjectLabel = z.infer<typeof ProjectLabelSchema>;
 
 /**
- * Response body of `GET /project-labels/find-available` (yaml :855).
+ * Response body of `GET /project-labels/find-available`.
  *
- * Note the singular outer key holding an array — same naming anomaly as
- * other Freelo list endpoints. CLI flips it to `labels` (plural) at the
- * envelope layer.
+ * The OpenAPI spec (yaml :854-859) documents the outer key as `label`
+ * (singular), but the live API actually returns `labels` (plural).
+ * Verified against api.freelo.io/v1 on 2026-04-29 with an empty result
+ * set: `{"labels":[]}`. The spec is wrong; the schema follows reality.
  */
 export const FindAvailableLabelsResponseSchema = z
   .object({
-    label: z.array(ProjectLabelSchema),
+    labels: z.array(ProjectLabelSchema),
   })
   .passthrough();
 export type FindAvailableLabelsResponse = z.infer<typeof FindAvailableLabelsResponseSchema>;
