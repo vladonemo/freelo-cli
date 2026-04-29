@@ -60,6 +60,14 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 
 - `freelo help [commandPath...]` — Print the command tree as JSON (--output json) or as the same text as --help (default).
 
+### labels
+
+- `freelo labels attach` — Attach one or more labels to a project (fetch-or-create per name). One POST per --name. Defaults to private labels (caller-only); use --public for shared labels.
+- `freelo labels delete [id...]` — Hard-delete one or more project labels GLOBALLY (across all projects). Destructive — requires --yes (non-TTY) or interactive confirmation (TTY). 404 treated as idempotent (already-deleted).
+- `freelo labels detach` — Detach one or more labels from a project. Idempotent — detaching a label that is not attached is a successful no-op (404 → already_in_target_state: true).
+- `freelo labels list` — List the caller's available project labels (their private labels plus public labels from accessible projects). No filters in v1 — `--project` is deferred until the API surfaces an attachments map.
+- `freelo labels rename <id>` — Rename, recolor, or toggle private/public on an existing project label. At least one change flag is required.
+
 ### projects
 
 - `freelo projects list` — List projects in the chosen scope. Default scope is 'owned'.

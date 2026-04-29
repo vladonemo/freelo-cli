@@ -2363,6 +2363,299 @@ export const workReportsWriteHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo labels list / rename / delete / attach / detach`
+ * (R23, spec 0035).
+ *
+ * Endpoints:
+ *   - `GET    /project-labels/find-available`              — list (no params)
+ *   - `POST   /project-labels/{labelId}`                   — rename / recolor
+ *   - `DELETE /project-labels/{labelId}`                   — global hard-delete
+ *   - `POST   /project-labels/add-to-project/{projectId}`  — attach (data-mode)
+ *   - `POST   /project-labels/remove-from-project/{projectId}` — detach (id-mode)
+ *
+ * Verbs reconciled per spec decisions 01 (rename POST) and 02 (detach POST).
+ *
+ * Mirrors the `workReportsWriteHandlers` shape modulo URL/verb.
+ */
+export const projectLabelsHandlers = {
+  /* ---------------------------------------------------------------------
+   *  GET /project-labels/find-available
+   * ------------------------------------------------------------------- */
+
+  /**
+   * 200 with a `{ label: ProjectLabel[] }` body. Note the singular outer
+   * key — same anomaly as other Freelo list endpoints.
+   */
+  findAvailableOk(labels: Record<string, unknown>[]): RequestHandler {
+    return http.get(`${API_BASE}/project-labels/find-available`, () =>
+      HttpResponse.json({ label: labels }),
+    );
+  },
+
+  /** 200 with malformed body — `label` missing → schema validation fails. */
+  findAvailableMalformed(): RequestHandler {
+    return http.get(`${API_BASE}/project-labels/find-available`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  findAvailableUnauthorized(): RequestHandler {
+    return http.get(`${API_BASE}/project-labels/find-available`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  findAvailableServerError(status = 500): RequestHandler {
+    return http.get(`${API_BASE}/project-labels/find-available`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  findAvailableRateLimited(): RequestHandler {
+    return http.get(
+      `${API_BASE}/project-labels/find-available`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  findAvailableNetworkError(): RequestHandler {
+    return http.get(`${API_BASE}/project-labels/find-available`, () => HttpResponse.error());
+  },
+
+  /* ---------------------------------------------------------------------
+   *  POST /project-labels/{labelId}  (rename / recolor / toggle)
+   * ------------------------------------------------------------------- */
+
+  /** 200 success on the rename endpoint. */
+  editOk(): RequestHandler {
+    return http.post(`${API_BASE}/project-labels/:labelId`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /** Match-on-body variant. Predicate sees the parsed JSON body. */
+  editOkWhenBody(predicate: (body: unknown, request: Request) => boolean): RequestHandler {
+    return http.post(`${API_BASE}/project-labels/:labelId`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json({ result: 'success' });
+    });
+  },
+
+  editForbidden(): RequestHandler {
+    return http.post(`${API_BASE}/project-labels/:labelId`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  editNotFound(): RequestHandler {
+    return http.post(`${API_BASE}/project-labels/:labelId`, () =>
+      HttpResponse.json({ errors: ['NotFoundException'] }, { status: 404 }),
+    );
+  },
+
+  editUnauthorized(): RequestHandler {
+    return http.post(`${API_BASE}/project-labels/:labelId`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  editServerError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/project-labels/:labelId`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  editRateLimited(): RequestHandler {
+    return http.post(
+      `${API_BASE}/project-labels/:labelId`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /* ---------------------------------------------------------------------
+   *  DELETE /project-labels/{labelId}  (global hard-delete; idempotent 404)
+   * ------------------------------------------------------------------- */
+
+  deleteOk(): RequestHandler {
+    return http.delete(`${API_BASE}/project-labels/:labelId`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /** Idempotency arm — 404 → CLI re-classifies as already_in_target_state: true. */
+  deleteNotFound(): RequestHandler {
+    return http.delete(`${API_BASE}/project-labels/:labelId`, () =>
+      HttpResponse.json({ errors: ['Not found.'] }, { status: 404 }),
+    );
+  },
+
+  deleteForbidden(): RequestHandler {
+    return http.delete(`${API_BASE}/project-labels/:labelId`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  deleteUnauthorized(): RequestHandler {
+    return http.delete(`${API_BASE}/project-labels/:labelId`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  deleteServerError(status = 500): RequestHandler {
+    return http.delete(`${API_BASE}/project-labels/:labelId`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  deleteRateLimited(): RequestHandler {
+    return http.delete(
+      `${API_BASE}/project-labels/:labelId`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** Per-id router for delete — different responses per id. */
+  deletePerIdRouter(routes: Record<string, () => Response | HttpResponse>): RequestHandler {
+    return http.delete(`${API_BASE}/project-labels/:labelId`, ({ params }) => {
+      const idStr = String(params['labelId']);
+      const route = routes[idStr];
+      if (route) return route();
+      return HttpResponse.json({ result: 'success' });
+    });
+  },
+
+  /* ---------------------------------------------------------------------
+   *  POST /project-labels/add-to-project/{projectId}  (attach, data-mode)
+   * ------------------------------------------------------------------- */
+
+  attachOk(): RequestHandler {
+    return http.post(`${API_BASE}/project-labels/add-to-project/:projectId`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  attachOkWhenBody(predicate: (body: unknown, request: Request) => boolean): RequestHandler {
+    return http.post(
+      `${API_BASE}/project-labels/add-to-project/:projectId`,
+      async ({ request }) => {
+        const body: unknown = await request.clone().json();
+        if (!predicate(body, request)) {
+          return HttpResponse.json(
+            { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+            { status: 500 },
+          );
+        }
+        return HttpResponse.json({ result: 'success' });
+      },
+    );
+  },
+
+  attachForbidden(): RequestHandler {
+    return http.post(`${API_BASE}/project-labels/add-to-project/:projectId`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** Project gone — NOT idempotent (decision per spec error matrix). */
+  attachNotFound(): RequestHandler {
+    return http.post(`${API_BASE}/project-labels/add-to-project/:projectId`, () =>
+      HttpResponse.json({ errors: ['Project not found.'] }, { status: 404 }),
+    );
+  },
+
+  attachServerError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/project-labels/add-to-project/:projectId`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** Per-name router — used by tests that want different responses per body name. */
+  attachPerNameRouter(routes: Record<string, () => Response | HttpResponse>): RequestHandler {
+    return http.post(
+      `${API_BASE}/project-labels/add-to-project/:projectId`,
+      async ({ request }) => {
+        const body = (await request.clone().json()) as { name?: string };
+        const name = body.name ?? '';
+        const route = routes[name];
+        if (route) return route();
+        return HttpResponse.json({ result: 'success' });
+      },
+    );
+  },
+
+  /* ---------------------------------------------------------------------
+   *  POST /project-labels/remove-from-project/{projectId}  (detach, id-mode)
+   * ------------------------------------------------------------------- */
+
+  detachOk(): RequestHandler {
+    return http.post(`${API_BASE}/project-labels/remove-from-project/:projectId`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  detachOkWhenBody(predicate: (body: unknown, request: Request) => boolean): RequestHandler {
+    return http.post(
+      `${API_BASE}/project-labels/remove-from-project/:projectId`,
+      async ({ request }) => {
+        const body: unknown = await request.clone().json();
+        if (!predicate(body, request)) {
+          return HttpResponse.json(
+            { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+            { status: 500 },
+          );
+        }
+        return HttpResponse.json({ result: 'success' });
+      },
+    );
+  },
+
+  /** Idempotency arm — 404 → already_in_target_state: true (decision 09). */
+  detachNotFound(): RequestHandler {
+    return http.post(`${API_BASE}/project-labels/remove-from-project/:projectId`, () =>
+      HttpResponse.json({ errors: ['Label not attached to project.'] }, { status: 404 }),
+    );
+  },
+
+  detachServerError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/project-labels/remove-from-project/:projectId`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** Per-id router — different response per body.id. */
+  detachPerIdRouter(routes: Record<string, () => Response | HttpResponse>): RequestHandler {
+    return http.post(
+      `${API_BASE}/project-labels/remove-from-project/:projectId`,
+      async ({ request }) => {
+        const body = (await request.clone().json()) as { id?: number };
+        const idStr = String(body.id ?? '');
+        const route = routes[idStr];
+        if (route) return route();
+        return HttpResponse.json({ result: 'success' });
+      },
+    );
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
