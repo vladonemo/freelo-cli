@@ -312,6 +312,32 @@ Never trust `git checkout -b <new-branch>` alone after agent activity. If two PR
 
 Cost of the mistake here was minor (cosmetic version-history noise; `0.10.0 == 0.9.0` content). Cost in a worse scenario could be republishing already-deleted changesets, double-billing minor bumps, or accidentally consuming a NEW changeset that was added between the two PRs.
 
+### 7. Tests for TTY-prompt code paths must unset `CI`, not just override `isTTY`
+
+**Trigger:** R23 (`feat/labels`, PR #68) — `test/commands/labels/delete.test.ts` "confirmation copy explicitly says 'GLOBALLY' in TTY mode" passed locally on the orchestrator's machine (no `CI` env var set) but failed on every job in the GitHub Actions matrix. The test forced `process.stdout.isTTY = true` and `process.stdin.isTTY = true`, then mocked `@inquirer/prompts.confirm` and asserted the captured prompt message contained "GLOBALLY". In CI, the mock was never called and `captured` stayed empty.
+
+**Why it matters:** `src/lib/env.ts` `isInteractive()` is the gate in front of every lazy human-UX import. It returns `false` when **either** stream is not a TTY **or** `process.env.CI` is set to a truthy value (`'true'`, `'1'`, anything not `'0'`/`'false'`). GitHub Actions sets `CI=true` unconditionally, so on the matrix `isInteractive()` returned `false` regardless of the spoofed `isTTY` flags. The non-TTY branch of `confirmDestructive` threw `ConfirmationError` synchronously before the lazy `await import('@inquirer/prompts')` ever ran. exit code 2 still matched the assertion (red herring), so the only signal was the empty `captured` string.
+
+The orchestrator's self-check ran locally where `CI` is unset, so the test passed and the run shipped a green PR that went red on push. Calibration #3 (run gates on the committed tree) doesn't catch this — both committed-tree and working-tree pass locally. The class of bug is "test environment mimics CI partially."
+
+**Rule:** When a test asserts behavior on the **TTY-prompt code path** (i.e. the path gated by `isInteractive()`), it MUST save and clear `process.env.CI` for the duration of the test, then restore it in `finally`. Spoofing `process.stdout.isTTY` / `process.stdin.isTTY` alone is **not sufficient** because `isInteractive()` short-circuits on `CI`. Pattern (mirrors `test/lib/env.test.ts:50-58`):
+
+```ts
+const savedCI = process.env['CI'];
+delete process.env['CI'];
+Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+try {
+  // ... test that exercises the TTY-prompt branch ...
+} finally {
+  if (savedCI !== undefined) process.env['CI'] = savedCI;
+}
+```
+
+The test-writer agent should grep its diff for `isTTY.*true` in test files and verify that any matching test also clears `CI`. Better still: assert the prompt copy at the helper level (export and unit-test the message-builder) where the `isInteractive()` gate doesn't apply at all — but when an integration test is genuinely the right level, clear `CI` explicitly.
+
+Future calibration candidate: add an `it.runIfCI` / `it.skipIfCI` or shared `withTtyPromptable()` helper to make this footgun harder to step on.
+
 ---
 
 ## Rollback
