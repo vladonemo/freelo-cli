@@ -85,6 +85,12 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 - `freelo subtasks add` — Create a subtask (taskcheck) under a parent task (single or NDJSON batch via --stdin). Note: Freelo's API auto-falls-back from a smart subtask (full task with worker, due date, etc.) to a simple taskcheck (a checkbox row with only a name) when the parent's tasklist can't host smart ones. The response envelope's `data.storage_form` field reflects which form was actually persisted; `data.input_ignored[]` lists fields you set that the server discarded on the simple path.
 - `freelo subtasks list` — List subtasks (taskchecks) under one parent task, paginated.
 
+### task-labels
+
+- `freelo task-labels attach` — Attach one or more labels to a task. Each --name and --uuid becomes one entry in a single bulk POST. --hex applies to name-mode entries only (UUID-mode uses the existing label's color).
+- `freelo task-labels create` — Bulk-create task-label definitions in the caller account. Server-side fetch-or-create on `name` (case-sensitive) — re-running with the same names is a safe no-op. The API does not report new vs. reused.
+- `freelo task-labels detach` — Detach one or more labels from a task. --name without --hex removes ALL labels with that name (aggressive); add --hex to scope to a specific (name,color) pair. UUID-mode is precise — removes exactly that label. Server is idempotent — detaching a label not on the task is a successful no-op.
+
 ### tasklists
 
 - `freelo tasklists list` — List tasklists across all projects you can see, optionally filtered to one project.
