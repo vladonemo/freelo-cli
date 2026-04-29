@@ -15,10 +15,17 @@ import { tmpdir } from 'node:os';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createHttpClient } from '../../src/api/client.js';
-import { uploadFile, FILE_UPLOAD_PATH } from '../../src/api/files.js';
+import {
+  uploadFile,
+  FILE_UPLOAD_PATH,
+  downloadFile,
+  fileDownloadPath,
+} from '../../src/api/files.js';
 import { buildFileMultipart } from '../../src/lib/multipart.js';
 import { FreeloApiError } from '../../src/errors/freelo-api-error.js';
-import { server, filesUploadHandlers, API_BASE } from '../msw/handlers.js';
+import { NetworkError } from '../../src/errors/network-error.js';
+import { RateLimitedError } from '../../src/errors/rate-limited-error.js';
+import { server, filesUploadHandlers, filesDownloadHandlers, API_BASE } from '../msw/handlers.js';
 
 function makeClient() {
   return createHttpClient({
@@ -223,5 +230,196 @@ describe('uploadFile — optional-spread branches for signal / requestId absence
     }
     // AbortError is re-thrown as-is (not a NetworkError)
     expect((caught as Error).name).toMatch(/Abort/i);
+  });
+});
+
+/* ===========================================================================
+ *  R27 — `freelo files download`  (spec 0039)
+ *
+ *  Exercises `HttpClient.requestBinary` end-to-end via MSW + the
+ *  `downloadFile` wire wrapper. Calibration §2 exit-code coverage on every
+ *  error class.
+ * ========================================================================= */
+
+const TEST_UUID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+
+async function consumeBytes(iter: AsyncIterable<Uint8Array>): Promise<Uint8Array> {
+  const chunks: Uint8Array[] = [];
+  for await (const c of iter) chunks.push(c);
+  let total = 0;
+  for (const c of chunks) total += c.byteLength;
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.byteLength;
+  }
+  return out;
+}
+
+describe('fileDownloadPath', () => {
+  it('encodes the UUID into /file/{uuid}', () => {
+    expect(fileDownloadPath(TEST_UUID)).toBe(`/file/${TEST_UUID}`);
+  });
+});
+
+describe('downloadFile (happy path)', () => {
+  it('returns body iterable + Content-Type + Content-Length + parsed filename', async () => {
+    const fixture = Buffer.from('hello world');
+    server.use(
+      filesDownloadHandlers.downloadOk({
+        bytes: fixture,
+        contentType: 'text/plain',
+        contentDisposition: 'attachment; filename="hello.txt"',
+      }),
+    );
+
+    const client = makeClient();
+    const r = await downloadFile(client, { uuid: TEST_UUID });
+    expect(r.contentType).toBe('text/plain');
+    expect(r.contentLength).toBe(fixture.length);
+    expect(r.filename).toBe('hello.txt');
+    const bytes = await consumeBytes(r.body);
+    expect(Buffer.from(bytes).toString('utf8')).toBe('hello world');
+  });
+
+  it('returns filename = null when Content-Disposition is absent', async () => {
+    server.use(
+      filesDownloadHandlers.downloadOk({
+        bytes: Buffer.from('x'),
+        contentType: 'application/octet-stream',
+      }),
+    );
+
+    const client = makeClient();
+    const r = await downloadFile(client, { uuid: TEST_UUID });
+    expect(r.filename).toBeNull();
+    expect(r.contentType).toBe('application/octet-stream');
+  });
+});
+
+describe('downloadFile (error paths — Calibration §2 exit-code coverage)', () => {
+  it('401 → FreeloApiError AUTH_EXPIRED exit 3', async () => {
+    server.use(filesDownloadHandlers.unauthorized());
+    const client = makeClient();
+    let caught: unknown;
+    try {
+      await downloadFile(client, { uuid: TEST_UUID });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(FreeloApiError);
+    expect((caught as FreeloApiError).httpStatus).toBe(401);
+    // Per FreeloApiError.fromResponse, 401 is mapped to AUTH_EXPIRED → exit 3
+    // (mirrors the auth/whoami + uploadFile contract). Spec 0039 §6 listed
+    // exit 4 in error; the project's actual policy is exit 3.
+    expect((caught as FreeloApiError).code).toBe('AUTH_EXPIRED');
+    expect((caught as FreeloApiError).exitCode).toBe(3);
+  });
+
+  it('403 → FreeloApiError exit 4', async () => {
+    server.use(filesDownloadHandlers.forbidden());
+    const client = makeClient();
+    let caught: unknown;
+    try {
+      await downloadFile(client, { uuid: TEST_UUID });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(FreeloApiError);
+    expect((caught as FreeloApiError).httpStatus).toBe(403);
+    expect((caught as FreeloApiError).exitCode).toBe(4);
+  });
+
+  it('404 → FreeloApiError exit 4 with status 404', async () => {
+    server.use(filesDownloadHandlers.notFound());
+    const client = makeClient();
+    let caught: unknown;
+    try {
+      await downloadFile(client, { uuid: TEST_UUID });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(FreeloApiError);
+    expect((caught as FreeloApiError).httpStatus).toBe(404);
+    expect((caught as FreeloApiError).exitCode).toBe(4);
+  });
+
+  it('5xx → FreeloApiError exit 4', async () => {
+    server.use(filesDownloadHandlers.serverError(503));
+    const client = makeClient();
+    let caught: unknown;
+    try {
+      await downloadFile(client, { uuid: TEST_UUID });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(FreeloApiError);
+    expect((caught as FreeloApiError).httpStatus).toBe(503);
+    expect((caught as FreeloApiError).exitCode).toBe(4);
+  });
+
+  it('429 → RateLimitedError exit 6 (NO retry per spec 0039 decision 05)', async () => {
+    server.use(filesDownloadHandlers.rateLimited());
+    const client = makeClient();
+    let caught: unknown;
+    try {
+      await downloadFile(client, { uuid: TEST_UUID });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(RateLimitedError);
+    expect((caught as RateLimitedError).exitCode).toBe(6);
+  });
+
+  it('network-level error → NetworkError exit 5', async () => {
+    server.use(filesDownloadHandlers.networkError());
+    const client = makeClient();
+    let caught: unknown;
+    try {
+      await downloadFile(client, { uuid: TEST_UUID });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(NetworkError);
+    expect((caught as NetworkError).exitCode).toBe(5);
+  });
+});
+
+describe('downloadFile — empty body', () => {
+  it('200 with no body returns an empty iterable, contentLength: 0', async () => {
+    server.use(filesDownloadHandlers.downloadEmpty());
+    const client = makeClient();
+    const r = await downloadFile(client, { uuid: TEST_UUID });
+    expect(r.contentLength).toBe(0);
+    const bytes = await consumeBytes(r.body);
+    expect(bytes.byteLength).toBe(0);
+  });
+});
+
+describe('downloadFile — optional-spread branches', () => {
+  it('omits signal / requestId when undefined', async () => {
+    server.use(
+      filesDownloadHandlers.downloadOk({ bytes: Buffer.from('a'), contentType: 'text/plain' }),
+    );
+    const client = makeClient();
+    const r = await downloadFile(client, { uuid: TEST_UUID });
+    await consumeBytes(r.body);
+    expect(r.contentType).toBe('text/plain');
+  });
+
+  it('passes through signal + requestId when supplied', async () => {
+    server.use(
+      filesDownloadHandlers.downloadOk({ bytes: Buffer.from('a'), contentType: 'text/plain' }),
+    );
+    const client = makeClient();
+    const controller = new AbortController();
+    const r = await downloadFile(client, {
+      uuid: TEST_UUID,
+      signal: controller.signal,
+      requestId: 'req-xyz',
+    });
+    await consumeBytes(r.body);
+    expect(r.contentType).toBe('text/plain');
   });
 });

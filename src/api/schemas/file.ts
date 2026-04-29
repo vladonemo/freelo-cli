@@ -178,3 +178,32 @@ export const FilesListDataSchema = z.object({
   items: z.array(FileItemSchema),
 });
 export type FilesListData = z.infer<typeof FilesListDataSchema>;
+
+/* ---------------------------------------------------------------------------
+ *  R27 — `freelo files download`  (spec 0039)
+ *
+ *  Wire endpoint: `GET /file/{file_uuid}` (yaml :3835-3865) — returns
+ *  `application/octet-stream` (binary). NO Zod schema for the response body
+ *  itself; the schema below is for the success **envelope** only.
+ *
+ *  Spec 0039 §4.1.
+ * ------------------------------------------------------------------------- */
+
+export const FilesDownloadDataSchema = z.object({
+  /** The UUID we asked for (echoed for trace correlation). */
+  uuid: z.string().min(1),
+  /**
+   * Where the bytes ended up. Either the literal string `'stdout'` (when
+   * `--stdout` was set) or an absolute filesystem path. Spec 0039 §3.4.
+   */
+  destination: z.union([z.literal('stdout'), z.string().min(1)]),
+  /** Bytes actually written. May differ from `Content-Length` if the server lied. */
+  bytes: z.number().int().min(0),
+  /** Server-provided filename (from `Content-Disposition`). `null` if absent. */
+  filename: z.string().min(1).nullable(),
+  /** Server-provided MIME (from `Content-Type`). `null` if absent. */
+  content_type: z.string().min(1).nullable(),
+  /** True iff `--force` was used and a pre-existing destination was overwritten. */
+  overwrote: z.boolean(),
+});
+export type FilesDownloadData = z.infer<typeof FilesDownloadDataSchema>;

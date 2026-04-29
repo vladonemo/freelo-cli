@@ -2966,6 +2966,132 @@ export const allDocsAndFilesListHandlers = {
 };
 
 /**
+ * MSW handlers for `GET /file/{file_uuid}` (R27, spec 0039).
+ *
+ * The download endpoint returns a binary body (`application/octet-stream`).
+ * MSW's `HttpResponse` accepts a `Uint8Array` body and we set the headers
+ * explicitly so tests can assert the leaf's filename inference, byte counts,
+ * and Content-Disposition handling.
+ */
+export const filesDownloadHandlers = {
+  /**
+   * 200 with the given bytes. Optional headers control the leaf's
+   * filename inference and content-type echo.
+   */
+  downloadOk(opts: {
+    bytes: Uint8Array | Buffer;
+    contentType?: string;
+    contentDisposition?: string;
+    contentLength?: string;
+  }): RequestHandler {
+    return http.get(`${API_BASE}/file/:uuid`, () => {
+      const headers: Record<string, string> = {
+        'Content-Type': opts.contentType ?? 'application/octet-stream',
+      };
+      if (opts.contentDisposition !== undefined) {
+        headers['Content-Disposition'] = opts.contentDisposition;
+      }
+      if (opts.contentLength !== undefined) {
+        headers['Content-Length'] = opts.contentLength;
+      } else {
+        headers['Content-Length'] = String(opts.bytes.length);
+      }
+      // MSW expects an ArrayBuffer for binary bodies. `Buffer` is a Uint8Array
+      // subclass; copy into a fresh ArrayBuffer to satisfy the typing.
+      const ab = new ArrayBuffer(opts.bytes.length);
+      new Uint8Array(ab).set(opts.bytes);
+      return new HttpResponse(ab, { headers });
+    });
+  },
+
+  /**
+   * 200 with no body (response.body === null). Verifies the empty-body
+   * branch in `requestBinary`.
+   */
+  downloadEmpty(opts?: { contentDisposition?: string }): RequestHandler {
+    return http.get(`${API_BASE}/file/:uuid`, () => {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': '0',
+      };
+      if (opts?.contentDisposition !== undefined) {
+        headers['Content-Disposition'] = opts.contentDisposition;
+      }
+      return new HttpResponse(null, { headers });
+    });
+  },
+
+  /** 401. */
+  unauthorized(): RequestHandler {
+    return http.get(`${API_BASE}/file/:uuid`, () =>
+      HttpResponse.json({ errors: [{ message: 'Invalid token' }] }, { status: 401 }),
+    );
+  },
+
+  /** 403. */
+  forbidden(): RequestHandler {
+    return http.get(`${API_BASE}/file/:uuid`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** 404. */
+  notFound(): RequestHandler {
+    return http.get(`${API_BASE}/file/:uuid`, () =>
+      HttpResponse.json({ errors: ['File not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** 5xx. */
+  serverError(status = 500): RequestHandler {
+    return http.get(`${API_BASE}/file/:uuid`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** 429 — Retry-After: 0 so retry exhaustion is instant (binary GETs do NOT
+   *  retry per spec 0039 decision 05; the header is informational). */
+  rateLimited(): RequestHandler {
+    return http.get(
+      `${API_BASE}/file/:uuid`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** Connection-closed (network error). */
+  networkError(): RequestHandler {
+    return http.get(`${API_BASE}/file/:uuid`, () => HttpResponse.error());
+  },
+
+  /**
+   * Mid-stream failure. The response promises `Content-Length: 1024` but
+   * the streamed body throws after `failAfter` bytes. Drives the
+   * "temp file unlinked on streaming error" test (spec 0039 §5.3).
+   */
+  midStreamError(opts: { firstChunk: Uint8Array; declaredLength: number }): RequestHandler {
+    const { firstChunk, declaredLength } = opts;
+    return http.get(`${API_BASE}/file/:uuid`, () => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(firstChunk);
+          controller.error(new Error('mid-stream failure'));
+        },
+      });
+      return new HttpResponse(stream, {
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': String(declaredLength),
+        },
+      });
+    });
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
