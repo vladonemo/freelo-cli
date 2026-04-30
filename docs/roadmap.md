@@ -256,37 +256,12 @@ freelo tasks finish --stdin                    # NDJSON in, NDJSON out
 **Depends on:** R10.
 **Note:** Single-id only in v1. Batch move needs two ids per row (the task and its destination tasklist), which doesn't fit the `--ids a,b,c` / single-target-`--stdin` mold from R09/R11. Tracked as R12.5.
 
-### R12.5 — `freelo tasks move` batch input (queued)
+### R12.5 — `freelo tasks move` batch input ✅ shipped
 
-**Outcome:** Move many tasks in one invocation, each row pointing at its own destination tasklist (and optionally project). Closes the only remaining gap between `tasks move` and the rest of the write surface that already supports batch.
+**Outcome:** Move many tasks in one invocation, each row pointing at its own destination tasklist (and optionally project). Closed the only remaining gap between `tasks move` and the rest of the write surface that already supports batch.
 **Endpoints:** same as R12 — `POST /task/{task_id}/move/{tasklist_id}` per row.
-**CLI:**
-
-```
-# NDJSON in, NDJSON out — one envelope per input line:
-freelo tasks move --stdin [--dry-run]
-# Each input line: {"id": <task_id>, "to_tasklist": <tasklist_id>, "to_project"?: <project_id>}
-
-# Per-row sugar (composes with shells without writing JSON):
-freelo tasks move --pairs <id>:<tasklist_id>,<id>:<tasklist_id>,...   # optional, decide during /spec
-```
-
-**Ships with this slice:**
-
-- Extension to `src/lib/batch.ts` to support **per-row destination params**, not just a shared `<id>` list. The existing `--ids` / `--stdin` reader assumes one target verb applied to many ids; this is the first command where each row carries its own arguments. Generalizing the helper benefits any future "two-id" write (e.g. label attach with per-row label, task-relation create).
-- NDJSON row schema validated by zod before the first network call (fail-fast on a malformed line; emit row-index in the error envelope).
-- Idempotency contract preserved per row — moving a task to its current tasklist still returns `already_in_target_state: true` for that envelope.
-- Output schema: `freelo.tasks.move/v1` per row (no new schema; reuses R12).
-
-**Open questions for `/spec`:**
-
-1. Whether to ship `--pairs` sugar in addition to `--stdin`, or keep stdin-only to force structured input (consistent with how agents are expected to drive the CLI).
-2. Failure semantics: continue-on-error (current `--stdin` precedent) vs. fail-fast on first error. Default has been continue-on-error across the write commands — confirm.
-3. Whether `--to-project` makes sense as a global flag in batch mode (overriding the per-row value) or only per-row.
-
-**Tier:** Yellow (additive surface, no schema change, touches the shared batch helper which is cross-cutting — review carefully).
-**Changeset:** `freelo-cli: minor` (new flag set; envelope unchanged).
-**Depends on:** R12.
+**CLI (shipped):** `freelo tasks move --stdin [--dry-run]` — NDJSON in, NDJSON out, one envelope per input line. Each row: `{"id": <task_id>, "to_tasklist": <tasklist_id>, "to_project"?: <project_id>}`. `--pairs` sugar was dropped during `/spec` (stdin-only, consistent with R09/R11). Output schema unchanged (`freelo.tasks.move/v1` per row).
+**Spec:** `docs/specs/0023-tasks-move-batch.md`. **Depends on:** R12.
 
 ### R13 — `freelo tasks delete <id>`
 
@@ -371,28 +346,12 @@ Goal after this wave: the CLI replaces the Freelo web UI for 80% of individual-c
 **Ships with this slice:** friendly formatting of the "already tracking X since Y" error — time tracking is singleton per user.
 **Depends on:** R08.
 
-### R19.5 — `freelo time start --at <ISO>` (backdate, queued)
+### R19.5 — `freelo time start --at <ISO>` (backdate) ✅ shipped
 
 **Outcome:** Backdate a newly started session's start timestamp — useful when a user forgot to start the timer at the real start time, or when an integration replays a "moved to in-progress" event after the fact.
-**Endpoints:** same as R19 — `POST /timetracking/start`. The OpenAPI documents the optional `date_reported` body field: _"defaults to 'now' (server time) if not provided. Passing an explicit `date_reported` backdates the session's start time."_ (`docs/api/freelo-api.yaml:2744`).
-**Surface (additive on top of R19):**
-
-```
-freelo time start --task <id> [--note <str>] [--at <ISO>] [--dry-run]
-```
-
-**Ships with this slice:**
-
-- New `--at <ISO>` flag on `time start`. Validated client-side as an ISO 8601 timestamp (reuse the date-parsing helper used by `--due` in `tasks create`); on parse fail throw `ValidationError` (exit 2) with `hintNext` pointing at `--at YYYY-MM-DDTHH:MM:SSZ`.
-- Forwarded to the request body as `date_reported`. When `--at` is omitted, the body field is omitted entirely (server defaults to "now") — do NOT send `date_reported: null` to keep wire diffs clean.
-- `--dry-run` envelope's `data.would.body` reflects the `date_reported` value when present.
-- Decide during `/spec`: clamp clock-skew futures (refuse `--at` more than N seconds in the future), and whether `--at` is allowed at all when the result would be older than some sanity threshold (e.g. > 30 days back). Mirror whatever Freelo's server-side validation does, don't invent stricter rules.
-
-**Why it wasn't in R19:** the original R19 roadmap line specified only `--task` / `--note`, and the spec implemented exactly that surface. The `date_reported` body field is documented in the OpenAPI but was never surfaced as a CLI flag. Tracked here so the gap is explicit instead of silently absent.
-
-**Tier:** Yellow (additive flag on an existing user-visible command; no envelope schema change; no auth/HTTP defaults change).
-**Changeset:** `freelo-cli: minor` (new flag).
-**Depends on:** R19.
+**Endpoints:** same as R19 — `POST /timetracking/start`, with the optional `date_reported` body field (`docs/api/freelo-api.yaml:2744`).
+**CLI (shipped):** `freelo time start --task <id> [--note <str>] [--at <ISO>] [--dry-run]`. ISO 8601 validated client-side; omitted ⇒ field absent in the request body (server defaults to "now"). No envelope schema change.
+**Spec:** `docs/specs/0031-time-start-backdate.md`. **Depends on:** R19.
 
 ### R20 — `freelo time stop` / `time edit`
 
