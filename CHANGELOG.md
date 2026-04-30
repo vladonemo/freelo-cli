@@ -1,5 +1,487 @@
 # freelo-cli
 
+## 0.17.0
+
+### Minor Changes
+
+- 6cfcd3b: R17 — `freelo comments add`. Post a single comment to a task without leaving the terminal. Second leaf under the `comments` subcommand (R16 added `list`).
+
+  ```
+  freelo comments add --task <id>
+                      (--message <str> | --from-file <path> | --editor | -)
+                      [--dry-run]
+  ```
+
+  **Four input sources, exactly-one-required:**
+
+  - `--message <str>` — inline pass-through (one-liners).
+  - `--from-file <path>` — read a UTF-8 file.
+  - `--editor` — open `$VISUAL` / `$EDITOR` (TTY-only).
+  - `-` (positional) — read stdin to EOF.
+
+  The file / editor / stdin paths reuse `src/lib/input.ts` (R15); `--message` is layered on inline. Mutex enforced — zero or two-of-four sources fail with `VALIDATION_ERROR` (exit 2). Empty content is rejected at the command layer before any wire round-trip.
+
+  **One new envelope schema (additive surface):**
+
+  - `freelo.comments.add/v1` — `{ task_id, comment, source, byte_length, is_description, would? }`. `comment` / `source` / `is_description` are present in live envelopes, absent in `--dry-run`; `would` is the inverse. `byte_length` is always present.
+
+  **Server-side auto-flip surfaced to agents.** When the target task has no prior comments, the Freelo API converts this POST into the task's **description** instead of a regular comment (per `docs/api/freelo-api.yaml:2589-2592`). The CLI does not branch on this — it surfaces the flip via `data.is_description: true` (always present, defaults to `false`) so agents can detect-after-the-fact, and the human-mode message points at `freelo tasks description set` for explicit description writes.
+
+  **Idempotency: N/A by design.** Each POST creates a new comment row; there is no natural-key dedupe. Two consecutive identical invocations create two identical comments. `--dry-run` is the safety net.
+
+  **Out of scope for v1:**
+
+  - No `--files` / multipart attachments — multipart upload helper lands at R25.
+  - No batch input (`--ids` / `--stdin` NDJSON of `{task_id, content}`) — single-comment-per-invocation only.
+  - No edit / delete — those land at R18.
+
+  No new dependencies. Reuses `commander`, `zod`, `undici` (via the shared HTTP client), `src/lib/input.ts`, `src/lib/dry-run.ts`, and `src/ui/envelope.ts`.
+
+- 409a784: R18 — `freelo comments edit`. Overwrite the content of one or more existing comments without leaving the terminal. Third leaf under the `comments` subcommand (after R16 `list`, R17 `add`).
+
+  ```
+  freelo comments edit <id>...                           # variadic positional
+  freelo comments edit --ids "1,2,3"                     # batch flag
+  freelo comments edit --stdin                           # NDJSON {id, content} per row
+                       (--message <str> | --from-file <path> | --editor | -)
+                       [--dry-run]
+  ```
+
+  Wraps `POST /comment/{comment_id}` (OpenAPI `editComment`, yaml :2619-2663). The verb is **POST**, not PUT/PATCH — yaml :2634 documents this explicitly: "POST for historical reasons, not PUT/PATCH."
+
+  **Three input sources (mutex), four content sources (mutex on non-stdin paths):**
+
+  - Input: positional `<id>...` / `--ids` / `--stdin` (NDJSON `{id, content}` per row).
+  - Content (non-stdin paths): `--message <str>` / `--from-file <path>` / `--editor` / `-` (stdin sentinel, single-id only).
+  - `--stdin` owns per-row content — combining it with a content source is rejected.
+
+  Reuses `src/lib/input.ts` (R15), `src/lib/batch.ts` (R09), `src/lib/dry-run.ts` (R09).
+
+  **One new envelope schema (additive surface):**
+
+  - `freelo.comments.edit/v1` — `{ comment_id, comment?, source?, byte_length, line_index?, would? }`. `comment` and `source` are present in live envelopes and absent on `--dry-run`; `would` is the inverse; `line_index` rides on `--stdin` rows; `byte_length` is always present.
+
+  **Edit is non-destructive and not absorbing-state.** No `--yes` interaction (no confirmation prompt). No `already_in_target_state` field (every successful POST returns the updated comment). Two consecutive identical edits both report success.
+
+  **Per yaml :2631-2633, ACL violations on edit return 404, not 403** — to avoid leaking comment existence. The CLI's 404 hint surfaces both possible causes ("not found, or your account does not have permission").
+
+  **Roadmap correction:**
+
+  - §R18 corrected to drop the `PATCH` mention and the `comments delete` clause. Slice title renamed to `R18 — \`freelo comments edit\``.
+  - New `R18.5 — \`freelo comments delete\` (queued)`entry added — endpoint **not in`docs/api/freelo-api.yaml`** as of 2026-04-28; first action is `freelo-api-specialist` confirmation against a live test account.
+
+  **Out of scope for v1:**
+
+  - No `--files` / multipart attachment replacement — multipart helper lands at R25. Wire body sends only `content`; existing attachments are left untouched per yaml :2632.
+  - No `comments delete` — deferred to R18.5.
+
+  No new dependencies.
+
+- 6c533b4: R19 — `freelo time start` / `freelo time status`. Start a time-tracking session on a task (or general work), and check the current state of the running timer. First slice in Wave 3's time-tracking sub-thread, and first command under the new top-level `time` resource.
+
+  ```
+  freelo time start [--task <id>] [--note <str>] [--dry-run]
+  freelo time status
+  ```
+
+  Wraps `POST /timetracking/start` (OpenAPI `startTimeTracking`, yaml :2729-2778) and `GET /timetracking/status` (OpenAPI `getTimeTrackingStatus`, yaml :2863-2944).
+
+  **Singleton per user.** Freelo enforces "at most one active timer per user account". A second `time start` while one is already running returns HTTP **409 Conflict**. The CLI catches the 409, performs an opportunistic `GET /timetracking/status` follow-up to enrich `hint_next` with the active task and start time ("already tracking X since Y" — the explicit ship condition from the roadmap), and falls back to a generic `time stop` / `time edit` (R20) pointer if the follow-up fails.
+
+  **204 No Content is not an error.** `time status` returns HTTP 204 when no timer is running. The CLI translates that into a discriminated-union envelope (`{ active: false }`) with exit 0. Agents `switch` on `data.active` to branch on the timer state without nullish checks.
+
+  **Two new envelope schemas (additive surface):**
+
+  - `freelo.time.start/v1` — `{ uuid, task_id, note }` on live, `{ task_id, note, would }` on `--dry-run` (no synthesized uuid).
+  - `freelo.time.status/v1` — discriminated union on `data.active`:
+    - `{ active: true, session: { uuid, started_at, elapsed_seconds, task, note, is_billable, is_cost_fixed, labels, cost, project_setting } }`
+    - `{ active: false }`
+
+  `started_at` is a CLI-friendly rename of the wire `date_reported`; `elapsed_seconds` is derived client-side at envelope-build time and clamped at 0 for clock skew.
+
+  **Shared HTTP client extension** (`src/api/client.ts`): added a 204-No-Content branch that feeds `null` to the configured zod schema. Pure addition — no existing schema accepts `null`, so no caller changes behavior. First documented use is `GET /timetracking/status`; future 204 endpoints inherit it.
+
+  **Batch input (`--ids` / `--stdin`) is N/A** for `time start`: a successful batch could never have more than one row, since the second start would 409. Documented in spec 0030 §2.1 / decision 5.
+
+  **Out of scope for this slice:**
+
+  - `time stop`, `time edit` — R20.
+  - `reports list` (work reports), `reports log` — R21 / R22.
+  - `--at <timestamp>` backdate flag on start — Freelo supports it via `date_reported`, but the CLI doesn't surface it yet. Most workflows want "now".
+
+  No new dependencies.
+
+- 3bc38f9: R19.5 — `freelo time start --at <ISO>`. New optional flag that backdates the session's start timestamp via the API's `date_reported` body field (yaml :2744). Useful when you forgot to start the timer at the real start time, or when an integration replays a "moved to in-progress" event after the fact.
+
+  ```
+  freelo time start --task <id> [--note <str>] [--at <ISO>] [--dry-run]
+  ```
+
+  **Acceptance.** `--at` accepts any value `Date.parse()` accepts: full RFC 3339 / ISO 8601 timestamps, timestamps with timezone offsets, and bare `YYYY-MM-DD` (treated as midnight UTC). The CLI canonicalizes everything to second-precision UTC `YYYY-MM-DDTHH:MM:SSZ` before sending — one wire shape regardless of input.
+
+  **Validation (exit 2, `VALIDATION_ERROR`):**
+
+  - Malformed input → rejects with a hint pointing at the canonical shape.
+  - Inputs more than 60 seconds in the future → rejects as a clock-skew clamp. Backdating into the future doesn't make sense for a session that's just starting.
+  - **No client-side lower bound.** If Freelo's server rejects a far-past timestamp, the CLI surfaces that as `FREELO_API_ERROR` (exit 4) — we mirror server behavior and don't invent stricter rules.
+
+  **Wire cleanliness.** Omitting `--at` means the body has **no** `date_reported` key (not `null`). Wire diffs against R19 fixtures stay byte-identical for the unchanged path.
+
+  **Schema unchanged.** Output envelope `freelo.time.start/v1` is **not** bumped — this is a pure input addition. No `--at` echo on live `data`; agents that want to confirm the backdate took effect chain `freelo time status` and read `started_at`.
+
+  **`--dry-run` already works.** When `--at` is also passed, `data.would.body.date_reported` reflects the canonicalized UTC string.
+
+  No new dependencies. New helper `parseIsoTimestampFlag` in `src/lib/iso-timestamp.ts` for any future timestamp-aware flag (e.g. R20's `time edit`).
+
+- 0822c5e: R20 — `freelo time stop` / `freelo time edit`. Finish the time-tracking surface: stop the active session and convert it into a finalized work report; edit the active session in flight to switch tracked task or update the note. Closes Wave 3's time-tracking sub-thread.
+
+  ```
+  freelo time stop [--dry-run]
+  freelo time edit [--task <id>] [--clear-task] [--note <str>] [--dry-run]
+  ```
+
+  Wraps `POST /timetracking/stop` (OpenAPI `stopTimeTracking`, yaml :2780-2809) and `POST /timetracking/edit` (OpenAPI `editTimeTracking`, yaml :2811-2861).
+
+  **No-active-session 409 is the load-bearing UX.** Both endpoints return HTTP 409 with `"Timetracking is not running."` when no session is active. The CLI catches `FreeloApiError(httpStatus: 409)` on either command and rewrites `hint_next` to `"No active time tracking session for your account. Use \`freelo time start\` to begin one."` Symmetric to R19's already-running 409 hint.
+
+  **Two new envelope schemas (additive surface):**
+
+  - `freelo.time.stop/v1` — `data.work_report: { id, date_add, date_reported, minutes, note, task, cost, worker, author }` on live; `data.would: { method, path, body: null }` on `--dry-run`. The wire `WorkReport` shape is projected to a stable subset; inner refs are tightened (we own the public contract) and `passthrough` is dropped.
+  - `freelo.time.edit/v1` — `data: { uuid, applied_changes }` on live; `data.applied_changes` mirrors the wire body shape exactly so agents can read `'task_id' in applied_changes` to know whether the user touched the task field. Keys present iff the corresponding flag was passed.
+
+  **`time edit` adds `--task` / `--clear-task` mutex.** OpenAPI's edit body documents `task_id: null` as a meaningful "disassociate from task" value (continue as general work). The CLI exposes both directions: `--task <id>` to reassign, `--clear-task` to disassociate. Mutually exclusive — both supplied → `VALIDATION_ERROR` exit 2. The roadmap omitted both flags; we add them so agents can drive the documented capability.
+
+  **Empty edit is a usage error.** `freelo time edit` with no flags → `VALIDATION_ERROR` exit 2. Catches typos and accidental flag drops at the boundary, before the network call. Mirrors R10 `tasks edit` precedent.
+
+  **Three OpenAPI-vs-roadmap discrepancies resolved.** (See spec 0032 §1, §6, decisions 1, 2, 8.)
+
+  1. **`time edit` is POST, not PATCH.** The roadmap text says `PATCH /timetracking/edit`; OpenAPI yaml :2812 says `post:`. Per the orchestrator hard rule "follow the OpenAPI spec when it contradicts the roadmap", we ship POST.
+  2. **No `--note` on `time stop`.** The roadmap proposed it, but the OpenAPI spec for `/timetracking/stop` documents no request body. Sending one would be guessing API behavior. Workaround: chain `freelo time edit --note "..." && freelo time stop`.
+  3. **No `--started-at <ISO>` on `time edit`.** Same shape as #2 — OpenAPI body has only `task_id` and `note`. Deferred to a follow-up slice (R20.5), mirroring the R19 → R19.5 deferral pattern for `--at` on `time start`.
+
+  **Batch input (`--ids` / `--stdin`) is N/A** for both commands: singleton-per-user precludes batch, same as R19.
+
+  **Out of scope for this slice:**
+
+  - `--note` on `time stop` (decision 1).
+  - `--started-at <ISO>` on `time edit` (decision 2 — deferred to R20.5).
+  - `reports list` (work reports) — R21.
+  - Retroactive work-report logging without timer — R22.
+
+  No new dependencies.
+
+- 7450ab4: R21 — `freelo reports list`. First read surface for the **work-reports** (time-entries) resource group: paginated list of every finalized work report the caller can see, with filters by task / project / worker and a `date_reported` window.
+
+  ```
+  freelo reports list [--task <id> ...] [--project <id> ...] [--worker <id> ...]
+                      [--from YYYY-MM-DD] [--to YYYY-MM-DD]
+                      [--page N | --all]
+  ```
+
+  Wraps `GET /work-reports` (OpenAPI `getWorkReports`, yaml :2947-3043).
+
+  **New envelope schema (additive surface):** `freelo.reports.list/v1` — `data: { applied_filters, reports: WorkReportFull[] }`. `applied_filters` echoes only keys the user explicitly set (mirrors `comments list` precedent).
+
+  **Filter mapping (1-1 wire equivalents):**
+
+  - `--task <id>` (repeatable) → `tasks_ids[]`
+  - `--project <id>` (repeatable) → `projects_ids[]`
+  - `--worker <id>` (repeatable) → `users_ids[]`
+  - `--from <YYYY-MM-DD>` → `date_reported_range[date_from]` (inclusive)
+  - `--to <YYYY-MM-DD>` → `date_reported_range[date_to]` (inclusive)
+  - `--page N` (1-indexed) → wire `p=N-1`. Mutex with `--all`.
+  - `--all` → iterate `?p=0,1,…` until exhausted. Mutex with `--page`.
+
+  **One OpenAPI-vs-roadmap discrepancy resolved.** (See spec 0033 §2 and decision 1.)
+
+  The R21 roadmap line names `GET /task/{task_id}/work-reports` as a second endpoint, but `docs/api/freelo-api.yaml` documents only `POST` at that path (used by R22 to create work reports). Per the orchestrator hard rule "API behavior not in `docs/api/freelo-api.yaml` → don't guess the API" — and matching the R16 (`comments list`) precedent — R21 ships against the global `GET /work-reports` only, with `--task` mapped to the documented `tasks_ids[]` filter. A potential R21.5 (task-scoped GET) is queued if/when the OpenAPI surfaces such an endpoint.
+
+  **Out of scope for this slice (deferred to follow-ups):**
+
+  - `--label <uuid>` (`tasks_labels[]` server-side filter).
+  - `--currency` (server defaults to CZK).
+  - `--with-own-taskless` (load-bearing implicit caller scope).
+  - `--fields` projection.
+  - Task-scoped GET endpoint (decision 1 above).
+  - Logging / editing / deleting work reports — R22.
+
+  No new dependencies.
+
+- e8abf40: R22 — `freelo reports log` / `reports edit` / `reports delete`. Closes the write loop on the **work-reports** resource group (R21 shipped read).
+
+  ```
+  freelo reports log    --task <id> --minutes <n> [--date YYYY-MM-DD] [--note <str>] [--dry-run] [--stdin]
+  freelo reports edit   <id>        [--minutes <n>] [--note <str>] [--date YYYY-MM-DD]  [--dry-run] [--stdin]
+  freelo reports delete <id>...     [--ids "1,2,3"] [--stdin] [--yes] [--dry-run]
+  ```
+
+  **New envelope schemas (additive):**
+
+  - `freelo.reports.log/v1` — `data: { report, applied_input, line_index? }`.
+  - `freelo.reports.edit/v1` — `data: { report, applied_changes, line_index? }`.
+  - `freelo.reports.delete/v1` — `data: { report_id, previous_state, current_state, already_in_target_state, would?, line_index? }`. Mirrors `freelo.tasks.delete/v1` byte-for-byte modulo the field rename.
+
+  **Wire bindings (OpenAPI `docs/api/freelo-api.yaml`):**
+
+  - `reports log` → `POST /task/{task_id}/work-reports` (yaml :3045-3093).
+  - `reports edit` → **`POST /work-reports/{id}`** (yaml :3095-3143). Note: verb is **POST**, not PATCH — the roadmap text was wrong; same trap as R18 (comments-edit) and R20 (time-edit). The roadmap line will be reconciled in a separate follow-up doc PR after this slice merges. Spec 0034 decision 01.
+  - `reports delete` → `DELETE /work-reports/{id}` (yaml :3144-3171).
+
+  **Destructive command — confirmation policy:** `reports delete` is the second destructive command in the CLI (after `tasks delete`). It reuses `confirmDestructive` byte-for-byte: TTY prompt by default, `--yes` to bypass, non-TTY without `--yes` fails closed with `CONFIRMATION_REQUIRED` exit 2.
+
+  **Four-arm idempotency on delete (spec 0034 decision 02):**
+
+  1. HTTP 404 → `already_in_target_state: true`, exit 0.
+  2. HTTP 400 with body matching `/not found|does not exist/i` → idempotent skip, exit 0.
+  3. HTTP 400 containing `UserCannotDeleteWorkReport` → hard `FREELO_API_ERROR` (ACL stays observable), exit 4.
+  4. Other non-2xx → re-throw `FreeloApiError`.
+
+  Each arm has dedicated test coverage (Calibration §4) plus a direct unit test of the `isIdempotentDeleteSkip` helper.
+
+  **Out of scope for this slice (deferred to follow-ups):**
+
+  - `--cost` flag on log / edit. Per roadmap, money helper (`src/lib/money.ts` for cents-as-string encoding) deferred until `--cost` ships. Spec 0034 decision 03.
+  - `--task` re-parent flag on edit (out of scope per roadmap CLI block).
+  - `--worker` flag on log (caller's identity is used; delegated logging is a future slice).
+
+  **Agent-safe contract reused everywhere:**
+
+  - `--dry-run` on log / edit / delete (`would: { method, path, body }` in envelope).
+  - Batch input: `reports log --stdin` and `reports edit --stdin` accept rich NDJSON rows (`{task, minutes, date?, note?}` and `{id, minutes?, note?, date?}` respectively); `reports delete` supports positional / `--ids` / `--stdin` byte-compat with `tasks delete`.
+  - Continue-on-error in batches: bad rows emit `freelo.error/v1` envelopes with `context.line_index`; run-level exit is `max(per-row codes)`.
+
+  No new dependencies.
+
+- 7426315: R23 — `freelo labels list` / `labels rename` / `labels delete` / `labels attach` / `labels detach`. Adds the project-labels resource group (read + full write surface) in one slice.
+
+  ```
+  freelo labels list                                                              [--output ...]
+  freelo labels rename <id>           [--name <str>] [--hex <color>] [--is-private | --is-public] [--dry-run]
+  freelo labels delete <id>...        [--ids "1,2,3"] [--stdin] [--yes] [--dry-run]
+  freelo labels attach --project <id> --name <str>... [--hex <color>] [--private | --public] [--dry-run]
+  freelo labels detach --project <id> --label <id>... [--ids "1,2,3"] [--stdin]    [--dry-run]
+  ```
+
+  **Five new envelope schemas (additive):**
+
+  - `freelo.labels.list/v1` — `data: { labels: ProjectLabel[] }`.
+  - `freelo.labels.rename/v1` — `data: { label_id, applied_changes }` (intent, not server-confirmed state — same caveat as `time edit` / `reports edit`).
+  - `freelo.labels.delete/v1` — `data: { label_id, previous_state, current_state: "deleted", already_in_target_state, would?, line_index? }`.
+  - `freelo.labels.attach/v1` — `data: { project_id, name, is_private, color?, would? }`. **Notably no `already_in_target_state`** — see decision 08 below.
+  - `freelo.labels.detach/v1` — `data: { project_id, label_id, previous_state, current_state: "detached", already_in_target_state, would?, line_index? }`.
+
+  **Wire bindings (OpenAPI `docs/api/freelo-api.yaml`):**
+
+  - `labels list` → `GET /project-labels/find-available` (yaml :833).
+  - `labels rename` → **`POST /project-labels/{labelId}`** (yaml :862). Verb is **POST**, not PATCH — the roadmap text was wrong; same trap as R18 / R20 / R22. (Spec 0035 decision 01.)
+  - `labels delete` → `DELETE /project-labels/{labelId}` (yaml :905).
+  - `labels attach` → `POST /project-labels/add-to-project/{projectId}` (yaml :934, data-mode).
+  - `labels detach` → **`POST /project-labels/remove-from-project/{projectId}`** (yaml :991). Verb is **POST**, not DELETE — roadmap was wrong. (Spec 0035 decision 02.)
+
+  **`labels delete` is GLOBAL hard-delete** (yaml :917 — "hard delete of the global label, not a detach from one project"). The TTY confirmation copy says **"Delete N labels GLOBALLY (across all projects)?"** so a human user has a clear scope signal. (Decision 10.) Confirmation policy mirrors `tasks delete` / `reports delete` byte-for-byte: TTY prompt; non-TTY requires `-y` / `--yes` or fails closed with `CONFIRMATION_REQUIRED` exit 2.
+
+  **Idempotency:**
+
+  - `labels delete` — two-arm matrix (decision 09): 404 → `already_in_target_state: true`, exit 0; otherwise re-throw. (No documented 400 fallback for already-deleted on this endpoint.)
+  - `labels detach` — same two-arm matrix: 404 → `already_in_target_state: true`, exit 0.
+  - `labels attach` — server swallows `UniqueConstraintViolationException` server-side, so the CLI cannot distinguish first-attach from re-attach. The envelope **omits `already_in_target_state` entirely** rather than guess. Agents needing ground truth can call `labels list` before/after and diff. (Decision 08.)
+
+  Each typed-error path has dedicated test coverage (Calibration §1-2) plus direct unit tests of both `isIdempotentDeleteSkip` and `isIdempotentDetachSkip` matrices (Calibration §4).
+
+  **Roadmap-vs-API reconciliations (deferred surface):**
+
+  - `labels list --project <id>` — **deferred**. The documented endpoint accepts no query parameters and `ProjectLabel` carries no `attached_projects` field. Tracked as future slice R23.5. (Spec 0035 decision 03.) Same precedent as R20.5 (`--started-at`) and R12.5 (`--pairs`).
+  - `labels attach` id-mode body — **deferred**. v1 surfaces only data-mode (`--name <str>`, fetch-or-create). (Decision 07.)
+  - `labels detach` data-mode (by name) — **deferred**. v1 surfaces only id-mode. (Spec §8 non-goals.)
+  - No batch input on `labels rename` in v1 (would require rich NDJSON shape).
+
+  **Flag-name decision: `--hex` instead of `--color` for `rename` / `attach` (decision 11).** The spec called for `--color <hex>`, but the CLI's root program already defines a global `--color <mode>` flag (auto/never/always) for output colorization. Commander shadows: when both root and subcommand register the same flag name, the root wins regardless of registration order, so the subcommand's `--color <hex>` would silently absorb into the root flag. Renaming the subcommand flag to `--hex <color>` removes the ambiguity without breaking any other command. The wire-body field is still `color` and the envelope field is still `color` / `applied_changes.color` — the rename is purely lexical at the CLI layer.
+
+  **Agent-safe contract reused everywhere:**
+
+  - `--dry-run` on every write (`would: { method, path, body }` in envelope).
+  - Batch input: `delete` and `detach` support positional / `--ids` / `--stdin`; `attach` fans out one POST per `--name`.
+  - Continue-on-error in batches: bad rows emit `freelo.error/v1` envelopes with `context.line_index` (or `input_index`); run-level exit is `max(per-row codes)`.
+  - Default `is_private: true` for `attach` (matches Freelo web UI default — labels are per-user-private unless explicitly shared). Decision 06.
+
+  No new dependencies.
+
+- efcb1d4: R24 — `freelo task-labels create` / `task-labels attach` / `task-labels detach`. Adds the **task-labels** resource group — a sibling of R23's `freelo labels` (project-labels) but a separate Freelo concept: per-account label palette attached/detached to/from individual tasks, identified by UUID and matched by name+color.
+
+  ```
+  freelo task-labels create --name <str>...                                       [--hex <color>] [--dry-run]
+  freelo task-labels attach --task <id> (--name <str>|--uuid <id>)...             [--hex <color>] [--dry-run]
+  freelo task-labels detach --task <id> (--name <str>|--uuid <id>)...             [--hex <color>] [--dry-run]
+  ```
+
+  **Three new envelope schemas (additive):**
+
+  - `freelo.task_labels.create/v1` — `data: { labels: TaskLabelEntry[]; count; would? }`.
+  - `freelo.task_labels.attach/v1` — `data: { task_id; labels: TaskLabelEntry[]; count; would? }`.
+  - `freelo.task_labels.detach/v1` — `data: { task_id; labels: TaskLabelEntry[]; count; would? }`.
+
+  `TaskLabelEntry = { uuid?: string; name?: string; color?: string }`. Each command emits exactly one envelope per invocation (one bulk POST, no per-name fan-out — the API is bulk-by-design).
+
+  **Wire bindings (OpenAPI `docs/api/freelo-api.yaml`):**
+
+  - `task-labels create` → `POST /task-labels` (yaml :2446) — server-side fetch-or-create on `name` (case-sensitive). API does not report new vs. reused.
+  - `task-labels attach` → `POST /task-labels/add-to-task/{task_id}` (yaml :2484). Each entry is a `TaskLabelAddInput` `oneOf` — UUID-mode (`{ uuid }`) or name-mode (`{ name, color?, uuid? }`). Mixed within one call supported.
+  - `task-labels detach` → **`POST /task-labels/remove-from-task/{task_id}`** (yaml :2530). Verb is **POST**, not DELETE — roadmap text was wrong, OpenAPI is authoritative (spec 0036 decision 01; same trap as R23). Each entry is a `TaskLabelRemoveInput` `oneOf` — UUID, name-only (aggressive — removes any color), or name+color (precise).
+
+  **Server-side idempotency** — `detach` returns 200 even when the label isn't on the task. No two-arm 404 heuristic needed at the CLI (different shape than R23 `labels detach`).
+
+  **Flag-name decision: `--hex` instead of `--color` for all three subcommands (spec 0036 decision 02).** Mirrors R23's spec 0035 decision 11 — the CLI's root program already defines a global `--color <mode>` flag, so the subcommand uses `--hex <color>` to avoid the shadow. The wire field and envelope field are still `color`; the rename is purely lexical at the CLI layer.
+
+  **`--hex` semantics differ slightly per subcommand:**
+
+  - `create` — applied to every `--name` entry (one color per call; per-name colors require separate invocations — decision 04).
+  - `attach` — applied to every `--name` entry; `--uuid` entries ignore `--hex` (server uses the existing label's color).
+  - `detach` — when present, every `--name` entry upgrades from name-only mode → name+color mode (precise removal). `--uuid` entries ignore `--hex`.
+
+  **Idempotency caveats:**
+
+  - `create` and `attach` are server-side fetch-or-create. The API does not report which were new vs. reused, so the CLI cannot surface that distinction. Re-running with the same args is safe — it's a no-op.
+  - `detach` — server already-idempotent. Detaching a label that isn't on the task is 200 success.
+
+  **Validation (each typed-error path has an exit-code test — Calibration §2):**
+
+  - Missing `--name` and `--uuid` (attach/detach) or `--name` (create) → `ValidationError` exit 2.
+  - `--task` non-positive / non-integer → `ValidationError` exit 2.
+  - `--hex` not `#RRGGBB` → `ValidationError` exit 2.
+  - `--uuid` not uuid-shaped → `ValidationError` exit 2.
+  - Server 4xx/5xx → `FreeloApiError` exit 4 (e.g. 400 "Unsupported color (X) provided.").
+
+  **Agent-safe contract reused:**
+
+  - `--dry-run` on every leaf — envelope carries `would: { method: 'POST', path, body }`.
+  - Mixed selectors (`--name` + `--uuid`) supported on attach/detach in one call.
+  - No `--stdin` in v1 (decision 03 — small surface; can be added later if real workloads need it).
+  - No destructive prompt on `detach` — label definitions persist after detach (only the assignment is removed).
+
+  No new dependencies.
+
+- 13b1a8f: R25 — `freelo files upload <path>... [--attach-to-task <id>] [--message <str>] [--dry-run] [--no-spinner]`. First multipart-body command in the CLI. Uploads one or more local files to Freelo via `POST /file/upload` and, optionally, posts a comment on a task that references each upload via the documented `<a data-freelo-uuid="UUID">filename</a>` anchor mechanism (yaml :3876).
+
+  ```
+  freelo files upload <path>... [--attach-to-task <id>] [--message <str>]
+                                [--dry-run] [--no-spinner]
+  ```
+
+  **One new envelope schema (additive):**
+
+  - `freelo.files.upload/v1` — `data: { uploaded[], failed[], count, attached?, would? }`.
+
+  Per-path partial-failure semantics: when some uploads succeed and some fail, the command exits 4 with both arrays populated (and posts the comment with the surviving UUIDs if `--attach-to-task` is set). When zero succeed, the original typed error is re-thrown so single-path callers get the natural exit code.
+
+  **Wire bindings (OpenAPI `docs/api/freelo-api.yaml`):**
+
+  - Upload → `POST /file/upload` (yaml :3867) — `multipart/form-data` with a single `file` field. Hard 100 MB limit (yaml :3873). Response is `{ uuid }`.
+  - Attach → `POST /task/{task_id}/comments` (yaml :2575) — content embeds `<a data-freelo-uuid>` anchors. The OpenAPI spec contradicts itself on the `comments.files[]` field (the global `FileUpload` schema requires `download_url`, which the upload response does NOT return). The anchor approach is the documented fallback (spec 0037 decision 02).
+
+  **New shared helper:**
+
+  - `src/lib/multipart.ts` — `buildFileMultipart(absPath)` builds a `FormData` body via the global `FormData` (provided by undici under the hood in Node 20+). Local validation (existence, regular file, ≤100 MB) — typed `ValidationError` exit 2 on violation. **Reusable** by future R26 / R27 (`files list` / `files download`) if needed.
+
+  **Additive `HttpClient` method:**
+
+  - `HttpClient.requestMultipart(opts)` — does NOT touch the existing `request()` method. Same Authorization / User-Agent / 401 / 4xx / 5xx error mapping. `Content-Type` header is intentionally omitted — `fetch` sets it (with boundary) when the body is a `FormData` instance. Multipart writes do NOT retry on 429 (writes never retry today; multipart inherits the rule).
+
+  **Lazy `ora` spinner (TTY only):**
+
+  - `await import('ora')` is gated by `isInteractive() && !opts.noSpinner`. Auto-disabled in CI / non-TTY / piped output. `--no-spinner` is a hard override (decision 04).
+
+  **Filename safety:** filenames spliced into comment HTML are escaped (`<>&"'` → entities). Original (raw) filenames remain in `data.uploaded[].filename` for agent assertions (spec 0037 decision 09).
+
+  **Validation (each typed-error path has an exit-code test — Calibration §2):**
+
+  - Missing path / directory / oversize → `ValidationError` exit 2.
+  - `--attach-to-task` non-positive / non-integer → `ValidationError` exit 2.
+  - Whitespace-only `--message` → `ValidationError` exit 2.
+  - Upload 4xx/5xx → `FreeloApiError` exit 4.
+  - Upload 401 → `FreeloApiError` AUTH_EXPIRED exit 3.
+  - Upload 429 → `RateLimitedError`.
+  - Comment-create error after upload success → exit 4 (envelope still includes `uploaded[]` for recovery).
+
+  **Agent-safe contract reused:**
+
+  - `--dry-run` validates locally, emits envelope with `data.would` as an **array** (1..N+1 entries) — pluralization decision 10 vs. existing single-object `would`.
+  - Variadic positional `<path>...` instead of `--ids` / `--stdin` — file paths are fundamentally positional (decision per spec §1 non-goals).
+  - Sequential uploads (decision 08) — parallelism is one `--concurrency N` flag away if real workloads need it.
+
+  **Reviewer flag — additive change to `src/api/client.ts`:** the new `requestMultipart` method is purely additive (no signature, retry, auth, or default change to existing `request()`), but it does live in the file the autonomous-sdlc Red trigger lists by name. Spec 0037 decision 01 keeps this Yellow-tier; tagging here for visibility on PR review.
+
+  No new runtime dependencies — `undici` and `ora` were already pinned.
+
+- 283f980: R26 — `freelo files list`. Browse every directory, link, file, and document the caller can see across accessible projects, with optional filters by project and item type. Second leaf under the `files` subcommand (R25 added `upload`).
+
+  ```
+  freelo files list [--project <id> ...] [--type doc|file|link|dir]
+                    [--page N | --all]
+  ```
+
+  **Three filters mapped to the Freelo wire:**
+
+  - `--project <id>` — repeatable, OR semantics; maps to `projects_ids[]`.
+  - `--type <kind>` — CLI short forms (`doc`/`file`/`link`/`dir`) mapped to the wire enum (`document`/`file`/`link`/`directory`). Single-valued per the OpenAPI.
+  - `--page <n>` (1-indexed CLI → 0-indexed wire) / `--all` (mutex) — same paging convention as R16 / R21.
+
+  **One new envelope schema (additive surface):**
+
+  - `schema 'freelo.files.list/v1' added` — `{ applied_filters: { projects?, type? }, items: FileItem[] }`. `applied_filters.type` carries the **wire form** so agents round-tripping to Freelo's REST get a string they can pass straight through.
+
+  **`--task <id>` deferred** (decision logged at `docs/decisions/2026-04-29-1756-r26-files-list-1-defer-task.md`). The roadmap names the flag, but `GET /all-docs-and-files` does not accept any task-scoped query parameter per `docs/api/freelo-api.yaml:3925-3937` — only `projects_ids[]`, `type`, and `p`. No alternative task-scoped doc/file listing endpoint is documented. Tracked as potential R26.5; same shape of decision as R23 (which deferred `--project` for the same class of reason). The `--help` description, the doc page, and this changeset all name the deferral so agents reading the roadmap don't trip on the absence.
+
+  **Out of scope for v1:**
+
+  - No `--mime` / `--extension` / `--name` filters (not server-side; client post-filter on `--all` is future-additive).
+  - No `--directory <uuid>` filter (`directory_uuid` is on the response shape but not in the wire query parameter list).
+  - No `--per-page` (server-controlled).
+  - No `--fields` projection (R03 ships the helper but R16 / R21 don't surface it; staying parity).
+  - No write surface — upload is R25, download will be R27.
+
+  No new dependencies. Reuses `commander`, `zod`, `undici` (via the shared HTTP client), `src/api/pagination.ts` (`fetchAllPages`, `pagingFromNormalized`, `PartialPagesError`), `src/lib/query.ts`, `src/ui/envelope.ts`, `src/ui/table.ts`. The `getAllDocsAndFiles` wire wrapper appends to the existing R25 `src/api/files.ts`; `FileItemSchema` and friends append to `src/api/schemas/file.ts`.
+
+- d89b52f: feat(commands): r27 — `freelo files download <uuid> [-o <path>] [--stdout] [--force]`.
+
+  - New leaf under the existing `files` namespace. Streams the binary body of `GET /file/{file_uuid}` to a local file (atomic temp + rename) or to `process.stdout`.
+  - New envelope schema: `freelo.files.download/v1` (additive — `uuid`, `destination`, `bytes`, `filename`, `content_type`, `overwrote`).
+  - Additive `HttpClient.requestBinary` method on `src/api/client.ts` — companion to `request()` and `requestMultipart()`. Does **not** retry on 429 (decision 05). Does not modify the existing `request()` / `requestMultipart()` code paths or their error / auth / rate-limit semantics.
+  - New shared helpers: `src/lib/format.ts` (`humanizeBytes`, consolidated from R26's renderer) and `src/lib/filename.ts` (`parseContentDisposition`, `sanitizeBasename` — RFC 6266 + path-traversal defense).
+  - Path-traversal-safe filename inference: a malicious `Content-Disposition: filename="../../etc/passwd"` is sanitized to a bare basename anchored at `process.cwd()`. Explicit `-o <path>` is taken at face value (user intent).
+  - Refuse to overwrite an existing destination unless `--force` is set; non-TTY callers get a clean `VALIDATION_ERROR` exit 2 instead of silent data loss.
+  - `--stdout` reroutes the success envelope to stderr so binary on stdout stays clean. Human mode is silent on stderr in this combination (no chatter when piping to a tool).
+  - Lazy `ora` spinner on TTY (auto-disabled when `--stdout` / CI / non-TTY / `--no-spinner`).
+
+- 71eab0c: R28 — `freelo notifications list` / `read` / `unread`. First slice in the notifications sub-thread; gives agents a typed, paginated, idempotent surface over the Freelo notification feed.
+
+  ```
+  freelo notifications list   [--unread] [--page N | --all] [--project <id>...] [--type <s>...]
+  freelo notifications read   <id>... | --ids <list> | --stdin | --all-unread   [--dry-run]
+  freelo notifications unread <id>... | --ids <list> | --stdin                  [--dry-run]
+  ```
+
+  Wraps three Freelo endpoints:
+
+  - `GET /all-notifications` — paginated list (yaml :3619-3694).
+  - `POST /notification/{id}/mark-as-read` — flip `is_unread → false` (yaml :3696-3724).
+  - `POST /notification/{id}/mark-as-unread` — flip `is_unread → true` (yaml :3726-3753).
+
+  **Three new envelope schemas (additive surface):**
+
+  - `freelo.notifications.list/v1` — `{ applied_filters, items: Notification[] }` plus `paging` and `rate_limit`.
+  - `freelo.notifications.read/v1` — per-id `{ notification_id, posted: true }` (or `{ notice: 'No unread notifications.', data: {} }` for empty `--all-unread`).
+  - `freelo.notifications.unread/v1` — per-id `{ notification_id, posted: true }`.
+
+  **Server-side idempotent.** Both write endpoints return 200 on already-in-state. There is no `GET /notification/{id}` endpoint, so the CLI cannot pre-check current state per id and never emits `already_in_target_state` — agents that need that signal must observe `is_unread` via `notifications list` before/after.
+
+  **Agent-safe writes.** Every write supports `--dry-run` (echoes wire path in `data.would`), `<id>...` positional + `--ids` + `--stdin` NDJSON batch, and per-id error envelopes in batch mode (highest exit code wins). No destructive prompt — marking-as-read is reversible (use `unread` to revert).
+
+  **`--all-unread` on `read`** drains the unread feed: lists every unread notification client-side (paged), then POSTs `mark-as-read` for each id. Per-id failures continue with the rest. Empty unread set emits a single `notice` envelope (decision 06). With `--dry-run`, the list call still runs (so the user sees what _would_ be POSTed); the per-id POSTs do not. **No `--yes` gate** — the operation is reversible (decision 02).
+
+  **v1 list filters surfaced:** `--unread` (→ `only_unread=true`), `--project` (→ `projects_ids[]`, repeatable), `--type` (→ `notification_types[]`, repeatable). Wire-only filters omitted in v1 (decision 04): `users_ids[]`, `teams_uuids[]`, `order`. Add later if real workloads ask.
+
+  No new dependencies. No security review trigger.
+
 ## 0.16.0
 
 ### Minor Changes
