@@ -3096,8 +3096,8 @@ export const filesDownloadHandlers = {
  *
  * Three endpoints:
  *   - `GET  /all-notifications`                                — paginated list
- *   - `POST /notification/{notification_id}/mark-as-read`      — flip is_unread → false
- *   - `POST /notification/{notification_id}/mark-as-unread`    — flip is_unread → true
+ *   - `POST /notification/{notification_id}/mark-read`      — flip is_unread → false
+ *   - `POST /notification/{notification_id}/mark-unread`    — flip is_unread → true
  */
 export const notificationsHandlers = {
   /* ---------------------------------------------------------------------
@@ -3160,65 +3160,65 @@ export const notificationsHandlers = {
   },
 
   /* ---------------------------------------------------------------------
-   *  POST /notification/{id}/mark-as-read
+   *  POST /notification/{id}/mark-read
    * ------------------------------------------------------------------- */
 
   markReadOk(): RequestHandler {
-    return http.post(`${API_BASE}/notification/:id/mark-as-read`, () =>
+    return http.post(`${API_BASE}/notification/:id/mark-read`, () =>
       HttpResponse.json({ result: 'success' }),
     );
   },
 
   markReadOkSpy(capture: (req: Request) => void | Promise<void>): RequestHandler {
-    return http.post(`${API_BASE}/notification/:id/mark-as-read`, async ({ request }) => {
+    return http.post(`${API_BASE}/notification/:id/mark-read`, async ({ request }) => {
       await capture(request);
       return HttpResponse.json({ result: 'success' });
     });
   },
 
   markReadFor(id: number): RequestHandler {
-    return http.post(`${API_BASE}/notification/${id}/mark-as-read`, () =>
+    return http.post(`${API_BASE}/notification/${id}/mark-read`, () =>
       HttpResponse.json({ result: 'success' }),
     );
   },
 
   markReadNotFound(id: number): RequestHandler {
-    return http.post(`${API_BASE}/notification/${id}/mark-as-read`, () =>
+    return http.post(`${API_BASE}/notification/${id}/mark-read`, () =>
       HttpResponse.json({ errors: ['Notification not found.'] }, { status: 404 }),
     );
   },
 
   markReadServerError(status = 500): RequestHandler {
-    return http.post(`${API_BASE}/notification/:id/mark-as-read`, () =>
+    return http.post(`${API_BASE}/notification/:id/mark-read`, () =>
       HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
     );
   },
 
   /* ---------------------------------------------------------------------
-   *  POST /notification/{id}/mark-as-unread
+   *  POST /notification/{id}/mark-unread
    * ------------------------------------------------------------------- */
 
   markUnreadOk(): RequestHandler {
-    return http.post(`${API_BASE}/notification/:id/mark-as-unread`, () =>
+    return http.post(`${API_BASE}/notification/:id/mark-unread`, () =>
       HttpResponse.json({ result: 'success' }),
     );
   },
 
   markUnreadOkSpy(capture: (req: Request) => void | Promise<void>): RequestHandler {
-    return http.post(`${API_BASE}/notification/:id/mark-as-unread`, async ({ request }) => {
+    return http.post(`${API_BASE}/notification/:id/mark-unread`, async ({ request }) => {
       await capture(request);
       return HttpResponse.json({ result: 'success' });
     });
   },
 
   markUnreadNotFound(id: number): RequestHandler {
-    return http.post(`${API_BASE}/notification/${id}/mark-as-unread`, () =>
+    return http.post(`${API_BASE}/notification/${id}/mark-unread`, () =>
       HttpResponse.json({ errors: ['Notification not found.'] }, { status: 404 }),
     );
   },
 
   markUnreadServerError(status = 500): RequestHandler {
-    return http.post(`${API_BASE}/notification/:id/mark-as-unread`, () =>
+    return http.post(`${API_BASE}/notification/:id/mark-unread`, () =>
       HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
     );
   },

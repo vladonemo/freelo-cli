@@ -67,12 +67,12 @@ describe('notifications path helpers', () => {
     expect(ALL_NOTIFICATIONS_PATH).toBe('/all-notifications');
   });
 
-  it('markNotificationReadPath formats /notification/<id>/mark-as-read', () => {
-    expect(markNotificationReadPath(42)).toBe('/notification/42/mark-as-read');
+  it('markNotificationReadPath formats /notification/<id>/mark-read', () => {
+    expect(markNotificationReadPath(42)).toBe('/notification/42/mark-read');
   });
 
-  it('markNotificationUnreadPath formats /notification/<id>/mark-as-unread', () => {
-    expect(markNotificationUnreadPath(42)).toBe('/notification/42/mark-as-unread');
+  it('markNotificationUnreadPath formats /notification/<id>/mark-unread', () => {
+    expect(markNotificationUnreadPath(42)).toBe('/notification/42/mark-unread');
   });
 });
 
@@ -88,7 +88,7 @@ describe('getAllNotifications — query-string assembly', () => {
     expect(observed).toBe('?p=0');
   });
 
-  it('--unread → `only_unread=true`', async () => {
+  it('--unread → `only_unread=1` (string; live API ignores boolean true)', async () => {
     let observed: string | null = null;
     server.use(
       notificationsHandlers.spy(PAGE_FIXTURE(), (req) => {
@@ -99,7 +99,7 @@ describe('getAllNotifications — query-string assembly', () => {
       page: 0,
       filters: { onlyUnread: true },
     });
-    expect(observed).toContain('only_unread=true');
+    expect(observed).toContain('only_unread=1');
   });
 
   it('multiple --project values become repeated `projects_ids[]`', async () => {
@@ -148,7 +148,7 @@ describe('getAllNotifications — query-string assembly', () => {
       },
     });
     expect(observed).toContain('p=2');
-    expect(observed).toContain('only_unread=true');
+    expect(observed).toContain('only_unread=1');
     expect(observed).toContain('projects_ids%5B%5D=11');
     expect(observed).toContain('notification_types%5B%5D=task_assigned');
   });
@@ -194,7 +194,7 @@ describe('getAllNotifications — query-string assembly', () => {
 });
 
 describe('markNotificationAsRead', () => {
-  it('POSTs to /notification/<id>/mark-as-read with empty body', async () => {
+  it('POSTs to /notification/<id>/mark-read with empty body', async () => {
     let observedBody: unknown = null;
     server.use(
       notificationsHandlers.markReadOkSpy(async (req) => {
@@ -233,7 +233,7 @@ describe('markNotificationAsRead', () => {
 });
 
 describe('markNotificationAsUnread', () => {
-  it('POSTs to /notification/<id>/mark-as-unread with empty body', async () => {
+  it('POSTs to /notification/<id>/mark-unread with empty body', async () => {
     let observedBody: unknown = null;
     server.use(
       notificationsHandlers.markUnreadOkSpy(async (req) => {

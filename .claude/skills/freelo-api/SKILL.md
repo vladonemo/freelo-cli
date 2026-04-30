@@ -154,6 +154,11 @@ When both exist, prefer the aggregate for read commands that need cross-project 
 - **Currency string encoding** — see above; verify interpretation on first money-related command.
 - **Required `User-Agent`** — client enforces; tests assert the header is present.
 - **Time tracking is singleton per user** — `/timetracking/start` with one running session returns an error; surface this as a user-friendly "already tracking X since Y" message.
+- **Notifications wire shape diverges from the published spec** (verified 2026-04-29 via the official Freelo MCP at `freeloapp/mcp` and reproduced against live API):
+  - `GET /all-notifications?only_unread=…` requires the **string `"1"`** (or `"0"`), NOT the canonical boolean `true`/`false` the YAML documents. Sending `only_unread=true` is silently ignored and the full feed is returned.
+  - The mark endpoints are `POST /notification/{id}/mark-read` and `POST /notification/{id}/mark-unread` — **without** the `as-` infix the YAML shows. Calling `/mark-as-read` returns 200 but is a no-op (does not actually flip the read flag).
+  - Both quirks are flagged inline in `docs/api/freelo-api.yaml` (search for `WIRE QUIRK`). Cross-references: `https://github.com/freeloapp/mcp/blob/main/src/tools/notifications/get-notifications.ts`, `mark-notification-read.ts`, `mark-notification-unread.ts`.
+  - Implication for our wire code: `buildQuery` boolean handling is fine in general, but the `notifications.ts` wrapper must convert `onlyUnread === true` into the string `'1'` and the path helpers must drop the `-as` infix.
 
 ## Codegen — open decision
 

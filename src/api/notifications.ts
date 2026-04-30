@@ -2,9 +2,9 @@
  * Wire wrappers for the `notifications` resource group, R28 (spec 0040).
  *
  * Three endpoints (yaml :3618-3753):
- *   - `GET /all-notifications`                                — paginated list
- *   - `POST /notification/{notification_id}/mark-as-read`     — flip is_unread → false
- *   - `POST /notification/{notification_id}/mark-as-unread`   — flip is_unread → true
+ *   - `GET /all-notifications`                              — paginated list
+ *   - `POST /notification/{notification_id}/mark-read`      — flip is_unread → false
+ *   - `POST /notification/{notification_id}/mark-unread`    — flip is_unread → true
  *
  * The two write endpoints are server-side idempotent. There is **no**
  * GET-single endpoint, so the CLI never pre-checks per-id state — see spec
@@ -28,10 +28,9 @@ import { buildQuery } from '../lib/query.js';
 
 export const ALL_NOTIFICATIONS_PATH = '/all-notifications';
 
-export const markNotificationReadPath = (id: number): string => `/notification/${id}/mark-as-read`;
+export const markNotificationReadPath = (id: number): string => `/notification/${id}/mark-read`;
 
-export const markNotificationUnreadPath = (id: number): string =>
-  `/notification/${id}/mark-as-unread`;
+export const markNotificationUnreadPath = (id: number): string => `/notification/${id}/mark-unread`;
 
 /* ---------------------------------------------------------------------------
  *  Shared opts shape.
@@ -46,7 +45,7 @@ export type FetchOpts = {
  *  GET /all-notifications  (yaml :3619-3694)
  *
  *  Filter map. Each key maps 1-1 to a Freelo wire parameter:
- *    - `onlyUnread` → `only_unread=true`
+ *    - `onlyUnread` → `only_unread=1` (string; the live API ignores `true`)
  *    - `projects`   → `projects_ids[]`
  *    - `types`      → `notification_types[]`
  *
@@ -91,7 +90,10 @@ export async function getAllNotifications(
     p: opts.page,
   };
   if (filters.onlyUnread === true) {
-    params['only_unread'] = true;
+    // WIRE QUIRK: the live Freelo API requires the string "1", not boolean true.
+    // Sending `only_unread=true` is silently ignored. See skill SKILL.md and
+    // docs/api/freelo-api.yaml (search WIRE QUIRK) for full details.
+    params['only_unread'] = '1';
   }
   if (filters.projects !== undefined && filters.projects.length > 0) {
     params['projects_ids[]'] = filters.projects;
@@ -114,8 +116,8 @@ export async function getAllNotifications(
 }
 
 /* ---------------------------------------------------------------------------
- *  POST /notification/{id}/mark-as-read   (yaml :3696-3724)
- *  POST /notification/{id}/mark-as-unread (yaml :3726-3753)
+ *  POST /notification/{id}/mark-read   (yaml :3696-3724)
+ *  POST /notification/{id}/mark-unread (yaml :3726-3753)
  *
  *  Both endpoints take no body and return the generic SuccessResponse
  *  envelope. Both are server-side idempotent.

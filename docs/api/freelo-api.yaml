@@ -3671,9 +3671,23 @@ paths:
               type: string
         - name: only_unread
           in: query
+          # WIRE QUIRK (verified 2026-04-29 against the official Freelo MCP at
+          # https://github.com/freeloapp/mcp/blob/main/src/tools/notifications/get-notifications.ts):
+          # the live API does NOT honor `only_unread=true`. It expects the
+          # string `"1"` (or `"0"` for false). Sending `true` is silently
+          # ignored and the endpoint returns the full unfiltered list.
+          # The published OpenAPI yaml at api.freelo.io types this as boolean,
+          # but the official MCP converts the boolean to "1"/"0" before send.
+          # Treat the wire format as a string enum until Freelo fixes the
+          # server to accept canonical booleans.
+          description: |
+            Filter to unread notifications only. Wire format is the string
+            `"1"` (true) or `"0"` (false). Sending `true`/`false` does not
+            work — the server silently ignores them.
           schema:
-            type: boolean
-            default: false
+            type: string
+            enum: ['0', '1']
+            default: '0'
         - $ref: '#/components/parameters/PageParam'
       responses:
         '200':
@@ -3693,7 +3707,7 @@ paths:
                             items:
                               $ref: '#/components/schemas/Notification'
 
-  /notification/{notification_id}/mark-as-read:
+  /notification/{notification_id}/mark-read:
     post:
       tags:
         - Notifications
@@ -3708,6 +3722,13 @@ paths:
         **Behavior notes:**
         - Idempotent — calling on an already-read notification returns 200.
         - 404 if the notification does not exist **or** does not belong to the caller.
+
+        **WIRE QUIRK (verified 2026-04-29):** The path is `/mark-read`, NOT
+        `/mark-as-read`. The published OpenAPI yaml at api.freelo.io documents
+        this path with the `as-` infix, but the official Freelo MCP
+        (https://github.com/freeloapp/mcp/blob/main/src/tools/notifications/mark-notification-read.ts)
+        and live behavior both use `/mark-read`. The `mark-as-read` form
+        returns 200 but does NOT actually mark the notification as read.
       operationId: markNotificationAsRead
       parameters:
         - name: notification_id
@@ -3723,7 +3744,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SuccessResponse'
 
-  /notification/{notification_id}/mark-as-unread:
+  /notification/{notification_id}/mark-unread:
     post:
       tags:
         - Notifications
@@ -3737,6 +3758,11 @@ paths:
 
         **Behavior notes:**
         - Idempotent; 404 if notification does not belong to caller.
+
+        **WIRE QUIRK (verified 2026-04-29):** The path is `/mark-unread`, NOT
+        `/mark-as-unread`. Same caveat as the read endpoint above — the
+        published OpenAPI yaml documents `mark-as-unread`, but the official
+        Freelo MCP and live behavior use `/mark-unread`.
       operationId: markNotificationAsUnread
       parameters:
         - name: notification_id
