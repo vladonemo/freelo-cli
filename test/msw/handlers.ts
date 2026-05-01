@@ -1095,6 +1095,18 @@ export const tasksEditHandlers = {
       return HttpResponse.json({ result: 'success' });
     });
   },
+
+  /** `POST /task-labels/add-to-task/{id}` — 5xx (spec 0041 partial-failure path). */
+  addLabelsServerError(taskId: number, status = 502): RequestHandler {
+    return http.post(`${API_BASE}/task-labels/add-to-task/${taskId}`, () =>
+      HttpResponse.json({ errors: ['Bad gateway.'] }, { status }),
+    );
+  },
+
+  /** `POST /task-labels/add-to-task/{id}` — connection-closed (spec 0041 partial-failure path). */
+  addLabelsNetworkError(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task-labels/add-to-task/${taskId}`, () => HttpResponse.error());
+  },
 };
 
 /**

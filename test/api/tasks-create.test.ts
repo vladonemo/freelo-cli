@@ -1,12 +1,14 @@
 /**
- * Unit tests for `src/api/tasks-create.ts` (R09 spec 0019 §5).
+ * Unit tests for `src/api/tasks-create.ts` (R09 spec 0019 §5 + spec 0041
+ * label-fix).
  *
  * `buildCreateTaskBody` is a pure mapping from CLI input to the wire shape.
  * Tests assert every mapping rule:
  *   - priority enum: low → l, normal → m, high → h
  *   - due_date wire format: YYYY-MM-DD → YYYY-MM-DDT00:00:00Z (decision 1)
  *   - description → comment.content
- *   - labels[] → [{ name }]
+ *   - labels are NEVER on the wire body (spec 0041 §5.1) — they travel
+ *     out-of-band via a follow-up POST /task-labels/add-to-task call.
  *   - undefined-field omission (matches R07's filter convention)
  */
 
@@ -54,17 +56,17 @@ describe('buildCreateTaskBody', () => {
     expect('comment' in body).toBe(false);
   });
 
-  it('maps each label name to { name } (TaskLabelAddInput name-mode)', () => {
+  it('drops labels from the wire body even when input.labels is non-empty (spec 0041 §5.1)', () => {
     const body = buildCreateTaskBody({ name: 'X', labels: ['blocker', 'qa'] });
-    expect(body.labels).toEqual([{ name: 'blocker' }, { name: 'qa' }]);
+    expect('labels' in body).toBe(false);
   });
 
-  it('omits labels[] when the input array is empty', () => {
+  it('drops labels when the input array is empty', () => {
     const body = buildCreateTaskBody({ name: 'X', labels: [] });
     expect('labels' in body).toBe(false);
   });
 
-  it('emits the full body when every field is set', () => {
+  it('emits the full body when every field is set — labels still absent', () => {
     const body = buildCreateTaskBody({
       name: 'Big task',
       due: '2026-06-01',
@@ -79,8 +81,8 @@ describe('buildCreateTaskBody', () => {
       worker: 42,
       priority_enum: 'h',
       comment: { content: 'Body text' },
-      labels: [{ name: 'a' }, { name: 'b' }],
     });
+    expect('labels' in body).toBe(false);
   });
 });
 

@@ -11,13 +11,15 @@ import {
   createTaskPath,
   type CreateTaskResult,
 } from '../../api/tasks-create.js';
+import { addTaskLabels } from '../../api/tasks-edit.js';
 import {
+  type AppliedLabelFailure,
   type CreateTaskInput,
+  type CreateWouldEntry,
   type TaskCreated,
   type TasksCreateData,
 } from '../../api/schemas/task.js';
-import { buildEnvelope, type SchemaString } from '../../ui/envelope.js';
-import { dryRunEnvelope } from '../../lib/dry-run.js';
+import { buildEnvelope, type Envelope, type SchemaString } from '../../ui/envelope.js';
 import { ExitCodeAccumulator, iterateLines, parseNdjsonLine } from '../../lib/batch.js';
 import {
   renderTasksCreateHuman,
@@ -30,11 +32,11 @@ import { BaseError } from '../../errors/base.js';
 import { attachMeta, type CommandMeta } from '../../lib/introspect.js';
 
 export const meta: CommandMeta = {
-  outputSchema: 'freelo.tasks.create/v1',
+  outputSchema: 'freelo.tasks.create/v2',
   destructive: false,
 };
 
-const SCHEMA: SchemaString = 'freelo.tasks.create/v1';
+const SCHEMA: SchemaString = 'freelo.tasks.create/v2';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const PRIORITY_VALUES = ['low', 'normal', 'high'] as const;
@@ -216,7 +218,7 @@ export function registerCreate(
     .option('--priority <level>', 'Priority: low, normal, or high.', parsePriority)
     .option(
       '--label <name>',
-      'Label name (repeatable). Each name is sent as a TaskLabelAddInput.',
+      'Label name (repeatable). Sent as a single batched POST /task-labels/add-to-task/<new-id> after the task is created. On attach failure the task is still created; see applied_labels.failed for diagnosis.',
       collectNonEmptyString('--label'),
     )
     .option('--description <text>', 'Inline task description (mutex with --description-file).')
@@ -325,21 +327,16 @@ async function runSingle(
   if (description !== undefined && description.length > 0) input.description = description;
 
   const body = buildCreateTaskBody(input);
+  const requestedLabels: readonly string[] = input.labels ?? [];
 
   // --- Dry-run with --project escape hatch: no HTTP at all.
   if (opts.dryRun === true && opts.project !== undefined) {
     const data: TasksCreateData = {
       tasklist_id: tasklistId,
       project_id: opts.project,
+      would: buildDryRunWould(opts.project, tasklistId, body, requestedLabels),
     };
-    const envelope = dryRunEnvelope({
-      schema: SCHEMA,
-      data,
-      would: { method: 'POST', path: createTaskPath(opts.project, tasklistId), body },
-      ...(appConfig.requestId !== undefined ? { requestId: appConfig.requestId } : {}),
-      ...(workerNotice !== undefined ? { notice: workerNotice } : {}),
-    });
-    writeEnvelope(envelope, mode);
+    writeDryRunEnvelope(data, mode, appConfig, workerNotice);
     return;
   }
 
@@ -364,19 +361,13 @@ async function runSingle(
     const data: TasksCreateData = {
       tasklist_id: tasklistId,
       project_id: projectId,
+      would: buildDryRunWould(projectId, tasklistId, body, requestedLabels),
     };
-    const envelope = dryRunEnvelope({
-      schema: SCHEMA,
-      data,
-      would: { method: 'POST', path: createTaskPath(projectId, tasklistId), body },
-      ...(appConfig.requestId !== undefined ? { requestId: appConfig.requestId } : {}),
-      ...(workerNotice !== undefined ? { notice: workerNotice } : {}),
-    });
-    writeEnvelope(envelope, mode);
+    writeDryRunEnvelope(data, mode, appConfig, workerNotice);
     return;
   }
 
-  // 2. Live POST.
+  // 2. Live POST — create the task without labels (spec 0041 §5.1).
   const created = await createTask(client, {
     projectId,
     tasklistId,
@@ -384,22 +375,77 @@ async function runSingle(
     ...(appConfig.requestId !== undefined ? { requestId: appConfig.requestId } : {}),
   });
 
+  // 3. Live attach — only when labels were requested.
+  let appliedLabels: TasksCreateData['applied_labels'];
+  let attachNotice: string | undefined;
+  let attachError: BaseError | undefined;
+  let lastRateLimit = created.raw.rateLimit;
+
+  if (requestedLabels.length > 0) {
+    try {
+      const result = await addTaskLabels(client, created.task.id, requestedLabels, {
+        ...(appConfig.requestId !== undefined ? { requestId: appConfig.requestId } : {}),
+      });
+      if (result.raw !== null) lastRateLimit = result.raw.rateLimit;
+      appliedLabels = {
+        requested: [...requestedLabels],
+        attached: [...result.names],
+        failed: [],
+      };
+    } catch (err: unknown) {
+      // Calibration §4: this catch arm is exercised by the partial-failure
+      // tests in `test/commands/tasks/create.test.ts` (attach 422, attach 502,
+      // attach network).
+      const typed = toAttachError(err);
+      attachError = typed;
+      appliedLabels = {
+        requested: [...requestedLabels],
+        attached: [],
+        failed: requestedLabels.map((name) => attachFailure(name, typed)),
+      };
+      attachNotice = `Task created but label attach failed; task #${created.task.id} has no labels.`;
+    }
+  }
+
   const data: TasksCreateData = {
     task: created.task,
     tasklist_id: tasklistId,
     project_id: projectId,
+    ...(appliedLabels !== undefined ? { applied_labels: appliedLabels } : {}),
   };
+  // Compose the success-line notice. If both worker notice AND attach notice
+  // exist, concatenate them — agents read `notice` as a single human string.
+  const notices: string[] = [];
+  if (workerNotice !== undefined) notices.push(workerNotice);
+  if (attachNotice !== undefined) notices.push(attachNotice);
+  const noticeOpt = notices.length > 0 ? notices.join(' ') : undefined;
+
   const envelope = buildEnvelope({
     schema: SCHEMA,
     data,
     rateLimit: {
-      remaining: created.raw.rateLimit.remaining,
-      reset_at: created.raw.rateLimit.resetAt,
+      remaining: lastRateLimit.remaining,
+      reset_at: lastRateLimit.resetAt,
     },
     ...(appConfig.requestId !== undefined ? { requestId: appConfig.requestId } : {}),
-    ...(workerNotice !== undefined ? { notice: workerNotice } : {}),
+    ...(noticeOpt !== undefined ? { notice: noticeOpt } : {}),
   });
   writeEnvelope(envelope, mode);
+
+  // Dual emit: stdout already carries the success-shaped envelope (so agents
+  // can read `data.task.id`); stderr now carries the attach diagnostic and we
+  // exit with the attach error's exit code (4 for FreeloApiError, 5 for
+  // NetworkError, 6 for RateLimitedError). Spec 0041 §7.2.
+  if (attachError !== undefined) {
+    writeStderrErrorEnvelope(
+      attachError,
+      { task_id: created.task.id, requested_label_names: [...requestedLabels] },
+      mode,
+    );
+    const { drainDispatcher, exitDeferred } = await import('../../errors/handle.js');
+    await drainDispatcher();
+    await exitDeferred(attachError.exitCode);
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -465,20 +511,16 @@ async function runBatch(
     try {
       const input = batchLineToInput(result.value, lineIndex);
       const body = buildCreateTaskBody(input);
+      const requestedLabels: readonly string[] = input.labels ?? [];
 
       if (opts.dryRun === true) {
         const data: TasksCreateData = {
           tasklist_id: tasklistId,
           project_id: projectId,
           line_index: lineIndex,
+          would: buildDryRunWould(projectId, tasklistId, body, requestedLabels),
         };
-        const envelope = dryRunEnvelope({
-          schema: SCHEMA,
-          data,
-          would: { method: 'POST', path: createTaskPath(projectId, tasklistId), body },
-          ...(appConfig.requestId !== undefined ? { requestId: appConfig.requestId } : {}),
-        });
-        writeEnvelope(envelope, mode);
+        writeDryRunEnvelope(data, mode, appConfig, undefined);
       } else {
         // client must be defined here (it's only undefined in dry-run+--project,
         // which is handled above). Defensive guard for the type system.
@@ -493,18 +535,65 @@ async function runBatch(
           body,
           ...(appConfig.requestId !== undefined ? { requestId: appConfig.requestId } : {}),
         });
+
+        // Per-line label attach (spec 0041 §7.3). Failure here is per-line: we
+        // emit the success-shaped envelope (with `applied_labels.failed`) and a
+        // SECOND NDJSON line carrying the error envelope; the stream continues.
+        let appliedLabels: TasksCreateData['applied_labels'];
+        let attachNotice: string | undefined;
+        let attachErr: BaseError | undefined;
+        let lineRateLimit = created.raw.rateLimit;
+
+        if (requestedLabels.length > 0) {
+          try {
+            const attachRes = await addTaskLabels(client, created.task.id, requestedLabels, {
+              ...(appConfig.requestId !== undefined ? { requestId: appConfig.requestId } : {}),
+            });
+            if (attachRes.raw !== null) lineRateLimit = attachRes.raw.rateLimit;
+            appliedLabels = {
+              requested: [...requestedLabels],
+              attached: [...attachRes.names],
+              failed: [],
+            };
+          } catch (attachThrow: unknown) {
+            // Calibration §4: per-line attach catch — covered by the batch
+            // partial-failure test in `test/commands/tasks/create.test.ts`.
+            const typed = toAttachError(attachThrow);
+            attachErr = typed;
+            appliedLabels = {
+              requested: [...requestedLabels],
+              attached: [],
+              failed: requestedLabels.map((name) => attachFailure(name, typed)),
+            };
+            attachNotice = `Task created but label attach failed; task #${created.task.id} has no labels.`;
+          }
+        }
+
         emitBatchSuccess(
           created.task,
           tasklistId,
           projectId,
           lineIndex,
           {
-            remaining: created.raw.rateLimit.remaining,
-            reset_at: created.raw.rateLimit.resetAt,
+            remaining: lineRateLimit.remaining,
+            reset_at: lineRateLimit.resetAt,
           },
           mode,
           appConfig,
+          appliedLabels,
+          attachNotice,
         );
+
+        if (attachErr !== undefined) {
+          // Per-line dual emit: write the error envelope on stdout (NDJSON
+          // stream is the single output channel — spec 0041 §7.3) tagged with
+          // `line_index` so consumers can correlate.
+          writeBatchError(attachErr, lineIndex, mode, {
+            task_id: created.task.id,
+            requested_label_names: [...requestedLabels],
+          });
+          exitAcc.observe(attachErr.exitCode);
+        }
       }
     } catch (err: unknown) {
       const typed = toBaseError(err, lineIndex);
@@ -560,14 +649,71 @@ async function lookupProjectId(
   return detail.data.project_id;
 }
 
-function writeEnvelope(envelope: unknown, mode: 'human' | 'json' | 'ndjson'): void {
+function writeEnvelope(
+  envelope: Envelope<TasksCreateData>,
+  mode: 'human' | 'json' | 'ndjson',
+): void {
   if (mode === 'human') {
-    const env = envelope as { data: TasksCreateData; dry_run?: true };
-    const line = renderTasksCreateHuman(env.data);
+    const line = renderTasksCreateHuman(envelope.data);
     process.stdout.write(`${line}\n`);
+    if (envelope.notice !== undefined) {
+      process.stdout.write(`Notice: ${envelope.notice}\n`);
+    }
     return;
   }
   process.stdout.write(`${JSON.stringify(envelope)}\n`);
+}
+
+/**
+ * Build a `--dry-run` envelope inline. R09 (after spec 0041) emits an array
+ * `data.would`, mirroring R10's pattern; the shared `dryRunEnvelope` helper
+ * still assumes a single object and is used by R11/R12/R13 unchanged. Spec
+ * 0041 §6.1.
+ */
+function writeDryRunEnvelope(
+  data: TasksCreateData,
+  mode: 'human' | 'json' | 'ndjson',
+  appConfig: PartialAppConfig,
+  workerNotice: string | undefined,
+): void {
+  const envelope: Envelope<TasksCreateData> = {
+    schema: SCHEMA,
+    data,
+    dry_run: true,
+  };
+  if (appConfig.requestId !== undefined) envelope.request_id = appConfig.requestId;
+  if (workerNotice !== undefined) envelope.notice = workerNotice;
+  writeEnvelope(envelope, mode);
+}
+
+/**
+ * Build the array-shaped `data.would` for `--dry-run`. First entry is always
+ * the create call; second entry (only when labels were requested) is the
+ * follow-up attach call with `{new_task_id}` as a placeholder — the real id
+ * isn't known until the create returns.
+ *
+ * Spec 0041 §4.3.
+ */
+function buildDryRunWould(
+  projectId: number,
+  tasklistId: number,
+  body: ReturnType<typeof buildCreateTaskBody>,
+  labels: readonly string[],
+): CreateWouldEntry[] {
+  const list: CreateWouldEntry[] = [
+    { method: 'POST', path: createTaskPath(projectId, tasklistId), body },
+  ];
+  if (labels.length > 0) {
+    // The new task id isn't known until the create call returns, so the path
+    // carries `{new_task_id}` as a placeholder. Documented in help text and
+    // in `docs/commands/tasks-create.md`. Spec 0041 §4.3.
+    list.push({
+      method: 'POST',
+      path: `/task-labels/add-to-task/{new_task_id}`,
+      body: { labels: labels.map((name) => ({ name })) },
+    });
+  }
+  return list;
 }
 
 function emitBatchSuccess(
@@ -578,21 +724,28 @@ function emitBatchSuccess(
   rateLimit: { remaining: number | null; reset_at: string | null },
   mode: 'human' | 'json' | 'ndjson',
   appConfig: PartialAppConfig,
+  appliedLabels: TasksCreateData['applied_labels'],
+  attachNotice: string | undefined,
 ): void {
   const data: TasksCreateData = {
     task,
     tasklist_id: tasklistId,
     project_id: projectId,
     line_index: lineIndex,
+    ...(appliedLabels !== undefined ? { applied_labels: appliedLabels } : {}),
   };
   const envelope = buildEnvelope({
     schema: SCHEMA,
     data,
     rateLimit,
     ...(appConfig.requestId !== undefined ? { requestId: appConfig.requestId } : {}),
+    ...(attachNotice !== undefined ? { notice: attachNotice } : {}),
   });
   if (mode === 'human') {
     process.stdout.write(`${renderBatchLineSuccessHuman(data)}\n`);
+    if (envelope.notice !== undefined) {
+      process.stdout.write(`Notice: ${envelope.notice}\n`);
+    }
     return;
   }
   process.stdout.write(`${JSON.stringify(envelope)}\n`);
@@ -602,12 +755,61 @@ function writeBatchError(
   err: BaseError,
   lineIndex: number,
   mode: 'human' | 'json' | 'ndjson',
+  extraContext?: Record<string, unknown>,
 ): void {
   if (mode === 'human') {
     process.stdout.write(`${renderBatchLineFailureHuman(lineIndex, err.message)}\n`);
     return;
   }
-  // Build a freelo.error/v1 envelope augmented with `context.line_index`.
+  // Build a freelo.error/v1 envelope augmented with `context.line_index` and
+  // any additional context (e.g. task_id + requested_label_names for per-line
+  // attach failures — spec 0041 §7.3).
+  const httpStatus =
+    'httpStatus' in err && typeof err.httpStatus === 'number' ? err.httpStatus : null;
+  const requestId = 'requestId' in err && typeof err.requestId === 'string' ? err.requestId : null;
+  const errors =
+    'errors' in err && Array.isArray((err as { errors?: unknown }).errors)
+      ? (err as { errors: string[] }).errors
+      : undefined;
+  const context: Record<string, unknown> = { line_index: lineIndex };
+  if (extraContext !== undefined) {
+    Object.assign(context, extraContext);
+  }
+  const envelope = {
+    schema: 'freelo.error/v1' as const,
+    error: {
+      code: err.code,
+      message: err.message,
+      ...(errors !== undefined && errors.length > 0 ? { errors } : {}),
+      http_status: httpStatus,
+      request_id: requestId,
+      retryable: err.retryable,
+      hint_next: err.hintNext ?? null,
+      docs_url: null,
+      context,
+    },
+  };
+  process.stdout.write(`${JSON.stringify(envelope)}\n`);
+}
+
+/**
+ * Write a `freelo.error/v1` envelope to stderr for the dual-emit path
+ * (spec 0041 §7.2). Single-mode equivalent of `writeBatchError`'s NDJSON
+ * branch — but lands on stderr because the success envelope already owns
+ * stdout. In `human` mode, emits a one-line "freelo: …" message instead.
+ */
+function writeStderrErrorEnvelope(
+  err: BaseError,
+  context: Record<string, unknown>,
+  mode: 'human' | 'json' | 'ndjson',
+): void {
+  if (mode === 'human') {
+    process.stderr.write(`freelo: ${err.message}\n`);
+    if (err.hintNext) {
+      process.stderr.write(`  hint: ${err.hintNext}\n`);
+    }
+    return;
+  }
   const httpStatus =
     'httpStatus' in err && typeof err.httpStatus === 'number' ? err.httpStatus : null;
   const requestId = 'requestId' in err && typeof err.requestId === 'string' ? err.requestId : null;
@@ -626,10 +828,40 @@ function writeBatchError(
       retryable: err.retryable,
       hint_next: err.hintNext ?? null,
       docs_url: null,
-      context: { line_index: lineIndex },
+      context,
     },
   };
-  process.stdout.write(`${JSON.stringify(envelope)}\n`);
+  process.stderr.write(`${JSON.stringify(envelope)}\n`);
+}
+
+/**
+ * Coerce an unknown thrown value from the attach call into a `BaseError`.
+ * Used inside the create-then-attach try/catch (single + batch). Same shape
+ * as `toBaseError` but without the `Line N:` prefix — the attach call isn't
+ * line-scoped semantically (the line context is tracked separately).
+ */
+function toAttachError(err: unknown): BaseError {
+  if (err instanceof BaseError) return err;
+  const message = err instanceof Error ? err.message : String(err);
+  return new ValidationError(`Label attach failed: ${message}`, {
+    hintNext: 'Investigate the attach error and retry attaching labels.',
+  });
+}
+
+/**
+ * Build a per-name `AppliedLabelFailure` from a single root error. Called for
+ * every requested name when the batched attach POST fails — the wire-level
+ * failure is all-or-nothing (spec 0041 §6.2).
+ */
+function attachFailure(name: string, err: BaseError): AppliedLabelFailure {
+  const httpStatus =
+    'httpStatus' in err && typeof err.httpStatus === 'number' ? err.httpStatus : null;
+  return {
+    name,
+    error_code: err.code,
+    http_status: httpStatus,
+    message: err.message,
+  };
 }
 
 /**

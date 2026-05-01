@@ -294,3 +294,185 @@ If the maintainer disagrees and prefers v0.18.0 (minor) for the schema bump, tha
 ---
 
 ARCHITECT run=manual status=ok spec=docs/specs/0041-tasks-create-label-fix.md open_questions=0 new_deps=0
+
+---
+
+## Plan
+
+Implementation slice — single PR, single commit (fix). No new deps, no plan
+deviations from §3 strategy A. Ordered by dependency.
+
+### Files to modify
+
+1. **`src/api/schemas/task.ts`** — schema bump.
+   - Drop `labels?: { name: string }[]` from `CreateTaskBody` type.
+   - Retype `TasksCreateDataSchema.would` from
+     `z.object({...}).optional()` to `z.array(z.object({...})).optional()`
+     (mirrors `EditWouldEntrySchema[]` at line 579).
+   - Add `applied_labels` field to `TasksCreateDataSchema`:
+     ```ts
+     applied_labels: z.object({
+       requested: z.array(z.string()),
+       attached: z.array(z.string()),
+       failed: z.array(z.object({
+         name: z.string(),
+         error_code: z.string(),
+         http_status: z.number().int().nullable(),
+         message: z.string(),
+       })),
+     }).optional(),
+     ```
+   - `TasksCreateData` type re-derives from the bumped schema.
+
+2. **`src/api/tasks-create.ts`** — wire-builder cleanup.
+   - Drop the `if (input.labels !== undefined …) body.labels = …` block at L40-42.
+   - Update the JSDoc comment block at L17-22 to remove the `labels` mention.
+   - No new helper here — we reuse `addTaskLabels` from `src/api/tasks-edit.ts:144`.
+     (Decision A: do NOT extract `addTaskLabels` to a neutral file. Two callers
+      is below the spec's stated extract threshold, and the existing import
+      from `tasks-create.ts → tasks-edit.ts` is a one-line change vs. a
+      cross-file refactor that touches every call site. Logged in decisions.)
+
+3. **`src/commands/tasks/create.ts`** — orchestration changes.
+   - `SCHEMA` constant: `'freelo.tasks.create/v1'` → `'freelo.tasks.create/v2'`.
+   - `meta.outputSchema`: same bump.
+   - Single mode (`runSingle`):
+     - After successful `createTask`, if `opts.label` non-empty AND non-dry-run:
+       - Import `addTaskLabels` from `../../api/tasks-edit.js`.
+       - Wrap the call in try/catch. On success: `applied_labels = { requested, attached: requested, failed: [] }`.
+       - On `BaseError`: build `applied_labels.failed = requested.map(name => ({name, error_code, http_status, message}))`,
+         set `notice = "Task created but label attach failed; task #${id} has no labels."`,
+         build the success envelope on stdout (with `applied_labels` populated), then re-throw via
+         a new helper that emits a stderr error envelope but suppresses
+         `handleTopLevelError`'s own envelope emission.
+       - Pattern for "stdout success + stderr error + non-zero exit": emit the
+         success envelope synchronously to stdout first, then call a new
+         helper `emitStderrError(typed, mode)` that mirrors
+         `buildErrorEnvelopeInternal` from `src/errors/handle.ts` and writes
+         to `stderr`, then `await drainDispatcher()` and `await exitDeferred(typed.exitCode)`.
+   - Dry-run path:
+     - `data.would` becomes an array. When `opts.label` is non-empty, push a
+       second entry `{ method: 'POST', path: '/task-labels/add-to-task/{new_task_id}', body: { labels: requested.map(name => ({ name })) } }`.
+     - Use the new `dryRunEnvelopeArray` helper (or inline construction). See
+       Decision B below — we'll inline-construct since the abstraction would
+       exist for one caller; dry-run-helper stays as is for other callers.
+   - Batch mode (`runBatch`): same shape — per-line label attach happens after
+     `createTask` succeeds; per-line failure emits the dual envelope (success on
+     line N, then error envelope on line N+? — per-line success + error stays
+     keyed to `line_index`).
+
+4. **`src/lib/dry-run.ts`** — extend to support an array `would`.
+   - Decision B: instead of inlining, add a sibling helper
+     `dryRunEnvelopeArray<T>` that takes `would: Would[]` and splices into
+     `data.would`. Keeps the dry-run abstraction unified. Old `dryRunEnvelope`
+     stays untouched for R10/R11/R12/R13 callers (they're R10 array-style or
+     R11 object-style; nothing else needs to change because this slice only
+     affects R09's tasks-create).
+   - Wait — checking: R10 (`tasks edit`) already has an array `would`.
+     It uses inline construction (see `src/commands/tasks/edit.ts` — verify in
+     implement). Pattern is established. Decision B (revised): inline-construct
+     in `tasks/create.ts`, do NOT add a new helper. `dryRunEnvelope` is for
+     single-call dry-runs (R11/R12/R13); R10 and R09-after-this-fix construct
+     manually. Keeps the helper surface small.
+
+5. **`src/ui/human/tasks-create.ts`** — render two new lines.
+   - `renderTasksCreateHuman` learns to:
+     - Append `Attached labels: bug, urgent.` line when `applied_labels.attached.length > 0`.
+     - Append `Notice: ${notice}` line when notice is set (driven by envelope, not data).
+     - Note: notice is on the envelope, not data. The renderer takes data only;
+       the writer code in `create.ts` `writeEnvelope` will pull `env.notice` and
+       append it as a separate line. Mirrors existing patterns.
+   - For dry-run: show two `would` lines (or summarize "(dry-run) Would create
+     task in tasklist X (project Y); plus label attach for: bug, urgent.")
+     — keep it short, the renderer is one-liner-style today.
+   - `renderBatchLineSuccessHuman` reuses; same data shape applies.
+
+6. **`test/msw/handlers.ts`** — extend `tasksCreateHandlers`.
+   - No new entries needed in `tasksCreateHandlers` (the create endpoint already
+     has `ok`, `okWhenBody`, `forbidden`, `serverError`, `networkError`, etc.).
+   - Reuse `tasksEditHandlers.addLabelsOk(taskId)`, `addLabelsOkWhenBody(taskId, predicate)`,
+     `addLabelsUnprocessable(taskId, message)` for the new attach call.
+   - Add **new** `tasksEditHandlers.addLabelsServerError(taskId, status)` and
+     `tasksEditHandlers.addLabelsNetworkError(taskId)` if not already present
+     (verify in implement; the spec test plan needs 502 and network failure).
+
+7. **`test/api/tasks-create.test.ts`** — assert no `labels` in body.
+   - Update the existing builder tests to assert `body.labels === undefined`
+     even when `input.labels` is supplied (the field is dropped from the wire).
+   - The pure builder still accepts `input.labels` (it's a no-op for the wire);
+     remove the field from `CreateTaskInput`? No — `CreateTaskInput` keeps
+     `labels?: readonly string[]` so the command code can still pass through.
+     The builder ignores it. Per spec §5.1.
+
+8. **`test/commands/tasks/create.test.ts`** — extend with §10 matrix.
+   - Update existing assertions: `'freelo.tasks.create/v1'` → `/v2` everywhere.
+   - The `every flag` test (L224-273) must NOT expect `labels: [...]` in the
+     create body anymore. Rewrite the predicate:
+       `expect(body.labels).toBeUndefined()` AND verify the SECOND call lands
+       on `/task-labels/add-to-task/9012` with `{labels: [{name: 'blocker'}, {name: 'qa'}]}`.
+   - New scenarios per spec §10:
+     - 1 label, attach OK → exit 0, applied_labels populated, attached=[name].
+     - 2 labels, attach OK → one batched call, attached=both names.
+     - Attach 422 invalid → exit 4, applied_labels.failed populated, stdout has success envelope, stderr has error envelope.
+     - Attach 502 → exit 4, retryable=true on the stderr error envelope.
+     - Dry-run with --label: `data.would` length 2.
+     - Dry-run without --label: `data.would` length 1.
+     - Batch 3 lines, line 2 attach 502: NDJSON output is success / success+error / success, exit 4.
+     - The two existing dry-run tests must update to read `would[0]` (array, not object).
+   - Introspect test (L1048): `output_schema` now `freelo.tasks.create/v2`.
+
+9. **`docs/commands/tasks-create.md`** — schema bump + new section.
+   - `schema: "freelo.tasks.create/v1"` → `/v2` (4 occurrences).
+   - New section "Label attach (two-phase)" explaining the two-call flow.
+   - Updated dry-run example with `would` as an array.
+   - Add `applied_labels` fields to the success envelope example.
+   - New row in the "Error envelopes" table for partial failure.
+   - Help-text snippet for `--label` updated per spec §6.4.
+
+10. **`.changeset/tasks-create-label-fix.md`** — patch entry per spec §11.
+    ```
+    ---
+    'freelo-cli': patch
+    ---
+
+    fix(commands): tasks create --label now decomposes into create-then-attach,
+    fixing the live-API 400 "Missing item 'uuid' in array."
+
+    Schema `freelo.tasks.create/v2` bumped — `data.would` retyped from object to
+    array (in --dry-run output); `data.applied_labels` added to surface attach
+    success/failure per label name. The /v1 envelope was only emitted on a code
+    path that returned 400, so no working caller is affected.
+    ```
+
+11. **`README.md`** autogen block — run `pnpm fix:readme`. Likely no diff
+    (the command list is unchanged; only the schema string changes, which the
+    README block doesn't enumerate).
+
+### New dependencies
+
+None. Pre-approved list from triage: `[]`. No surprises.
+
+### Test strategy
+
+- **Unit (`test/api/tasks-create.test.ts`)**: pure builder — verify `labels`
+  is dropped from the wire body even when present in input.
+- **Integration (`test/commands/tasks/create.test.ts`)**: full matrix per
+  spec §10. MSW for both endpoints. Coverage target unchanged (90% on
+  `src/commands/`).
+- **Human renderer**: new line for `Attached labels: …`, one assertion in
+  the existing happy-path human-mode test.
+- **Per Calibration §2**: every error path asserts the exit code via the
+  captured `process.exit`. Specifically the new partial-failure case asserts
+  exit 4 explicitly.
+- **Per Calibration §4**: any new try/catch arm in `create.ts` is exercised
+  by at least one test (attach 4xx, attach 5xx, attach network).
+- **Per Calibration §3**: after commit, run the full gate
+  (`pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm check:readme`)
+  on the committed tree before push.
+
+### Rollout order
+
+Single landable slice. The fix is small enough (≤10 source files including
+tests) and the schema bump is intentional, so no staging is needed.
+
+PLAN run=2026-05-01-0652-tasks-create-label-fix status=ok files=11 new_deps=0 retries=0

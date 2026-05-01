@@ -20,7 +20,12 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
-import { server, tasksCreateHandlers, tasklistShowHandlers } from '../../msw/handlers.js';
+import {
+  server,
+  tasksCreateHandlers,
+  tasksEditHandlers,
+  tasklistShowHandlers,
+} from '../../msw/handlers.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -214,27 +219,32 @@ describe('freelo tasks create — single mode happy paths', () => {
       schema: string;
       data: { task: { id: number; name: string }; tasklist_id: number; project_id: number };
     };
-    expect(env.schema).toBe('freelo.tasks.create/v1');
+    expect(env.schema).toBe('freelo.tasks.create/v2');
     expect(env.data.task.id).toBe(9012);
     expect(env.data.task.name).toBe('Audit auth flow');
     expect(env.data.tasklist_id).toBe(314);
     expect(env.data.project_id).toBe(42);
   });
 
-  it('every flag: body sent on the wire matches the builder mapping', async () => {
+  it('every flag: create body has NO labels; attach POST receives the labels (spec 0041)', async () => {
     const created = await loadFixture<Record<string, unknown>>('create-9012.json');
-    let capturedBody: unknown;
+    let capturedCreateBody: unknown;
+    let capturedAttachBody: unknown;
     server.use(
       tasklistShowHandlers.detailOk(314, tasklistDetail314),
       tasksCreateHandlers.okWhenBody(
         42,
         314,
         (body) => {
-          capturedBody = body;
+          capturedCreateBody = body;
           return true;
         },
         created,
       ),
+      tasksEditHandlers.addLabelsOkWhenBody(9012, (body) => {
+        capturedAttachBody = body;
+        return true;
+      }),
     );
 
     const { run } = await import('../../../src/bin/freelo.js');
@@ -262,12 +272,15 @@ describe('freelo tasks create — single mode happy paths', () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(capturedBody).toEqual({
+    expect(capturedCreateBody).toEqual({
       name: 'Full body',
       due_date: '2026-05-01T00:00:00Z',
       worker: 17,
       priority_enum: 'h',
       comment: { content: 'Description text.' },
+    });
+    // The labels travel out-of-band on a follow-up attach call (spec 0041 §5.1).
+    expect(capturedAttachBody).toEqual({
       labels: [{ name: 'blocker' }, { name: 'qa' }],
     });
   });
@@ -415,14 +428,16 @@ describe('freelo tasks create — dry-run', () => {
       data: {
         tasklist_id: number;
         project_id: number;
-        would: { method: string; path: string; body: { name: string } };
+        would: Array<{ method: string; path: string; body: { name: string } }>;
       };
     };
     expect(env.dry_run).toBe(true);
     expect(env.data.project_id).toBe(42);
-    expect(env.data.would.method).toBe('POST');
-    expect(env.data.would.path).toBe('/project/42/tasklist/314/tasks');
-    expect(env.data.would.body.name).toBe('Test');
+    expect(Array.isArray(env.data.would)).toBe(true);
+    expect(env.data.would).toHaveLength(1);
+    expect(env.data.would[0]!.method).toBe('POST');
+    expect(env.data.would[0]!.path).toBe('/project/42/tasklist/314/tasks');
+    expect(env.data.would[0]!.body.name).toBe('Test');
   });
 
   it('--dry-run + --project: no HTTP at all', async () => {
@@ -445,11 +460,46 @@ describe('freelo tasks create — dry-run', () => {
     expect(exitCode).toBe(0);
     const env = parseFirstJson(stdout) as {
       dry_run: boolean;
-      data: { project_id: number; would: { path: string } };
+      data: { project_id: number; would: Array<{ path: string }> };
     };
     expect(env.dry_run).toBe(true);
     expect(env.data.project_id).toBe(99);
-    expect(env.data.would.path).toBe('/project/99/tasklist/314/tasks');
+    expect(env.data.would).toHaveLength(1);
+    expect(env.data.would[0]!.path).toBe('/project/99/tasklist/314/tasks');
+  });
+
+  it('--dry-run + --label: would array carries TWO entries (create + attach placeholder)', async () => {
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'tasks',
+      'create',
+      '--tasklist',
+      '314',
+      '--project',
+      '42',
+      '--name',
+      'Test',
+      '--label',
+      'bug',
+      '--label',
+      'urgent',
+      '--dry-run',
+      '--output',
+      'json',
+    ]);
+
+    expect(exitCode).toBe(0);
+    const env = parseFirstJson(stdout) as {
+      data: {
+        would: Array<{ method: string; path: string; body: unknown }>;
+      };
+    };
+    expect(env.data.would).toHaveLength(2);
+    expect(env.data.would[0]!.path).toBe('/project/42/tasklist/314/tasks');
+    expect(env.data.would[1]!.path).toBe('/task-labels/add-to-task/{new_task_id}');
+    expect(env.data.would[1]!.body).toEqual({
+      labels: [{ name: 'bug' }, { name: 'urgent' }],
+    });
   });
 });
 
@@ -792,6 +842,284 @@ describe('freelo tasks create — HTTP errors', () => {
 });
 
 // ---------------------------------------------------------------------------
+//  Label flow (spec 0041) — single mode
+// ---------------------------------------------------------------------------
+
+describe('freelo tasks create — labels (spec 0041)', () => {
+  it('1 label, attach OK: applied_labels populated, exit 0', async () => {
+    const created = await loadFixture<Record<string, unknown>>('create-9012.json');
+    let attachBody: unknown;
+    server.use(
+      tasklistShowHandlers.detailOk(314, tasklistDetail314),
+      tasksCreateHandlers.ok(42, 314, created),
+      tasksEditHandlers.addLabelsOkWhenBody(9012, (body) => {
+        attachBody = body;
+        return true;
+      }),
+    );
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'tasks',
+      'create',
+      '--tasklist',
+      '314',
+      '--name',
+      'Audit',
+      '--label',
+      'bug',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(0);
+    expect(attachBody).toEqual({ labels: [{ name: 'bug' }] });
+    const env = parseFirstJson(stdout) as {
+      data: {
+        applied_labels: { requested: string[]; attached: string[]; failed: unknown[] };
+      };
+    };
+    expect(env.data.applied_labels.requested).toEqual(['bug']);
+    expect(env.data.applied_labels.attached).toEqual(['bug']);
+    expect(env.data.applied_labels.failed).toEqual([]);
+  });
+
+  it('2 labels: attach POST carries both names in a single batched body', async () => {
+    const created = await loadFixture<Record<string, unknown>>('create-9012.json');
+    // Using `okWhenBody` with `capturedBody` (overwritten on each call) — under
+    // vitest+MSW v2 the predicate may be invoked twice per fetch (known quirk
+    // documented in the existing 422 batch test). What matters for the contract
+    // is that the body shape carries both names and the final response is 200.
+    let capturedBody: unknown;
+    server.use(
+      tasklistShowHandlers.detailOk(314, tasklistDetail314),
+      tasksCreateHandlers.ok(42, 314, created),
+      tasksEditHandlers.addLabelsOkWhenBody(9012, (body) => {
+        capturedBody = body;
+        return true;
+      }),
+    );
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'tasks',
+      'create',
+      '--tasklist',
+      '314',
+      '--name',
+      'Audit',
+      '--label',
+      'bug',
+      '--label',
+      'urgent',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(0);
+    // Single batched body — both names in ONE request, not two.
+    expect(capturedBody).toEqual({
+      labels: [{ name: 'bug' }, { name: 'urgent' }],
+    });
+    const env = parseFirstJson(stdout) as {
+      data: {
+        applied_labels: { attached: string[] };
+      };
+    };
+    expect(env.data.applied_labels.attached).toEqual(['bug', 'urgent']);
+  });
+
+  it('attach 422: stdout success envelope (with applied_labels.failed) + stderr error envelope, exit 4', async () => {
+    const created = await loadFixture<Record<string, unknown>>('create-9012.json');
+    server.use(
+      tasklistShowHandlers.detailOk(314, tasklistDetail314),
+      tasksCreateHandlers.ok(42, 314, created),
+      tasksEditHandlers.addLabelsUnprocessable(9012, 'Color #aabbcc of label is not a valid value'),
+    );
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, stderr, exitCode } = await runCli(run, [
+      'tasks',
+      'create',
+      '--tasklist',
+      '314',
+      '--name',
+      'Audit',
+      '--label',
+      'bug',
+      '--label',
+      'urgent',
+      '--output',
+      'json',
+    ]);
+    // FreeloApiError (4xx other than 401) → exit 4.
+    expect(exitCode).toBe(4);
+
+    // stdout: success-shaped envelope, applied_labels.failed populated.
+    const env = parseFirstJson(stdout) as {
+      schema: string;
+      data: {
+        task: { id: number };
+        applied_labels: {
+          requested: string[];
+          attached: string[];
+          failed: Array<{ name: string; error_code: string; http_status: number; message: string }>;
+        };
+      };
+      notice?: string;
+    };
+    expect(env.schema).toBe('freelo.tasks.create/v2');
+    expect(env.data.task.id).toBe(9012);
+    expect(env.data.applied_labels.requested).toEqual(['bug', 'urgent']);
+    expect(env.data.applied_labels.attached).toEqual([]);
+    expect(env.data.applied_labels.failed).toHaveLength(2);
+    expect(env.data.applied_labels.failed[0]!.name).toBe('bug');
+    expect(env.data.applied_labels.failed[0]!.http_status).toBe(422);
+    expect(env.data.applied_labels.failed[1]!.name).toBe('urgent');
+    expect(env.notice).toMatch(/Task created but label attach failed/);
+
+    // stderr: error envelope with task_id + requested_label_names context.
+    const errEnv = parseFirstJson(stderr) as {
+      schema: string;
+      error: {
+        code: string;
+        http_status: number;
+        context: { task_id: number; requested_label_names: string[] };
+      };
+    };
+    expect(errEnv.schema).toBe('freelo.error/v1');
+    expect(errEnv.error.http_status).toBe(422);
+    expect(errEnv.error.context.task_id).toBe(9012);
+    expect(errEnv.error.context.requested_label_names).toEqual(['bug', 'urgent']);
+  });
+
+  it('attach 502: failed[*] retryable=true on stderr envelope, exit 4', async () => {
+    const created = await loadFixture<Record<string, unknown>>('create-9012.json');
+    server.use(
+      tasklistShowHandlers.detailOk(314, tasklistDetail314),
+      tasksCreateHandlers.ok(42, 314, created),
+      tasksEditHandlers.addLabelsServerError(9012, 502),
+    );
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, stderr, exitCode } = await runCli(run, [
+      'tasks',
+      'create',
+      '--tasklist',
+      '314',
+      '--name',
+      'Audit',
+      '--label',
+      'bug',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(4);
+    const env = parseFirstJson(stdout) as {
+      data: {
+        applied_labels: {
+          attached: string[];
+          failed: Array<{ name: string; error_code: string; http_status: number }>;
+        };
+      };
+    };
+    expect(env.data.applied_labels.attached).toEqual([]);
+    expect(env.data.applied_labels.failed[0]!.error_code).toBe('SERVER_ERROR');
+    expect(env.data.applied_labels.failed[0]!.http_status).toBe(502);
+    const errEnv = parseFirstJson(stderr) as {
+      error: { retryable: boolean; code: string };
+    };
+    expect(errEnv.error.code).toBe('SERVER_ERROR');
+    expect(errEnv.error.retryable).toBe(true);
+  });
+
+  it('attach network error: failed[*] populated, exit 5', async () => {
+    const created = await loadFixture<Record<string, unknown>>('create-9012.json');
+    server.use(
+      tasklistShowHandlers.detailOk(314, tasklistDetail314),
+      tasksCreateHandlers.ok(42, 314, created),
+      tasksEditHandlers.addLabelsNetworkError(9012),
+    );
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, stderr, exitCode } = await runCli(run, [
+      'tasks',
+      'create',
+      '--tasklist',
+      '314',
+      '--name',
+      'Audit',
+      '--label',
+      'bug',
+      '--output',
+      'json',
+    ]);
+    // NetworkError → exit 5.
+    expect(exitCode).toBe(5);
+    const env = parseFirstJson(stdout) as {
+      data: {
+        task: { id: number };
+        applied_labels: { failed: Array<{ name: string; error_code: string }> };
+      };
+    };
+    // Task was created — agents must still see the id on stdout.
+    expect(env.data.task.id).toBe(9012);
+    expect(env.data.applied_labels.failed[0]!.error_code).toBe('NETWORK_ERROR');
+    const errEnv = parseFirstJson(stderr) as { error: { code: string } };
+    expect(errEnv.error.code).toBe('NETWORK_ERROR');
+  });
+
+  it('no --label: applied_labels is ABSENT (preserve absent-vs-empty distinction)', async () => {
+    const created = await loadFixture<Record<string, unknown>>('create-9012.json');
+    server.use(
+      tasklistShowHandlers.detailOk(314, tasklistDetail314),
+      tasksCreateHandlers.ok(42, 314, created),
+    );
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'tasks',
+      'create',
+      '--tasklist',
+      '314',
+      '--name',
+      'Audit',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(0);
+    const env = parseFirstJson(stdout) as { data: Record<string, unknown> };
+    expect('applied_labels' in env.data).toBe(false);
+  });
+
+  it('human mode: success line includes "Attached labels: …"', async () => {
+    const created = await loadFixture<Record<string, unknown>>('create-9012.json');
+    server.use(
+      tasklistShowHandlers.detailOk(314, tasklistDetail314),
+      tasksCreateHandlers.ok(42, 314, created),
+      tasksEditHandlers.addLabelsOk(9012),
+    );
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'tasks',
+      'create',
+      '--tasklist',
+      '314',
+      '--name',
+      'Audit auth flow',
+      '--label',
+      'bug',
+      '--label',
+      'urgent',
+      '--output',
+      'human',
+    ]);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('Created task #9012');
+    expect(stdout).toContain('Attached labels: bug, urgent');
+  });
+});
+
+// ---------------------------------------------------------------------------
 //  Batch (--stdin) mode
 // ---------------------------------------------------------------------------
 
@@ -801,6 +1129,9 @@ describe('freelo tasks create — batch (--stdin)', () => {
     server.use(
       tasklistShowHandlers.detailOk(314, tasklistDetail314),
       tasksCreateHandlers.ok(42, 314, created),
+      // Line 3 carries `label: ['ops']` — attach handler required for the
+      // post-create attach call (spec 0041 §5.1 / §7.3).
+      tasksEditHandlers.addLabelsOk(9012),
     );
 
     const ndjson =
@@ -826,7 +1157,7 @@ describe('freelo tasks create — batch (--stdin)', () => {
       expect((lines[1]!['data'] as { line_index: number }).line_index).toBe(1);
       expect((lines[2]!['data'] as { line_index: number }).line_index).toBe(2);
       for (const line of lines) {
-        expect(line['schema']).toBe('freelo.tasks.create/v1');
+        expect(line['schema']).toBe('freelo.tasks.create/v2');
       }
     } finally {
       restore();
@@ -859,12 +1190,12 @@ describe('freelo tasks create — batch (--stdin)', () => {
       expect(exitCode).toBe(2);
       const lines = parseAllJsonLines(stdout);
       expect(lines).toHaveLength(3);
-      expect(lines[0]!['schema']).toBe('freelo.tasks.create/v1');
+      expect(lines[0]!['schema']).toBe('freelo.tasks.create/v2');
       expect(lines[1]!['schema']).toBe('freelo.error/v1');
       expect((lines[1]!['error'] as { context: { line_index: number } }).context.line_index).toBe(
         1,
       );
-      expect(lines[2]!['schema']).toBe('freelo.tasks.create/v1');
+      expect(lines[2]!['schema']).toBe('freelo.tasks.create/v2');
     } finally {
       restore();
     }
@@ -909,7 +1240,7 @@ describe('freelo tasks create — batch (--stdin)', () => {
       const lines = parseAllJsonLines(stdout);
       expect(exitCode).toBe(4);
       expect(lines).toHaveLength(2);
-      expect(lines[0]!['schema']).toBe('freelo.tasks.create/v1');
+      expect(lines[0]!['schema']).toBe('freelo.tasks.create/v2');
       expect(lines[1]!['schema']).toBe('freelo.error/v1');
       expect((lines[1]!['error'] as { http_status: number }).http_status).toBe(422);
     } finally {
@@ -1039,6 +1370,49 @@ describe('freelo tasks create — batch (--stdin)', () => {
       restore();
     }
   });
+
+  it('per-line attach failure (502): success + error envelopes per line, exit 4 (spec 0041 §7.3)', async () => {
+    const created = await loadFixture<Record<string, unknown>>('create-9012.json');
+    server.use(
+      tasklistShowHandlers.detailOk(314, tasklistDetail314),
+      tasksCreateHandlers.ok(42, 314, created),
+      tasksEditHandlers.addLabelsServerError(9012, 502),
+    );
+
+    const ndjson =
+      `${JSON.stringify({ name: 'A', label: ['bug'] })}\n` +
+      `${JSON.stringify({ name: 'B', label: ['urgent'] })}\n`;
+    const restore = pipeStdin(ndjson);
+    try {
+      const { run } = await import('../../../src/bin/freelo.js');
+      const { stdout, exitCode } = await runCli(run, [
+        'tasks',
+        'create',
+        '--tasklist',
+        '314',
+        '--stdin',
+        '--output',
+        'ndjson',
+      ]);
+      expect(exitCode).toBe(4);
+      const lines = parseAllJsonLines(stdout);
+      // Two input lines × (1 success envelope + 1 error envelope) = 4 NDJSON lines.
+      expect(lines).toHaveLength(4);
+      expect(lines[0]!['schema']).toBe('freelo.tasks.create/v2');
+      expect(
+        (lines[0]!['data'] as { applied_labels: { failed: unknown[] } }).applied_labels.failed,
+      ).toHaveLength(1);
+      expect(lines[1]!['schema']).toBe('freelo.error/v1');
+      expect(
+        (lines[1]!['error'] as { context: { task_id: number; line_index: number } }).context
+          .task_id,
+      ).toBe(9012);
+      expect(lines[2]!['schema']).toBe('freelo.tasks.create/v2');
+      expect(lines[3]!['schema']).toBe('freelo.error/v1');
+    } finally {
+      restore();
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1061,7 +1435,7 @@ describe('freelo tasks create — introspect', () => {
     };
     const create = env.data.commands.find((c) => c.name === 'tasks create');
     expect(create).toBeDefined();
-    expect(create!.output_schema).toBe('freelo.tasks.create/v1');
+    expect(create!.output_schema).toBe('freelo.tasks.create/v2');
     expect(create!.destructive).toBe(false);
   });
 });
