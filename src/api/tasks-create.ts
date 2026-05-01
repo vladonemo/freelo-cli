@@ -16,12 +16,19 @@ import {
  *   - `priority`: low → l, normal → m, high → h (Freelo `priority_enum`).
  *   - `due`: `YYYY-MM-DD` → `YYYY-MM-DDT00:00:00Z` (decision 1, spec 0019 §5).
  *   - `description`: passed inline as `comment.content`.
- *   - `labels`: each name becomes `{ name }` — Freelo's `TaskLabelAddInput`
- *     in name-mode (color defaults to `#77787a` server-side; OpenAPI :5164).
+ *
+ * Labels are **never** placed on this body (spec 0041 §5.1): the live
+ * `POST /project/{p}/tasklist/{t}/tasks` endpoint rejects name-mode labels
+ * with HTTP 400 ("Missing item 'uuid' in array."). The command layer carries
+ * `input.labels` out-of-band and dispatches a follow-up
+ * `POST /task-labels/add-to-task/{newId}` after the create succeeds. The
+ * `labels` field on `CreateTaskInput` is therefore intentionally ignored
+ * here — the builder is the sole writer for the wire body, and dropping the
+ * mapping is the fix.
  *
  * Fields are emitted only when set (mirrors R07's filter-omit convention).
  *
- * Spec 0019 §5.
+ * Spec 0019 §5 + spec 0041 §5.1.
  */
 export function buildCreateTaskBody(input: CreateTaskInput): CreateTaskBody {
   const body: CreateTaskBody = { name: input.name };
@@ -36,9 +43,6 @@ export function buildCreateTaskBody(input: CreateTaskInput): CreateTaskBody {
   }
   if (input.description !== undefined && input.description.length > 0) {
     body.comment = { content: input.description };
-  }
-  if (input.labels !== undefined && input.labels.length > 0) {
-    body.labels = input.labels.map((name) => ({ name }));
   }
   return body;
 }

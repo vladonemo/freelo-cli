@@ -497,6 +497,12 @@ export type CreateTaskInput = {
  * Wire-shape of the POST body. Matches `TaskCreate` (OpenAPI :5300-5337) for
  * the subset of fields R09 supports. Fields are emitted only when set —
  * matches the `applied_filters` convention in R07.
+ *
+ * `labels` is **deliberately absent** here (spec 0041 §5.1). The live
+ * `POST /project/{p}/tasklist/{t}/tasks` endpoint requires `{uuid, name, color}`
+ * for every label entry — name-only is rejected with HTTP 400. Labels travel
+ * out-of-band: the command layer creates the task without labels, then issues
+ * a `POST /task-labels/add-to-task/{newId}` for the requested names.
  */
 export type CreateTaskBody = {
   name: string;
@@ -504,30 +510,69 @@ export type CreateTaskBody = {
   worker?: number;
   priority_enum?: 'h' | 'm' | 'l';
   comment?: { content: string };
-  labels?: { name: string }[];
 };
 
 /**
- * Envelope `data` shape for `freelo.tasks.create/v1`.
+ * Single descriptor for one would-be wire call inside `data.would[]`. Mirrors
+ * `EditWouldEntrySchema` (R10) — both R09 (after spec 0041 fix) and R10 fan
+ * out across multiple endpoints in `--dry-run`.
+ *
+ * Spec 0041 §6.2.
+ */
+export const CreateWouldEntrySchema = z.object({
+  method: z.literal('POST'),
+  path: z.string(),
+  body: z.unknown(),
+});
+
+export type CreateWouldEntry = z.infer<typeof CreateWouldEntrySchema>;
+
+/**
+ * Per-label attach failure record, surfaced under `data.applied_labels.failed`.
+ *
+ * Because the attach call is a single batched POST, the failure mode is
+ * all-or-nothing: either all requested names land in `attached`, or all land
+ * in `failed` (with the same root error repeated per name). Callers that want
+ * "everything failed" can simply read `applied_labels.attached.length === 0`.
+ *
+ * Spec 0041 §6.2.
+ */
+export const AppliedLabelFailureSchema = z.object({
+  name: z.string(),
+  error_code: z.string(),
+  http_status: z.number().int().nullable(),
+  message: z.string(),
+});
+
+export type AppliedLabelFailure = z.infer<typeof AppliedLabelFailureSchema>;
+
+/**
+ * Envelope `data` shape for `freelo.tasks.create/v2`.
  *
  *   - `task` is **always present** in success envelopes (live mode).
  *   - `tasklist_id` and `project_id` are echoed for round-trip clarity.
- *   - `would` is **only present** in `--dry-run` envelopes (decision: pulled
- *     up to envelope-data so `dry_run: true` + `data.would` is a single
- *     coherent shape).
+ *   - `would` is **only present** in `--dry-run` envelopes. **Bumped to an
+ *     array in /v2** (spec 0041 §6.1) — was a single object in /v1. The
+ *     create-then-attach flow may emit two entries (create + attach); without
+ *     `--label`, the array has length 1.
+ *   - `applied_labels` is **only present** when `--label` was passed AND we
+ *     reached the live attach phase. Carries the names requested, the names
+ *     the attach call confirmed, and per-name failure records when the attach
+ *     POST fails. Absent in dry-run; absent when no labels were requested.
  *   - `line_index` is **only present** in batch (`--stdin`) mode — 0-indexed.
  *
- * Spec 0019 §3.2.
+ * Spec 0019 §3.2 (R09) + spec 0041 §6 (label-fix bump).
  */
 export const TasksCreateDataSchema = z.object({
   task: TaskCreatedSchema.optional(),
   tasklist_id: z.number().int(),
   project_id: z.number().int().nullable(),
-  would: z
+  would: z.array(CreateWouldEntrySchema).optional(),
+  applied_labels: z
     .object({
-      method: z.literal('POST'),
-      path: z.string(),
-      body: z.unknown(),
+      requested: z.array(z.string()),
+      attached: z.array(z.string()),
+      failed: z.array(AppliedLabelFailureSchema),
     })
     .optional(),
   line_index: z.number().int().nonnegative().optional(),
