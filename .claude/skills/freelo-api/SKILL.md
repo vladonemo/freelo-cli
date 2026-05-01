@@ -159,6 +159,32 @@ When both exist, prefer the aggregate for read commands that need cross-project 
   - The mark endpoints are `POST /notification/{id}/mark-read` and `POST /notification/{id}/mark-unread` — **without** the `as-` infix the YAML shows. Calling `/mark-as-read` returns 200 but is a no-op (does not actually flip the read flag).
   - Both quirks are flagged inline in `docs/api/freelo-api.yaml` (search for `WIRE QUIRK`). Cross-references: `https://github.com/freeloapp/mcp/blob/main/src/tools/notifications/get-notifications.ts`, `mark-notification-read.ts`, `mark-notification-unread.ts`.
   - Implication for our wire code: `buildQuery` boolean handling is fine in general, but the `notifications.ts` wrapper must convert `onlyUnread === true` into the string `'1'` and the path helpers must drop the `-as` infix.
+- **Task-create label entries require uuid+name+color, all three.**
+  - Path: `POST /project/{p}/tasklist/{t}/tasks`
+  - Source: empirical curl probes against `https://api.freelo.io/v1` (2026-04-30); contradicts spec `TaskLabelAddInput` at `docs/api/freelo-api.yaml:5139-5169` which declares a `oneOf` of `{uuid}` / `{name, color?, uuid?}`.
+  - Probe results:
+    - `[{name}]` → 400 `"Missing item 'uuid' in array."`
+    - `[{name,color}]` → 400 `"Missing item 'uuid' in array."`
+    - `[{uuid,name}]` → 400 `"Missing item 'color' in array."`
+    - `[{uuid}]` → 400 `"Missing item 'name' in array."`
+    - `[{uuid:<new>,name,color}]` → 200, creates a new label
+    - `[{uuid:<existing>,name,color}]` → 200, attaches existing label
+  - CLI implication: do **not** rely on inline label-by-name during task create. Decompose into create-then-attach via `POST /task-labels/add-to-task/{id}` (see next quirk).
+- **`POST /task-labels/add-to-task/{task_id}` accepts name-mode but rejects unknown colors.**
+  - Source: empirical curl probes (2026-04-30); spec `TaskLabelAddInput` at `docs/api/freelo-api.yaml:2464-2479` and `:5159-5169` declares no enum on `color`.
+  - Live behavior: name-mode works (200); color defaults are honored.
+  - Supplying a `color` outside Freelo's hardcoded palette returns `400 {"errors":["Color \"<hex>\" of label is not a valid value"]}` — verified `#aabbcc` rejected; `#10aa40` accepted.
+  - Known-good palette values seen in the wild: `#10aa40`, `#367fee`, `#9235e4`, `#15acc0`, `#f2830b`, `#e9483a`, `#77787a` (default).
+  - CLI implication: when surfacing custom colors via flags, either validate against this palette client-side or pass through and surface the API error verbatim.
+- **`GET /project-labels/find-available` and task-inline labels are separate buckets.**
+  - Source: empirical curl probes (2026-04-30).
+  - Live behavior: returns `{"labels":[]}` for users with no project-labels even when their tasks expose populated inline `labels: [{uuid,name,color}]` arrays. Calling `POST /task-labels` (definition-create) does **not** make the new label appear in `find-available`.
+  - CLI implication: `find-available` is **not** a reliable name→uuid resolver for task-labels. There is no documented bulk-list endpoint for task-labels. To resolve a task-label name to its uuid, either (a) scan tasks via `GET /all-tasks` (expensive) or (b) round-trip via `POST /task-labels/add-to-task` (which accepts name-mode) and read the resolved uuid from the next `GET /task/{id}`.
+- **The `freeloapp/mcp` repo is not a reliable cross-reference for live API paths.**
+  - Source: empirical curl probes (2026-04-30) against paths cited from `freeloapp/mcp@main:src/tools/project-labels/*` during the v0.17.1 hotfix analysis.
+  - Wrong paths claimed by MCP source (all 404 on live API): `/project-labels` (no suffix), `/project-label/{id}` (singular), `/project/{p}/label`.
+  - SDK-documented paths that work (200): `/project-labels/find-available`, `/project-labels/{id}`, `/project-labels/add-to-project/{p}`.
+  - Implication: trust the OpenAPI spec + `@freeloapp/js-sdk@2.3.0` for **paths**, but treat both with skepticism for **body shapes** (see the two quirks above). MCP tools appear untested against the live API — do not cite them as ground truth.
 
 ## Codegen — open decision
 
