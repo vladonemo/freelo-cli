@@ -25,11 +25,24 @@ const TaskLabelSchema = z
   })
   .passthrough();
 
-const TimeEstimateSchema = z.object({ minutes: z.number().int() }).passthrough();
+/**
+ * `minutes`-style duration field on response paths. The live Freelo API
+ * sometimes returns these as strings (e.g. `"130"` on `GET /task/{id}`)
+ * even though the OpenAPI spec types them as integer. Same divergence
+ * pattern as `CurrencySchema.amount` below (:243) — accept either, coerce
+ * to a number. Do not use this for input/echo schemas where we control
+ * the value.
+ */
+const MinutesSchema = z
+  .union([z.string(), z.number()])
+  .transform((v) => (typeof v === 'string' ? Number.parseInt(v, 10) : v))
+  .pipe(z.number().int());
+
+const TimeEstimateSchema = z.object({ minutes: MinutesSchema }).passthrough();
 
 const UserTimeEstimateSchema = z
   .object({
-    minutes: z.number().int(),
+    minutes: MinutesSchema,
     user: UserBasicSchema,
   })
   .passthrough();
@@ -342,7 +355,7 @@ export const TaskDetailSchema = z
     due_date: z.string().nullable().optional(),
     due_date_end: z.string().nullable().optional(),
     date_finished: z.string().nullable().optional(),
-    minutes: z.number().int().nullable().optional(),
+    minutes: MinutesSchema.nullable().optional(),
     priority_enum: PriorityEnumSchema.nullable().optional(),
     count_subtasks: z.number().int().nullable().optional(),
     parent_task_id: z.number().int().nullable().optional(),

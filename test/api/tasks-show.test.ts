@@ -53,6 +53,20 @@ describe('getTaskDetail', () => {
     expect(seen).toHaveBeenCalledWith(`${API_BASE}/task/9001`);
   });
 
+  it('coerces wire-string `minutes` to a number (live-API divergence)', async () => {
+    // Live API returns `minutes` as a string on `GET /task/{id}` for tasks
+    // with logged time (e.g. `"130"`). The OpenAPI spec types it as integer;
+    // the wire wins. `MinutesSchema` accepts either and coerces.
+    const fixture = await loadFixture<Record<string, unknown>>('show-task-9001.json');
+    const wireString = { ...fixture, minutes: '130' };
+    server.use(tasksShowHandlers.detailOk(9001, wireString));
+
+    const client = makeClient();
+    const out = await getTaskDetail(client, 9001, {});
+    expect(out.data.minutes).toBe(130);
+    expect(typeof out.data.minutes).toBe('number');
+  });
+
   it('round-trips multi_project_task block when present', async () => {
     const fixture = await loadFixture<Record<string, unknown>>('show-task-9001-multi.json');
     server.use(tasksShowHandlers.detailOk(9001, fixture));
