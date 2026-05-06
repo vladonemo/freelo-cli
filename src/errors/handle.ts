@@ -77,31 +77,69 @@ export async function drainDispatcher(): Promise<void> {
 }
 
 /**
- * Defer `process.exit(code)` to the next event-loop tick, then await it.
+ * Resolve the fallback delay before forcing `process.exit`. See
+ * `exitDeferred` for the full rationale. 200ms beats the ~100ms threshold
+ * empirically observed on Windows 11 + Node 24 with margin to spare;
+ * macOS/Linux pay the same delay on the error path but never crash without
+ * it.
  *
- * On Windows, the synchronous-exit-after-await pattern is what trips
- * `UV_HANDLE_CLOSING`: undici's `dispatcher.destroy()` resolves while
- * libuv has scheduled but not yet run the close callbacks for keep-alive
- * sockets. `setImmediate` lets the loop drain those callbacks before
- * the synchronous exit. On macOS/Linux this is a sub-millisecond no-op
- * but the universal application keeps the code simple.
+ * Read on each call (not at module init) so the test setup can override
+ * via `FREELO_EXIT_DELAY_MS=0` regardless of import order with vitest's
+ * setup files.
+ */
+function fallbackExitMs(): number {
+  const raw = process.env['FREELO_EXIT_DELAY_MS'];
+  if (raw === undefined) return 200;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : 200;
+}
+
+/**
+ * Set `process.exitCode` and schedule a fallback `process.exit(code)` after
+ * a short delay, then await it.
  *
- * In production, `process.exit` ends the process before the promise can
- * resolve, so the typed `Promise<never>` return is honored. In tests,
- * `process.exit` is mocked to throw — that throw propagates out of the
- * setImmediate callback into the awaited promise, causing it to reject.
- * Tests can use `await expect(handleTopLevelError(...)).rejects.toThrow()`.
+ * Why a delay-based fallback rather than a phase-based one:
+ *
+ *   - `dispatcher.destroy()` initiates socket close but libuv has internal
+ *     async handles (DNS thread-pool tasks, TLS Schannel finalization,
+ *     ...) whose close callbacks are not surfaced via `_getActiveHandles`
+ *     and don't all finalize within a fixed number of loop iterations.
+ *   - Empirically (Win11 + Node 24), `process.exit` fires its libuv-walk
+ *     teardown synchronously and asserts when any handle is still in
+ *     `UV_HANDLE_CLOSING`:
+ *
+ *       Assertion failed: !(handle->flags & UV_HANDLE_CLOSING),
+ *         file src\\win\\async.c, line 76
+ *
+ *   - 50× `setImmediate` hops do not clear it. ~100ms wall-clock does.
+ *     Prior R05.5 fixes (graceful close → `.destroy()` → `setImmediate`)
+ *     all fell short for this reason.
+ *
+ * The fix:
+ *   1. `process.exitCode = code` — if the loop drains naturally during
+ *      the fallback window (the normal case after `dispatcher.destroy()`
+ *      and a flushed stderr write), the process exits cleanly with the
+ *      right code and `process.exit` never fires.
+ *   2. Otherwise, after `FALLBACK_EXIT_MS`, force-exit. By then libuv has
+ *      finalized its internal async handles and the assertion no longer
+ *      fires.
+ *
+ * Tests stub `process.exit` to throw; the `setTimeout` callback's throw
+ * propagates into the awaited promise's rejection, so existing
+ * `await expect(handleTopLevelError(...)).rejects.toThrow()` assertions
+ * keep working. `FREELO_EXIT_DELAY_MS=0` in the test setup makes them
+ * fire on the next tick instead of after 200ms.
  */
 export function exitDeferred(code: number): Promise<never> {
+  process.exitCode = code;
   return new Promise<never>((_resolve, reject) => {
-    setImmediate(() => {
+    setTimeout(() => {
       try {
         process.exit(code);
       } catch (err) {
-        // Only reachable when process.exit is mocked (test environment).
         reject(err as Error);
       }
-    });
+    }, fallbackExitMs());
   });
 }
 
