@@ -389,4 +389,51 @@ describe('handleTopLevelError — drains undici dispatcher before exit (libuv fi
     expect(exitOrder).toContain('dispatcher.destroy.started');
     expect(exitOrder).toContain('process.exit(2)');
   });
+
+  /**
+   * Round-3 fix (the one being added with this PR). The Windows libuv
+   * UV_HANDLE_CLOSING assertion kept reproducing in production despite
+   * the round-2 setImmediate hop. Empirically (Win11 + Node 24, real TLS
+   * connection to api.freelo.io) the assertion fires up to ~100 ms after
+   * `dispatcher.destroy()` resolves — phase rotation alone (50 setImmediate
+   * hops) does not clear it; only wall-clock time does.
+   *
+   * The new contract:
+   *   1. `exitDeferred(code)` sets `process.exitCode = code` synchronously,
+   *      so a natural loop drain still produces the right exit code if it
+   *      happens before the fallback fires.
+   *   2. `process.exit(code)` is scheduled via `setTimeout` (not
+   *      `setImmediate`), so by the time it fires libuv has had real time
+   *      to finalize internal async handles.
+   *
+   * The tests assert the contract on round-3, not on the exact ms value
+   * (which is set via `FREELO_EXIT_DELAY_MS=0` in `test/setup.ts` for
+   * speed). The integration test in `test/integration/windows-libuv-exit.test.ts`
+   * covers the wall-clock behavior end-to-end.
+   */
+  it('round-3 contract: process.exitCode is set before process.exit is called', async () => {
+    const exitCodeSeenAtExit: number[] = [];
+    vi.spyOn(process, 'exit').mockImplementation((_code?: string | number | null) => {
+      // Capture the value of process.exitCode AT THE MOMENT process.exit fires.
+      // The new exitDeferred sets exitCode BEFORE deferring, so it must
+      // already match the requested code by the time exit() is reached.
+      exitCodeSeenAtExit.push(typeof process.exitCode === 'number' ? process.exitCode : -1);
+      throw new Error(`process.exit(${_code ?? ''})`);
+    });
+
+    const previousExitCode = process.exitCode;
+    process.exitCode = 0;
+    try {
+      const err = new ValidationError('bad input');
+      await expect(handleTopLevelError(err, 'json')).rejects.toThrow('process.exit(2)');
+      // Must be set BEFORE the deferred process.exit fires — this is the
+      // mechanism that lets the loop drain naturally with the right code
+      // when nothing is keeping it alive.
+      expect(exitCodeSeenAtExit).toEqual([2]);
+      // And must remain set after the throw.
+      expect(process.exitCode).toBe(2);
+    } finally {
+      process.exitCode = previousExitCode;
+    }
+  });
 });
