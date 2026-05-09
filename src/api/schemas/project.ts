@@ -426,3 +426,97 @@ export type ProjectsDeleteData = {
     body: Record<string, never>;
   };
 };
+
+/* ------------------------------------------------------------------------- *
+ *  R31 — `freelo projects create-from-template` (spec 0044)
+ *
+ *  `POST /project/create-from-template/{template_id}` returns a richer shape
+ *  than `POST /projects` — it includes `owner` (UserBasic) and `currency_iso`
+ *  alongside `id` and `name`. See OpenAPI :816-830.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Response shape of `POST /project/create-from-template/{template_id}` per
+ * OpenAPI :820-830. Richer than `ProjectBasic`: carries `owner` (the resolved
+ * project owner; defaults to caller server-side when `project_owner_id` is
+ * omitted) and `currency_iso` (the resolved currency; defaults to a
+ * locale-derived value server-side when `currency_iso` is omitted in the
+ * request body — yaml :773).
+ *
+ * `.passthrough()` so future fields are tolerated. `owner` and `currency_iso`
+ * are `.nullable().optional()` per project convention (Freelo serializes
+ * `null` and absent interchangeably).
+ *
+ * Spec 0044 §5.
+ */
+export const ProjectFromTemplateSchema = z
+  .object({
+    id: z.number().int(),
+    name: z.string(),
+    owner: UserBasicSchema.nullable().optional(),
+    currency_iso: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+export type ProjectFromTemplate = z.infer<typeof ProjectFromTemplateSchema>;
+
+/** Layout values accepted by `general_settings.layout` (OpenAPI :806-809). */
+export const PROJECT_LAYOUT_VALUES = ['rows', 'kanban'] as const;
+export type ProjectLayout = (typeof PROJECT_LAYOUT_VALUES)[number];
+
+/**
+ * CLI-side input shape for `freelo projects create-from-template`. Camel-case
+ * and normalized — `currency` is already uppercased and `layout` is already
+ * lowercased by the time the body builder sees it.
+ *
+ * `workers` is a `readonly number[]` rather than `number[]` because Commander's
+ * variadic flag accumulator returns a fresh array each invocation; the
+ * readonly hint discourages downstream mutation.
+ */
+export type CreateProjectFromTemplateInput = {
+  templateId: number;
+  name: string;
+  ownerId?: number;
+  currency?: ProjectCurrency;
+  /** ISO-8601 calendar date `YYYY-MM-DD`. Validated upstream. */
+  dateStart?: string;
+  layout?: ProjectLayout;
+  workers?: readonly number[];
+};
+
+/**
+ * Wire body shape for `POST /project/create-from-template/{template_id}`
+ * (OpenAPI :785-814). Optional fields are omitted entirely (not emitted
+ * as `undefined`) so the JSON serialization is clean.
+ */
+export type CreateProjectFromTemplateBody = {
+  name: string;
+  project_owner_id?: number;
+  currency_iso?: ProjectCurrency;
+  preset_date_from?: string;
+  general_settings?: { layout: ProjectLayout };
+  users_ids?: number[];
+};
+
+/**
+ * Envelope `data` shape for `freelo.projects.create-from-template/v1`.
+ *
+ * `data.template_id` is always present (it's the path-positional and the
+ * most-keyed-off output for agents).
+ *
+ * `data.project` is present on live success — the parsed
+ * `ProjectFromTemplateSchema` shape.
+ *
+ * `data.would` is present on `--dry-run` — the call that would have happened.
+ * Exactly one of `project` / `would` is set per envelope. Spec 0044 §3.2.
+ */
+export type ProjectsCreateFromTemplateData = {
+  template_id: number;
+  project?: ProjectFromTemplate;
+  would?: {
+    method: 'POST';
+    /** `/project/create-from-template/{template_id}` — already includes the id. */
+    path: string;
+    body: CreateProjectFromTemplateBody;
+  };
+};
