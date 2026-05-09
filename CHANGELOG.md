@@ -1,5 +1,166 @@
 # freelo-cli
 
+## 0.18.0
+
+### Minor Changes
+
+- 200dcf4: Add `--palette <name>` flag on three label-write commands (R24.5).
+
+  **Surface (additive — no breaking change):**
+
+  ```
+  freelo labels rename       <id> [--name <str>] [--palette <name> | --hex <#RRGGBB>] ...
+  freelo labels attach       --project <id> --name <str>... [--palette <name> | --hex <#RRGGBB>] ...
+  freelo task-labels create  --name <str>... [--palette <name> | --hex <#RRGGBB>] ...
+  ```
+
+  Nine palette names map to Freelo's canonical hues, locked at build time:
+
+  | Name   | Hex       |
+  | ------ | --------- |
+  | gray   | `#77787A` |
+  | aqua   | `#15ACC0` |
+  | blue   | `#367FEE` |
+  | green  | `#10AA40` |
+  | pink   | `#CA3E99` |
+  | purple | `#9235E4` |
+  | red    | `#E9483A` |
+  | orange | `#F2830B` |
+  | yellow | `#E3B51E` |
+
+  **Behavior:**
+
+  - `--palette` and `--hex` are mutually exclusive (`ValidationError`, exit 2; `hintNext` lists the nine names).
+  - `--palette` is case-insensitive; unknown names fail closed with `ValidationError`.
+  - `--hex` validation unchanged (`^#[0-9a-fA-F]{6}$`).
+  - Both flags resolve to the same wire field `color: "#RRGGBB"`. Dry-run envelope's `would.body.color` carries the resolved hex regardless of which flag was used.
+  - Each command's `--help` lists the palette table inline (Commander long-description block).
+
+  **No envelope schema change.** No `freelo.<resource>.<op>/v2` bump. No API call change. Pure client-side discovery layer on top of R23 + R24, surfacing Freelo's fixed nine-color palette by name. New shared helper `src/lib/label-color.ts` is the single source of truth.
+
+  No new dependencies.
+
+- 82ae974: Add `freelo projects archive` / `projects activate` / `projects delete` (R30) — second slice of Wave 5 project admin.
+
+  **Surface:**
+
+  ```
+  freelo projects archive  <id>... [--ids "a,b,c"] [--stdin] [--dry-run]
+  freelo projects activate <id>... [--ids "a,b,c"] [--stdin] [--dry-run]
+  freelo projects delete   <id>... [--ids "a,b,c"] [--stdin] [--yes] [--dry-run]
+  ```
+
+  **Envelope contracts:** three new schemas (all additive — public contract):
+
+  - `freelo.projects.archive/v1` — `data: { project_id, current_state: "archived" }`
+  - `freelo.projects.activate/v1` — `data: { project_id, current_state: "active" }`
+  - `freelo.projects.delete/v1` — `data: { project_id, current_state: "deleted", already_in_target_state }`
+
+  `archive` and `activate` are absorbing-state writes — server-side idempotency means re-calling on an already-target project succeeds with a normal 200. `delete` is destructive (reuses the R13 `confirmDestructive` helper) and re-classifies a 404 as idempotent already-deleted (mirrors `tasks delete`). Soft-delete is reversible via `projects activate`.
+
+  All three commands support `--dry-run`, positional `<id>...`, `--ids "a,b,c"`, and `--stdin` NDJSON. No GET pre-check on the wire path (decision 1 in spec 0043) — agents that need observed previous state should call `freelo projects show` first.
+
+- b8b21fa: Add `freelo projects create-from-template` (R31) — third slice of Wave 5 project admin.
+
+  **Surface:**
+
+  ```
+  freelo projects create-from-template <template_id> --name <str>
+    [--owner-id <id>] [--currency <CZK|EUR|USD>] [--date-start <YYYY-MM-DD>]
+    [--layout <rows|kanban>] [--worker <id>]... [--dry-run]
+  ```
+
+  **Envelope contract:** new schema `freelo.projects.create-from-template/v1` (additive — public contract). Carries `data.template_id` (always) plus either `data.project: { id, name, owner?, currency_iso? }` on live success or `data.would: { method, path, body }` on `--dry-run`.
+
+  Every flag maps to a documented field in the OpenAPI request body for `POST /project/create-from-template/{template_id}`: `name`, `project_owner_id`, `currency_iso`, `preset_date_from`, `general_settings.layout`, `users_ids`. Reuses Wave 2 shared write infra (`--dry-run`) and R29's body-builder / hint-rewriter patterns. Single-shot only in v1; `--stdin` NDJSON intentionally deferred (project creation is rare).
+
+- edfac24: Add `freelo projects create` (R29) — first slice of Wave 5 project admin.
+
+  **Surface:**
+
+  ```
+  freelo projects create --name <str> --currency <CZK|EUR|USD> [--project-owner-id <id>] [--dry-run]
+  ```
+
+  **Envelope contract:** new schema `freelo.projects.create/v1` (additive — public contract). Carries `data.project: { id, name }` on live success or `data.would: { method, path, body }` on `--dry-run`.
+
+  Reuses Wave 2 shared write infra (`--dry-run`). Single-shot only in v1; NDJSON batch (`--stdin`) intentionally deferred. `--date-start` flag from the roadmap is dropped because the documented `POST /projects` body has no start-date field — tracked as a future R29.5 if Freelo adds it.
+
+- bf79ae3: Add `freelo projects invite` (R33) — fifth slice of Wave 5 project admin.
+
+  **Surface:**
+
+  ```
+  freelo projects invite --project <id>...
+                         [--user <id>...] [--email <addr>...]
+                         [--dry-run]
+  ```
+
+  `--project` is required and repeatable. `--user` and `--email` are **not** mutually exclusive — the wire body accepts both arrays in one call (decision 2; differs from R32 `workers remove` which routes to two different endpoints). At least one of `--user` / `--email` must be non-empty.
+
+  **Envelope contract (additive — public contract):**
+
+  - New schema `freelo.projects.invite/v1` — `data: { projects_ids, users_ids?, emails?, result?, would? }`.
+    - `users_ids` / `emails` echoed only when supplied (post-dedup, in input order).
+    - `result` present on live success — surfaces all four wire buckets (`newly_invited_users_to_projects`, `newly_created_users`, `newly_invited_users`, `removed_users_from_projects`) for agent inspection.
+    - `would` present on `--dry-run`. Mutually exclusive with `result`.
+
+  Wire endpoint (per OpenAPI :3417-3498):
+
+  - `POST /users/manage-workers` — body `{ projects_ids: number[], users_ids?: number[], emails?: string[] }`.
+
+  Single bulk POST: one invocation = one HTTP call across all three input dimensions. Unknown emails trigger user creation server-side (via the documented "newly_created_users" response bucket).
+
+  Reuses the `--dry-run` helper (R09) and the repeatable-flag dedup pattern from R32. No `confirmDestructive` gate — invite is additive. No new dependencies.
+
+  **Out of scope for v1:** `--acl-tasklist` (body field not documented in the OpenAPI schema, only mentioned in description prose; tracked as R33.5), `--stdin` / NDJSON batch (endpoint is itself array-typed across three dimensions).
+
+- bc90b43: Add `freelo projects workers list` and `freelo projects workers remove` (R32) — fourth slice of Wave 5 project admin.
+
+  **Surface:**
+
+  ```
+  freelo projects workers list   --project <id> [--page N | --all] [--fields <list>]
+  freelo projects workers remove --project <id>
+                                 ( --user <id>... | --email <addr>... )
+                                 [--yes] [--dry-run]
+  ```
+
+  `--user` and `--email` are mutually exclusive (different endpoints), each is repeatable into a single atomic POST.
+
+  **Envelope contracts (additive — public contract):**
+
+  - New schema `freelo.projects.workers.list/v1` — `data: { project_id, workers: UserBasic[] }`, plus standard `paging` and `rate_limit`.
+  - New schema `freelo.projects.workers.remove/v1` — `data: { project_id, removed_by: 'ids'|'emails', count, users_ids?, users_emails?, would? }`. `removed_by` is the discriminant; the matching sibling array is present on live success and on `--dry-run`. `would` is set only on `--dry-run`.
+
+  Wire endpoints (per OpenAPI :583-619, :676-757):
+
+  - `GET  /project/{id}/workers?p=N` — paginated; reuses the R04 wrapper `getProjectWorkers` plus the R03 `fetchAllPages` helper.
+  - `POST /project/{id}/remove-workers/by-ids` — body `{ users_ids: number[] }`.
+  - `POST /project/{id}/remove-workers/by-emails` — body `{ users_emails: string[] }`.
+
+  Both remove endpoints are atomic — the server fails the whole request if any single user can't be removed (no partial removal). The CLI does not map any HTTP error to `already_in_target_state: true` (the API behavior on re-call is not documented as idempotent; surfacing server errors as-is is the safer default).
+
+  Reuses `confirmDestructive` (R13) and the `--dry-run` helper (R09); no new dependencies.
+
+- d6eccb3: Add `freelo tasklists create` and `freelo tasklists create-from-template` (R34, partial) — final write surface for the `tasklists` group, modulo the deferred `delete` (R34.5).
+
+  **Surface:**
+
+  ```
+  freelo tasklists create --project <id> --name <str> [--budget <str>] [--dry-run]
+  freelo tasklists create-from-template <template_id> --source-tasklist <id> [--target-project <id>] [--target-tasklist <id>] [--date-start <YYYY-MM-DD>] [--worker <id>]... [--dry-run]
+  ```
+
+  **Envelope contracts:** two new schemas (additive — public contract):
+
+  - `freelo.tasklists.create/v1` — carries `data.project_id` plus `data.tasklist: { id, name, budget? }` on live success or `data.would: { method, path, body }` on `--dry-run`.
+  - `freelo.tasklists.create-from-template/v1` — carries `data.template_id` plus `data.tasklist: { id, name, tasks }` on live success or `data.would: { method, path, body }` on `--dry-run`.
+
+  `--budget` is a verbatim digits-only string in base units (`"100000"` = 1000.00 of the project's currency) — no client-side parsing to avoid float drift. The `create-from-template` flag set is redesigned against the documented OpenAPI body (`tasklist_id`, `target_project_id?`, `target_tasklist_id?`, `preset_date_from?`, `users_ids?`) and intentionally does not match the roadmap's pre-OpenAPI shape.
+
+  `tasklists delete` is **deferred to R34.5**: `DELETE /tasklist/{id}` is not documented in `docs/api/freelo-api.yaml` as of 2026-05-09. Mirrors R29.5 / R33.5 deferral pattern (drop the surface whose OpenAPI backing isn't there; capture as a follow-up R-slice).
+
 ## 0.17.3
 
 ### Patch Changes
