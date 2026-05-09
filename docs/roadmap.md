@@ -142,7 +142,10 @@ freelo projects list [--scope owned|invited|archived|templates|all] [--page N | 
 **CLI:** `freelo tasklists list [--project <id>] [--page N|--all]`
 **Depends on:** R03.
 
-### R05.5 — Hardening: schema null/number tolerance + Windows libuv exit (queued)
+### R05.5 — Hardening: schema null/number tolerance + Windows libuv exit ✅ shipped
+
+**Shipped via:** `dacc4bc fix(api): tolerate null fullname and numeric currency amounts in response schemas` covered bugs #1 and #2; bug #3 (Windows libuv) needed three rounds — `0af60de` (round 1) → `f79ebfb` (#31, round 2, tagged R05.5) → `e0ce419` (#82, round 3, finalized in `0.17.x`).
+
 **Outcome:** `freelo projects show` (and any future read command) survives real-world Freelo responses on Windows without crashing.
 **Endpoints:** none (local fixes only).
 **Surface (no CLI changes):** schema sweep + error-path cleanup. Patch release.
