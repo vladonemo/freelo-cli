@@ -1,0 +1,8 @@
+{
+  "id": 9002,
+  "name": "QA checklist",
+  "tasks": [
+    { "id": 100, "name": "Smoke test" },
+    { "id": 101, "name": "Regression sweep" }
+  ]
+}

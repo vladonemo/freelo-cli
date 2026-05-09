@@ -2,6 +2,8 @@ import { type Command } from 'commander';
 import { type GetAppConfig } from '../config/schema.js';
 import { registerList } from './tasklists/list.js';
 import { registerShow } from './tasklists/show.js';
+import { registerCreate } from './tasklists/create.js';
+import { registerCreateFromTemplate } from './tasklists/create-from-template.js';
 
 /**
  * Register the `tasklists` subcommand tree on the root program. Mirrors the
@@ -15,8 +17,10 @@ export function register(
 ): void {
   const tasklists = program
     .command('tasklists')
-    .description('Browse Freelo tasklists across the projects you can see.');
+    .description('Browse and manage Freelo tasklists across the projects you can see.');
 
   registerList(tasklists, getConfig, env);
   registerShow(tasklists, getConfig, env);
+  registerCreate(tasklists, getConfig, env);
+  registerCreateFromTemplate(tasklists, getConfig, env);
 }
