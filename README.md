@@ -82,6 +82,7 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 
 ### projects
 
+- `freelo projects create` — Create a new project.
 - `freelo projects list` — List projects in the chosen scope. Default scope is 'owned'.
 - `freelo projects show <id>` — Show one project's full detail, with optional side-cars.
 
