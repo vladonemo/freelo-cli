@@ -3323,6 +3323,157 @@ export const projectsCreateHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo projects archive` and `freelo projects activate`
+ * (R30, spec 0043). Two endpoints, identical shape:
+ *   - `POST /project/{id}/archive` → SuccessResponse, server idempotent.
+ *   - `POST /project/{id}/activate` → SuccessResponse, server idempotent
+ *     (single entry for unarchive + undelete + already-active no-op).
+ *
+ * Each handler takes the verb so the same factory wires both paths.
+ */
+export const projectsTransitionHandlers = {
+  /** `POST /project/{id}/archive|activate` — 200 success. */
+  ok(verb: 'archive' | 'activate', projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/${verb}`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /** 401. */
+  unauthorized(verb: 'archive' | 'activate', projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/${verb}`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** 403. */
+  forbidden(verb: 'archive' | 'activate', projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/${verb}`, () =>
+      HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** 404 (project missing). For archive/activate this is NOT idempotent. */
+  notFound(verb: 'archive' | 'activate', projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/${verb}`, () =>
+      HttpResponse.json({ errors: ['Project not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** 422 — used for activate's `PlanExceededException` case. */
+  unprocessable(
+    verb: 'archive' | 'activate',
+    projectId: number,
+    message = 'PlanExceededException',
+  ): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/${verb}`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 422 }),
+    );
+  },
+
+  /** 5xx. */
+  serverError(verb: 'archive' | 'activate', projectId: number, status = 500): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/${verb}`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** 429 (Retry-After: 0). */
+  rateLimited(verb: 'archive' | 'activate', projectId: number): RequestHandler {
+    return http.post(
+      `${API_BASE}/project/${projectId}/${verb}`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** Connection-closed (network error). */
+  networkError(verb: 'archive' | 'activate', projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/${verb}`, () => HttpResponse.error());
+  },
+};
+
+/**
+ * MSW handlers for `freelo projects delete` (R30, spec 0043).
+ *
+ * One endpoint:
+ *   - `DELETE /project/{id}`
+ *
+ * Empty body, returns `SuccessResponse`. No pre-check GET (spec 0043
+ * decision 1) — the DELETE response is authoritative; 404 → idempotent
+ * already-deleted (decision 4 / mirrors R13).
+ */
+export const projectsDeleteHandlers = {
+  /** `DELETE /project/{id}` — 200 success. */
+  deleteOk(projectId: number): RequestHandler {
+    return http.delete(`${API_BASE}/project/${projectId}`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /**
+   * `DELETE /project/{id}` — 404. The command layer re-classifies this as
+   * idempotent already-deleted (spec 0043 decision 4).
+   */
+  deleteNotFound(projectId: number): RequestHandler {
+    return http.delete(`${API_BASE}/project/${projectId}`, () =>
+      HttpResponse.json({ errors: ['Project not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** 401. */
+  deleteUnauthorized(projectId: number): RequestHandler {
+    return http.delete(`${API_BASE}/project/${projectId}`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** 403. */
+  deleteForbidden(projectId: number): RequestHandler {
+    return http.delete(`${API_BASE}/project/${projectId}`, () =>
+      HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** 422. */
+  deleteUnprocessable(
+    projectId: number,
+    message = 'Server-side validation failed.',
+  ): RequestHandler {
+    return http.delete(`${API_BASE}/project/${projectId}`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 422 }),
+    );
+  },
+
+  /** 5xx. */
+  deleteServerError(projectId: number, status = 500): RequestHandler {
+    return http.delete(`${API_BASE}/project/${projectId}`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** 429 (Retry-After: 0). */
+  deleteRateLimited(projectId: number): RequestHandler {
+    return http.delete(
+      `${API_BASE}/project/${projectId}`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** Connection-closed (network error). */
+  deleteNetworkError(projectId: number): RequestHandler {
+    return http.delete(`${API_BASE}/project/${projectId}`, () => HttpResponse.error());
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
