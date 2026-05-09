@@ -13,6 +13,9 @@ import { registerRemind } from './tasks/remind.js';
 import { registerShare } from './tasks/share.js';
 import { registerUnshare } from './tasks/unshare.js';
 import { registerEstimate } from './tasks/estimate.js';
+import { registerProject } from './tasks/project.js';
+import { registerRelations } from './tasks/relations.js';
+import { registerFindRelations } from './tasks/find-relations.js';
 
 /**
  * Register the `tasks` subcommand tree on the root program. Mirrors the
@@ -43,4 +46,7 @@ export function register(
   registerShare(tasks, getConfig, env);
   registerUnshare(tasks, getConfig, env);
   registerEstimate(tasks, getConfig, env);
+  registerProject(tasks, getConfig, env);
+  registerRelations(tasks, getConfig, env);
+  registerFindRelations(tasks, getConfig, env);
 }

@@ -127,9 +127,13 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 - `freelo tasks edit <id>` — Partially update a task: name, due date, worker, priority, and label diff.
 - `freelo tasks estimate clear <id>` — Remove a task's time estimate. Without --user, clears the team-wide total. With --user <id>, clears one user's per-user estimate. Destructive — requires --yes (non-TTY) or interactive confirmation (TTY).
 - `freelo tasks estimate set <id>` — Set or update a task's time estimate (in minutes). Without --user, sets the team-wide total estimate. With --user <id>, sets a per-user estimate (independent of the total). Server upserts on every call.
+- `freelo tasks find-relations` — Bulk-fetch typed relations for many tasks at once (1–100 per call). Read-only — does NOT create relations. Tasks the caller cannot access are silently omitted from the response; diff `data.task_ids` against `data.tasks[*].task_id` to detect inaccessible ids.
 - `freelo tasks finish [id...]` — Mark tasks as finished. Idempotent: tasks already finished aren't re-POSTed.
 - `freelo tasks list` — List tasks across all projects (default) or scoped to one project + tasklist.
 - `freelo tasks move [id]` — Move a task between tasklists (single id) or move many tasks via NDJSON --stdin batch.
+- `freelo tasks project add <id>` — Add a task to one or more secondary projects (multi-project membership). Each --tasklist <id> flag adds the task to the project that owns that tasklist; the server creates a child task there. Repeatable; one POST per --tasklist (deduplicated).
+- `freelo tasks project remove <id>` — Remove a task from a single SECONDARY project. Removing the task entirely (incl. its primary project) requires `freelo tasks delete <id>` instead — Freelo returns 403 AclException on primary-project removal attempts. Destructive; requires --yes (non-TTY) or interactive confirmation (TTY).
+- `freelo tasks relations <id>` — Show all typed relations on a single task (blocked_by, blocks, related_to, duplicate_of). Read-only. Empty array if the task has no relations. Relations to tasks the caller cannot access are silently filtered out by Freelo.
 - `freelo tasks remind clear <id>` — Remove your personal reminder for a task. Destructive — requires --yes (non-TTY) or interactive confirmation (TTY).
 - `freelo tasks remind set <id>` — Schedule (or overwrite) your personal reminder for a task. --at is required; reminders are per-user — they only ping the caller, not other workers on the task.
 - `freelo tasks reopen [id...]` — Reopen finished tasks (move back to active). Idempotent: already-active tasks are skipped.
