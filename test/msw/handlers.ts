@@ -3237,6 +3237,92 @@ export const notificationsHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo projects create` (R29, spec 0042).
+ *
+ * Single endpoint: `POST /projects` returning `ProjectBasic { id, name }`.
+ * Factories mirror `tasksCreateHandlers` for consistency.
+ */
+export const projectsCreateHandlers = {
+  /** `POST /projects` — 200 with the supplied body. */
+  ok(body: Record<string, unknown>): RequestHandler {
+    return http.post(`${API_BASE}/projects`, () => HttpResponse.json(body));
+  },
+
+  /**
+   * Match-on-body variant: `predicate(body, request)` decides whether the
+   * supplied response or a 500 diagnostic comes back. Used to assert the exact
+   * wire body.
+   */
+  okWhenBody(
+    predicate: (body: unknown, request: Request) => boolean,
+    response: Record<string, unknown>,
+  ): RequestHandler {
+    return http.post(`${API_BASE}/projects`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json(response);
+    });
+  },
+
+  /** `POST /projects` — 400 (server-side validation, e.g. invalid owner). */
+  badRequest(message: string): RequestHandler {
+    return http.post(`${API_BASE}/projects`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  /** `POST /projects` — 401. */
+  unauthorized(): RequestHandler {
+    return http.post(`${API_BASE}/projects`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `POST /projects` — 403. */
+  forbidden(): RequestHandler {
+    return http.post(`${API_BASE}/projects`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** `POST /projects` — 422. */
+  unprocessable(message = 'Server-side validation failed.'): RequestHandler {
+    return http.post(`${API_BASE}/projects`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 422 }),
+    );
+  },
+
+  /** `POST /projects` — 429. */
+  rateLimited(): RequestHandler {
+    return http.post(
+      `${API_BASE}/projects`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** `POST /projects` — 5xx. */
+  serverError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/projects`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** `POST /projects` — closes the connection (network error). */
+  networkError(): RequestHandler {
+    return http.post(`${API_BASE}/projects`, () => HttpResponse.error());
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));

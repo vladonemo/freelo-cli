@@ -301,3 +301,65 @@ export const ProjectShowDataSchema = z.object({
 });
 
 export type ProjectShowData = z.infer<typeof ProjectShowDataSchema>;
+
+/* ------------------------------------------------------------------------- *
+ *  R29 — `freelo projects create` (spec 0042)
+ *
+ *  `POST /projects` returns the minimal `ProjectBasic` shape (just `id` and
+ *  `name`). See OpenAPI :189-234 + :4944-4950.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * `ProjectBasic` — the response shape of `POST /projects` (OpenAPI :4944-4950).
+ *
+ * Minimal: `id` + `name`. `.passthrough()` so Freelo can add fields and we
+ * tolerate them — the public envelope contract `data.project.id` /
+ * `data.project.name` stays stable.
+ *
+ * Spec 0042 §5.
+ */
+export const ProjectBasicSchema = z
+  .object({
+    id: z.number().int(),
+    name: z.string(),
+  })
+  .passthrough();
+
+export type ProjectBasic = z.infer<typeof ProjectBasicSchema>;
+
+/** ISO-4217 currency codes accepted by `POST /projects` (OpenAPI :221). */
+export const PROJECT_CURRENCY_VALUES = ['CZK', 'EUR', 'USD'] as const;
+export type ProjectCurrency = (typeof PROJECT_CURRENCY_VALUES)[number];
+
+/**
+ * CLI-side input shape for `freelo projects create`. Camel-case, friendly.
+ * The body builder maps it to `CreateProjectBody` (snake-case wire shape).
+ */
+export type CreateProjectInput = {
+  name: string;
+  currency: ProjectCurrency;
+  projectOwnerId?: number;
+};
+
+/** Wire shape for `POST /projects` body (OpenAPI :206-227). */
+export type CreateProjectBody = {
+  name: string;
+  currency_iso: ProjectCurrency;
+  project_owner_id?: number;
+};
+
+/**
+ * Envelope `data` shape for `freelo.projects.create/v1`.
+ *
+ * `data.project` is present on **live success** (the wire response).
+ * `data.would` is present on **--dry-run** (the call that would have happened).
+ * Exactly one of the two is present per envelope. Spec 0042 §3.2.
+ */
+export type ProjectsCreateData = {
+  project?: ProjectBasic;
+  would?: {
+    method: 'POST';
+    path: '/projects';
+    body: CreateProjectBody;
+  };
+};
