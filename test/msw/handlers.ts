@@ -4496,6 +4496,256 @@ export const tasksEstimateClearHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo tasks project add` (R38, spec 0052).
+ *
+ * Wire: `POST /task/{task_id}/projects` with body `{ tasklist_id: <int> }`.
+ * Response (yaml :1923-1937): `{ task: { id, uuid } }`.
+ *
+ * `--tasklist` is repeatable on the CLI; each value fans out to one POST.
+ * `okOneShot` issues a different child-task id per call so tests can verify
+ * the assignments echo carries distinct ids per tasklist.
+ */
+export const tasksProjectAddHandlers = {
+  /** Single 200 — every POST returns the same fixed child-task id. */
+  ok(taskId: number, childTaskId = 9001, childUuid = 'abc-001'): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/projects`, () =>
+      HttpResponse.json({ task: { id: childTaskId, uuid: childUuid } }),
+    );
+  },
+
+  /**
+   * 200, with the per-call response chosen by tasklist_id (read from the
+   * request body). Useful when N --tasklist values fan out to N POSTs and
+   * the test asserts the assignments echo carries the right per-tasklist
+   * child id.
+   *
+   * `mapping` keys are tasklist ids; values are `{ child_task_id, child_task_uuid }`.
+   * Unknown tasklist ids fall through to a 500 diagnostic (forces a test fix).
+   */
+  okPerTasklist(
+    taskId: number,
+    mapping: Record<number, { childTaskId: number; childUuid: string }>,
+  ): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/projects`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      const tlid =
+        typeof body === 'object' &&
+        body !== null &&
+        'tasklist_id' in body &&
+        typeof (body as Record<string, unknown>)['tasklist_id'] === 'number'
+          ? ((body as Record<string, unknown>)['tasklist_id'] as number)
+          : -1;
+      const entry = mapping[tlid];
+      if (entry === undefined) {
+        return HttpResponse.json(
+          { errors: [`Unknown tasklist_id in test mapping: ${String(tlid)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json({
+        task: { id: entry.childTaskId, uuid: entry.childUuid },
+      });
+    });
+  },
+
+  /**
+   * 200 for the first call; 403 (AclException) for subsequent calls. Used to
+   * test the mid-fan-out failure path: `assignments` echoes the first call,
+   * the second bubbles as `FreeloApiError`.
+   */
+  okThen403(taskId: number, childTaskId = 9001, childUuid = 'abc-001'): RequestHandler {
+    let calls = 0;
+    return http.post(`${API_BASE}/task/${taskId}/projects`, () => {
+      calls += 1;
+      if (calls === 1) {
+        return HttpResponse.json({ task: { id: childTaskId, uuid: childUuid } });
+      }
+      return HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 });
+    });
+  },
+
+  /** 401 unauthorized. */
+  unauthorized(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/projects`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** 403 forbidden. */
+  forbidden(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/projects`, () =>
+      HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** 404 (task or tasklist not found). */
+  notFound(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/projects`, () =>
+      HttpResponse.json({ errors: ['Task or tasklist not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** 5xx server error. */
+  serverError(taskId: number, status = 500): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/projects`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /**
+   * Body-capturing 200 — every request body is appended to `captured` and a
+   * fixed success body is returned. Used by tests asserting the wire body
+   * shape across N fan-out POSTs. Calls `await request.json()` directly (no
+   * clone()) — MSW guarantees the body is consumable once per handler.
+   */
+  okCapturing(
+    taskId: number,
+    captured: unknown[],
+    childTaskId = 9001,
+    childUuid = 'abc-001',
+  ): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/projects`, async ({ request }) => {
+      captured.push(await request.json());
+      return HttpResponse.json({ task: { id: childTaskId, uuid: childUuid } });
+    });
+  },
+};
+
+/**
+ * MSW handlers for `freelo tasks project remove` (R38, spec 0052).
+ *
+ * Wire: `DELETE /task/{task_id}/projects/{project_id}`. Response: `SuccessResponse`.
+ * 403 when removing the primary project (yaml :1984). 404 when the task is not
+ * present in that project (yaml :1985 — first-class idempotency signal).
+ */
+export const tasksProjectRemoveHandlers = {
+  ok(taskId: number, projectId: number): RequestHandler {
+    return http.delete(`${API_BASE}/task/${taskId}/projects/${projectId}`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /** 401 unauthorized. */
+  unauthorized(taskId: number, projectId: number): RequestHandler {
+    return http.delete(`${API_BASE}/task/${taskId}/projects/${projectId}`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** 403 — primary-project removal attempt (AclException, yaml :1984). */
+  forbidden(taskId: number, projectId: number): RequestHandler {
+    return http.delete(`${API_BASE}/task/${taskId}/projects/${projectId}`, () =>
+      HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** 404 — task not present in given project (yaml :1985). */
+  notFound(taskId: number, projectId: number): RequestHandler {
+    return http.delete(`${API_BASE}/task/${taskId}/projects/${projectId}`, () =>
+      HttpResponse.json({ errors: ['Task not in project.'] }, { status: 404 }),
+    );
+  },
+
+  /** 5xx server error. */
+  serverError(taskId: number, projectId: number, status = 500): RequestHandler {
+    return http.delete(`${API_BASE}/task/${taskId}/projects/${projectId}`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+};
+
+/**
+ * MSW handlers for `freelo tasks relations` (R38, spec 0052).
+ *
+ * Wire: `GET /task/{task_id}/relations`. Response: `{ relations: TaskRelation[] }`.
+ * Empty array is a valid 200.
+ */
+export const tasksRelationsHandlers = {
+  /** 200 with the supplied relations array (defaults to empty). */
+  ok(taskId: number, relations: Array<Record<string, unknown>> = []): RequestHandler {
+    return http.get(`${API_BASE}/task/${taskId}/relations`, () => HttpResponse.json({ relations }));
+  },
+
+  unauthorized(taskId: number): RequestHandler {
+    return http.get(`${API_BASE}/task/${taskId}/relations`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  forbidden(taskId: number): RequestHandler {
+    return http.get(`${API_BASE}/task/${taskId}/relations`, () =>
+      HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  notFound(taskId: number): RequestHandler {
+    return http.get(`${API_BASE}/task/${taskId}/relations`, () =>
+      HttpResponse.json({ errors: ['Task not found.'] }, { status: 404 }),
+    );
+  },
+
+  serverError(taskId: number, status = 500): RequestHandler {
+    return http.get(`${API_BASE}/task/${taskId}/relations`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+};
+
+/**
+ * MSW handlers for `freelo tasks find-relations` (R38, spec 0052).
+ *
+ * Wire: `POST /tasks/relations` with body `{ task_ids: [<int>, ...] }`.
+ * Response: `{ tasks: [{ task_id, relations }, ...] }`. Tasks the caller
+ * cannot access are silently omitted (yaml :1622) — the `okSubset` factory
+ * lets tests simulate this gap.
+ */
+export const tasksFindRelationsHandlers = {
+  /** 200 with the supplied tasks array. */
+  ok(tasks: Array<Record<string, unknown>>): RequestHandler {
+    return http.post(`${API_BASE}/tasks/relations`, () => HttpResponse.json({ tasks }));
+  },
+
+  /**
+   * 200 — body inspection variant. The handler asserts a predicate against
+   * the request body (typically `body.task_ids` shape) before returning the
+   * supplied tasks.
+   */
+  okWhenBody(
+    predicate: (body: unknown) => boolean,
+    tasks: Array<Record<string, unknown>>,
+  ): RequestHandler {
+    return http.post(`${API_BASE}/tasks/relations`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json({ tasks });
+    });
+  },
+
+  unauthorized(): RequestHandler {
+    return http.post(`${API_BASE}/tasks/relations`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  badRequest(): RequestHandler {
+    return http.post(`${API_BASE}/tasks/relations`, () =>
+      HttpResponse.json({ errors: ['Invalid request body.'] }, { status: 400 }),
+    );
+  },
+
+  serverError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/tasks/relations`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
