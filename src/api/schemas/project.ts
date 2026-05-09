@@ -363,3 +363,66 @@ export type ProjectsCreateData = {
     body: CreateProjectBody;
   };
 };
+
+/* ------------------------------------------------------------------------- *
+ *  R30 — `freelo projects archive` / `activate` / `delete` (spec 0043)
+ *
+ *  All three endpoints return `SuccessResponse` (`{ result: 'success' }`) with
+ *  no body content the CLI surfaces. The envelope `data` shape is built from
+ *  the verb (target state) plus the `project_id` the caller passed, NOT from
+ *  the wire response.
+ * ------------------------------------------------------------------------- */
+
+/** Verb identifier for the two transition commands (archive + activate). */
+export type ProjectsTransitionVerb = 'archive' | 'activate';
+
+/**
+ * Envelope `data` shape for `freelo.projects.archive/v1` and
+ * `freelo.projects.activate/v1` — identical, distinguished only by the
+ * envelope's `schema` discriminant.
+ *
+ * No `previous_state` / `already_in_target_state`: spec 0043 decision 1
+ * skips the GET pre-check, so we cannot honestly populate either. Server-side
+ * idempotency (yaml :635 for archive, :662 for activate) means a re-call on
+ * an already-target project succeeds with a normal 200, which surfaces as a
+ * normal success envelope (`current_state` matches the verb).
+ *
+ * Spec 0043 §3.2 / §5.
+ */
+export type ProjectsTransitionData = {
+  project_id: number;
+  current_state: 'archived' | 'active';
+  /** Present only when invoked via `--stdin` NDJSON. 0-indexed. */
+  line_index?: number;
+  /** Present only when `--dry-run` is set; absent on live success. */
+  would?: {
+    method: 'POST';
+    /** `/project/{id}/archive` or `/project/{id}/activate`. */
+    path: string;
+    body: Record<string, never>;
+  };
+};
+
+/**
+ * Envelope `data` shape for `freelo.projects.delete/v1`.
+ *
+ * Carries `already_in_target_state` because the DELETE path observes a 404
+ * → idempotent re-delete (spec 0043 decision 4 / mirrors R13 spec 0024
+ * decision 3). Live success ⇒ `false`; 404 re-classify ⇒ `true`.
+ *
+ * Spec 0043 §3.2 / §5.
+ */
+export type ProjectsDeleteData = {
+  project_id: number;
+  current_state: 'deleted';
+  already_in_target_state: boolean;
+  /** Present only when invoked via `--stdin` NDJSON. 0-indexed. */
+  line_index?: number;
+  /** Present only when `--dry-run` is set; absent on live success. */
+  would?: {
+    method: 'DELETE';
+    /** `/project/{id}` */
+    path: string;
+    body: Record<string, never>;
+  };
+};
