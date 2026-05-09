@@ -131,7 +131,9 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 - `freelo tasks remind clear <id>` — Remove your personal reminder for a task. Destructive — requires --yes (non-TTY) or interactive confirmation (TTY).
 - `freelo tasks remind set <id>` — Schedule (or overwrite) your personal reminder for a task. --at is required; reminders are per-user — they only ping the caller, not other workers on the task.
 - `freelo tasks reopen [id...]` — Reopen finished tasks (move back to active). Idempotent: already-active tasks are skipped.
+- `freelo tasks share <id>` — Get (or create) a public, unauthenticated URL for a task. Anyone holding the URL can view the task read-only. Idempotent on the wire — first call creates the link, subsequent calls return the same URL.
 - `freelo tasks show <id>` — Show one task's full detail, with optional side-cars.
+- `freelo tasks unshare <id>` — Revoke the task's public share URL. Destructive — invalidates any previously shared URL immediately. Requires --yes (non-TTY) or interactive confirmation (TTY).
 
 ### time
 
