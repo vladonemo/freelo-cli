@@ -4130,6 +4130,114 @@ export const tasklistsCreateFromTemplateHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo tasks remind set` (R35, spec 0049).
+ *
+ * Single endpoint:
+ *   - `POST /task/{task_id}/reminder` — `{ remind_at, task: { id, name } }`
+ *
+ * Per `docs/api/freelo-api.yaml:2067-2115`, body is `{ remind_at: ISO 8601 }`.
+ * Server upserts and overwrites on a second call (yaml :2081).
+ */
+export const tasksRemindSetHandlers = {
+  /** `POST /task/{id}/reminder` — 200 with the supplied response body. */
+  ok(taskId: number, body: Record<string, unknown>): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/reminder`, () => HttpResponse.json(body));
+  },
+
+  /**
+   * Match-on-body variant: `predicate(body, request)` decides whether the
+   * supplied response or a 500 diagnostic comes back. Useful when a test
+   * needs to assert the exact wire body (e.g. UTC normalization).
+   */
+  okWhenBody(
+    taskId: number,
+    predicate: (body: unknown, request: Request) => boolean,
+    response: Record<string, unknown>,
+  ): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/reminder`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json(response);
+    });
+  },
+
+  /** `POST /task/{id}/reminder` — 401. */
+  unauthorized(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/reminder`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `POST /task/{id}/reminder` — 403. */
+  forbidden(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/reminder`, () =>
+      HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** `POST /task/{id}/reminder` — 404 (task not found). */
+  notFound(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/reminder`, () =>
+      HttpResponse.json({ errors: ['Task not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `POST /task/{id}/reminder` — 5xx. */
+  serverError(taskId: number, status = 500): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/reminder`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+};
+
+/**
+ * MSW handlers for `freelo tasks remind clear` (R35, spec 0049).
+ *
+ * Single endpoint:
+ *   - `DELETE /task/{task_id}/reminder` — `SuccessResponse` (200 even when
+ *     no reminder existed; yaml :2125).
+ */
+export const tasksRemindClearHandlers = {
+  /** `DELETE /task/{id}/reminder` — 200 success. */
+  ok(taskId: number): RequestHandler {
+    return http.delete(`${API_BASE}/task/${taskId}/reminder`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /**
+   * `DELETE /task/{id}/reminder` — 404. Defensive forward-compat path; the
+   * documented behavior is 200 for the no-reminder case (yaml :2125), but
+   * the command layer re-classifies a 404 as `already_in_target_state: true`
+   * for safety.
+   */
+  notFound(taskId: number): RequestHandler {
+    return http.delete(`${API_BASE}/task/${taskId}/reminder`, () =>
+      HttpResponse.json({ errors: ['Reminder not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `DELETE /task/{id}/reminder` — 401. */
+  unauthorized(taskId: number): RequestHandler {
+    return http.delete(`${API_BASE}/task/${taskId}/reminder`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `DELETE /task/{id}/reminder` — 5xx. */
+  serverError(taskId: number, status = 500): RequestHandler {
+    return http.delete(`${API_BASE}/task/${taskId}/reminder`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));

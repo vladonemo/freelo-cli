@@ -128,6 +128,8 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 - `freelo tasks finish [id...]` — Mark tasks as finished. Idempotent: tasks already finished aren't re-POSTed.
 - `freelo tasks list` — List tasks across all projects (default) or scoped to one project + tasklist.
 - `freelo tasks move [id]` — Move a task between tasklists (single id) or move many tasks via NDJSON --stdin batch.
+- `freelo tasks remind clear <id>` — Remove your personal reminder for a task. Destructive — requires --yes (non-TTY) or interactive confirmation (TTY).
+- `freelo tasks remind set <id>` — Schedule (or overwrite) your personal reminder for a task. --at is required; reminders are per-user — they only ping the caller, not other workers on the task.
 - `freelo tasks reopen [id...]` — Reopen finished tasks (move back to active). Idempotent: already-active tasks are skipped.
 - `freelo tasks show <id>` — Show one task's full detail, with optional side-cars.
 
