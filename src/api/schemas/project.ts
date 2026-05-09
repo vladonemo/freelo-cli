@@ -520,3 +520,61 @@ export type ProjectsCreateFromTemplateData = {
     body: CreateProjectFromTemplateBody;
   };
 };
+
+/* ------------------------------------------------------------------------- *
+ *  R32 — `freelo projects workers list` / `remove` (spec 0045)
+ *
+ *  GET  /project/{id}/workers                       (already wired in R04)
+ *  POST /project/{id}/remove-workers/by-ids         (yaml :676-716)
+ *  POST /project/{id}/remove-workers/by-emails      (yaml :718-757)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Envelope `data` shape for `freelo.projects.workers.list/v1`.
+ *
+ * `project_id` is the path-positional input echoed for agent convenience.
+ * `workers` is the merged result of one or more `?p=N` pages — `UserBasic[]`
+ * (id + optional fullname). Per OpenAPI :609-619 the bare `/workers` endpoint
+ * carries no `hour_rate`; rates are only on `/project/{id}` (R04 surface).
+ *
+ * Spec 0045 §3.2.
+ */
+export type ProjectsWorkersListData = {
+  project_id: number;
+  workers: UserBasic[];
+};
+
+/** Discriminant for the `remove` envelope (spec 0045 §3.3 / decision 2). */
+export type ProjectsWorkersRemovedBy = 'ids' | 'emails';
+
+/**
+ * Envelope `data` shape for `freelo.projects.workers.remove/v1`.
+ *
+ * `removed_by` selects which sibling array is present:
+ *   - `'ids'`    ⇒ `users_ids: number[]`,    `users_emails` absent
+ *   - `'emails'` ⇒ `users_emails: string[]`, `users_ids` absent
+ *
+ * `count` mirrors the size of the chosen array (zero-allocation for agents
+ * that key off it). `would` is present only on `--dry-run`. Mutually
+ * exclusive with `users_ids` / `users_emails` is enforced by construction —
+ * the command builder only sets one branch.
+ *
+ * Spec 0045 §3.3.
+ */
+export type ProjectsWorkersRemoveData = {
+  project_id: number;
+  removed_by: ProjectsWorkersRemovedBy;
+  /** Size of the active array (`users_ids` or `users_emails`). */
+  count: number;
+  /** Present iff `removed_by === 'ids'`. */
+  users_ids?: number[];
+  /** Present iff `removed_by === 'emails'`. */
+  users_emails?: string[];
+  /** Present only when `--dry-run` is set; absent on live success. */
+  would?: {
+    method: 'POST';
+    /** `/project/{id}/remove-workers/by-ids` or `/project/{id}/remove-workers/by-emails`. */
+    path: string;
+    body: { users_ids: number[] } | { users_emails: string[] };
+  };
+};

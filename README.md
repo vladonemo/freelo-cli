@@ -89,6 +89,8 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 - `freelo projects delete [id...]` — Soft-delete one or more projects. Destructive — requires --yes (non-TTY) or interactive confirmation (TTY). Reversible via 'freelo projects activate'. 404-after-delete is treated as idempotent already-deleted.
 - `freelo projects list` — List projects in the chosen scope. Default scope is 'owned'.
 - `freelo projects show <id>` — Show one project's full detail, with optional side-cars.
+- `freelo projects workers list` — List a project's workers (active members + owner + guests). Paginated; defaults to fetching all pages.
+- `freelo projects workers remove` — Remove one or more workers from a project. Atomic — the entire request fails if any single user cannot be removed (server-side ACL pre-check). The project owner cannot be removed via this command.
 
 ### reports
 
