@@ -12,6 +12,7 @@ import { registerDescription } from './tasks/description.js';
 import { registerRemind } from './tasks/remind.js';
 import { registerShare } from './tasks/share.js';
 import { registerUnshare } from './tasks/unshare.js';
+import { registerEstimate } from './tasks/estimate.js';
 
 /**
  * Register the `tasks` subcommand tree on the root program. Mirrors the
@@ -41,4 +42,5 @@ export function register(
   registerRemind(tasks, getConfig, env);
   registerShare(tasks, getConfig, env);
   registerUnshare(tasks, getConfig, env);
+  registerEstimate(tasks, getConfig, env);
 }
