@@ -113,6 +113,8 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 
 ### tasklists
 
+- `freelo tasklists create` — Create a new tasklist in a project.
+- `freelo tasklists create-from-template <template_id>` — Copy a tasklist from a project template into a target project (or a new one).
 - `freelo tasklists list` — List tasklists across all projects you can see, optionally filtered to one project.
 - `freelo tasklists show <id>` — Show one tasklist's detail, with optional assignable-workers side-car.
 

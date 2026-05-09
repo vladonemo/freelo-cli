@@ -569,8 +569,10 @@ freelo projects workers remove --project <id> (--user <id>...|--email <e>...) [-
 
 ### R34 — `freelo tasklists create` / `delete` / `create-from-template`
 
+> **Status (2026-05-09):** Shipped partial in spec 0047 — `tasklists create` and `tasklists create-from-template` only. `tasklists delete` deferred to **R34.5** because `DELETE /tasklist/{id}` is not documented in `docs/api/freelo-api.yaml` as of this date. The flag set for `create-from-template` was redesigned from the documented OpenAPI body and **does not match** the surface listed below — see `docs/commands/tasklists-create-from-template.md` for the actual flags (`--source-tasklist`, `--target-project`, `--target-tasklist`, `--date-start`, `--worker`).
+
 **Endpoints:** `POST /project/{id}/tasklists`, `DELETE /tasklist/{id}`, `POST /tasklist/create-from-template/{template_id}`.
-**CLI:**
+**CLI (original roadmap surface — superseded for create-from-template; see spec 0047):**
 
 ```
 freelo tasklists create --project <id> --name <str>
@@ -579,6 +581,22 @@ freelo tasklists create-from-template <template_id> --project <id> --name <str>
 ```
 
 **Depends on:** R06, R13.
+
+### R34.5 — `freelo tasklists delete` (blocked on Freelo API)
+
+**Outcome:** `freelo tasklists delete <id> [--yes]` once Freelo's deletion endpoint is documented.
+
+**Status:** Blocked on Freelo API confirmation. As of 2026-05-09, the only operation on `/tasklist/{id}` in `docs/api/freelo-api.yaml` is `GET` (yaml :1264-1288). No `DELETE`, archive, or finish operation on tasklists is documented anywhere in the Tasklists section.
+
+**Endpoints:** Not in `docs/api/freelo-api.yaml`.
+
+**First action:** invoke `freelo-api-specialist` to probe a live test account for the verb (DELETE vs. POST `…/archive` vs. POST `…/finish`), the path, the body shape, and the idempotency semantics (delete-of-deleted → 404 vs. idempotent 200?). Capture a fixture and update `docs/api/freelo-api.yaml` before re-running.
+
+**Depends on:** R34, R13 (`src/lib/confirm.ts`), plus OpenAPI confirmation.
+
+**Tier on resume:** Yellow if endpoint confirmed (additive destructive command, mirrors R13 pattern); Red if probe contradicts current expectations (e.g., requires server-side cascade, returns a different shape than other deletes).
+
+**Precedent:** Mirrors R18.5 / R20.5 / R29.5 / R33.5 — slices deferred when the OpenAPI didn't document a flag/endpoint the original requirement assumed.
 
 ---
 

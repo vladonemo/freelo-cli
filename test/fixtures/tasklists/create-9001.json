@@ -1,0 +1,8 @@
+{
+  "id": 9001,
+  "name": "QA checklist",
+  "budget": {
+    "amount": "100000",
+    "currency": "CZK"
+  }
+}

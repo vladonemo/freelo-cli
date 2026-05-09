@@ -3941,6 +3941,195 @@ export const projectsInviteHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo tasklists create` (R34, spec 0047).
+ *
+ * Single endpoint: `POST /project/{project_id}/tasklists` returning
+ * `TasklistWithBudget { id, name, budget? }`. Factories mirror
+ * `projectsCreateHandlers` for consistency, parameterized by `projectId`.
+ */
+export const tasklistsCreateHandlers = {
+  /** `POST /project/{projectId}/tasklists` — 200 with the supplied body. */
+  ok(projectId: number, body: Record<string, unknown>): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/tasklists`, () => HttpResponse.json(body));
+  },
+
+  /** Match-on-body variant: predicate decides whether the supplied response or 500 comes back. */
+  okWhenBody(
+    projectId: number,
+    predicate: (body: unknown, request: Request) => boolean,
+    response: Record<string, unknown>,
+  ): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/tasklists`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json(response);
+    });
+  },
+
+  /** 400 — server-side validation. */
+  badRequest(projectId: number, message: string): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/tasklists`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  /** 401. */
+  unauthorized(projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/tasklists`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** 403. */
+  forbidden(projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/tasklists`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** 404 — project missing. */
+  notFound(projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/tasklists`, () =>
+      HttpResponse.json({ errors: ['Project not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** 422. */
+  unprocessable(projectId: number, message = 'Server-side validation failed.'): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/tasklists`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 422 }),
+    );
+  },
+
+  /** 429 (Retry-After: 0). */
+  rateLimited(projectId: number): RequestHandler {
+    return http.post(
+      `${API_BASE}/project/${projectId}/tasklists`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** 5xx. */
+  serverError(projectId: number, status = 500): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/tasklists`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** Connection-closed (network error). */
+  networkError(projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/tasklists`, () => HttpResponse.error());
+  },
+};
+
+/**
+ * MSW handlers for `freelo tasklists create-from-template` (R34, spec 0047).
+ *
+ * Single endpoint: `POST /tasklist/create-from-template/{template_id}`
+ * returning `{ id, name, tasks: [{ id, name }] }`. Factories mirror
+ * `projectsCreateFromTemplateHandlers` for consistency.
+ */
+export const tasklistsCreateFromTemplateHandlers = {
+  /** `POST /tasklist/create-from-template/{templateId}` — 200 with the supplied body. */
+  ok(templateId: number, body: Record<string, unknown>): RequestHandler {
+    return http.post(`${API_BASE}/tasklist/create-from-template/${templateId}`, () =>
+      HttpResponse.json(body),
+    );
+  },
+
+  /** Match-on-body variant. */
+  okWhenBody(
+    templateId: number,
+    predicate: (body: unknown, request: Request) => boolean,
+    response: Record<string, unknown>,
+  ): RequestHandler {
+    return http.post(
+      `${API_BASE}/tasklist/create-from-template/${templateId}`,
+      async ({ request }) => {
+        const body: unknown = await request.clone().json();
+        if (!predicate(body, request)) {
+          return HttpResponse.json(
+            { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+            { status: 500 },
+          );
+        }
+        return HttpResponse.json(response);
+      },
+    );
+  },
+
+  /** 400 — server-side validation. */
+  badRequest(templateId: number, message: string): RequestHandler {
+    return http.post(`${API_BASE}/tasklist/create-from-template/${templateId}`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  /** 401. */
+  unauthorized(templateId: number): RequestHandler {
+    return http.post(`${API_BASE}/tasklist/create-from-template/${templateId}`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** 403. */
+  forbidden(templateId: number): RequestHandler {
+    return http.post(`${API_BASE}/tasklist/create-from-template/${templateId}`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** 404 — template not found. */
+  notFound(templateId: number): RequestHandler {
+    return http.post(`${API_BASE}/tasklist/create-from-template/${templateId}`, () =>
+      HttpResponse.json({ errors: ['Template not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** 422. */
+  unprocessable(templateId: number, message = 'Server-side validation failed.'): RequestHandler {
+    return http.post(`${API_BASE}/tasklist/create-from-template/${templateId}`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 422 }),
+    );
+  },
+
+  /** 429 (Retry-After: 0). */
+  rateLimited(templateId: number): RequestHandler {
+    return http.post(
+      `${API_BASE}/tasklist/create-from-template/${templateId}`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** 5xx. */
+  serverError(templateId: number, status = 500): RequestHandler {
+    return http.post(`${API_BASE}/tasklist/create-from-template/${templateId}`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** Connection-closed (network error). */
+  networkError(templateId: number): RequestHandler {
+    return http.post(`${API_BASE}/tasklist/create-from-template/${templateId}`, () =>
+      HttpResponse.error(),
+    );
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));

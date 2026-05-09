@@ -173,3 +173,153 @@ export const TASKLIST_DEFAULT_FIELDS: readonly string[] = Object.freeze([
   'budget',
   'real_cost',
 ]);
+
+/* ------------------------------------------------------------------------- *
+ *  R34 — `freelo tasklists create` (spec 0047)
+ *
+ *  POST /project/{project_id}/tasklists                           (yaml :1140-1178)
+ *  POST /tasklist/create-from-template/{template_id}              (yaml :1290-1358)
+ *
+ *  Note: `DELETE /tasklist/{id}` is **not documented** in the OpenAPI as of
+ *  2026-05-09. Deferred to R34.5 pending Freelo API confirmation.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * `TasklistWithBudget` — response shape of `POST /project/{id}/tasklists`
+ * (yaml :5083-5089). `TasklistBasic` (`id` + `name`) plus optional `budget`.
+ *
+ * `.passthrough()` so future Freelo additions are not silently dropped. The
+ * embedded `Currency` reuses the local `CurrencySchema` already declared
+ * above — same wire shape ((string|number) → string normalize, enum currency).
+ */
+export const TasklistWithBudgetSchema = z
+  .object({
+    id: z.number().int(),
+    name: z.string(),
+    budget: CurrencySchema.nullable().optional(),
+  })
+  .passthrough();
+
+export type TasklistWithBudget = z.infer<typeof TasklistWithBudgetSchema>;
+
+/**
+ * Brief task object embedded in `POST /tasklist/create-from-template/{template_id}`
+ * response (yaml :1339-1358). Two documented fields: `id`, `name`.
+ *
+ * `.passthrough()` preserves any additional fields Freelo may add in future.
+ */
+const TasklistFromTemplateTaskBriefSchema = z
+  .object({
+    id: z.number().int(),
+    name: z.string(),
+  })
+  .passthrough();
+
+/**
+ * `TasklistFromTemplate` — response shape of
+ * `POST /tasklist/create-from-template/{template_id}` (yaml :1339-1358).
+ * Carries `id`, `name`, and an embedded `tasks` list (lightweight {id,name}).
+ */
+export const TasklistFromTemplateSchema = z
+  .object({
+    id: z.number().int(),
+    name: z.string(),
+    tasks: z.array(TasklistFromTemplateTaskBriefSchema).nullable().optional(),
+  })
+  .passthrough();
+
+export type TasklistFromTemplate = z.infer<typeof TasklistFromTemplateSchema>;
+
+/**
+ * CLI-side input for `freelo tasklists create`. Camel-case, friendly. The
+ * body builder maps it to `CreateTasklistBody` (snake-case wire shape).
+ *
+ * `budget` is a string (e.g. "100000" = 1000.00 of the project's currency).
+ * The CLI validates `^[0-9]+$` upstream — we keep it verbatim through the
+ * builder to avoid float-precision drift.
+ */
+export type CreateTasklistInput = {
+  projectId: number;
+  name: string;
+  budget?: string;
+};
+
+/** Wire shape for `POST /project/{id}/tasklists` body (yaml :1158-1171). */
+export type CreateTasklistBody = {
+  name: string;
+  budget?: string;
+};
+
+/**
+ * Envelope `data` shape for `freelo.tasklists.create/v1` (spec 0047 §3.1).
+ *
+ * `data.project_id` is always present (path-positional, echoed for agents).
+ * `data.tasklist` is present on **live success**.
+ * `data.would` is present on **--dry-run**.
+ * Exactly one of `tasklist` / `would` is set per envelope.
+ */
+export type TasklistsCreateData = {
+  project_id: number;
+  tasklist?: TasklistWithBudget;
+  would?: {
+    method: 'POST';
+    /** `/project/{id}/tasklists` — already includes the project id. */
+    path: string;
+    body: CreateTasklistBody;
+  };
+};
+
+/**
+ * CLI-side input for `freelo tasklists create-from-template`. Camel-case
+ * and validated — `dateStart` matches `^\d{4}-\d{2}-\d{2}$` by the time the
+ * builder sees it.
+ *
+ * `workers` is `readonly number[]` because Commander's variadic flag
+ * accumulator returns a fresh array each invocation; the readonly hint
+ * discourages downstream mutation (mirrors R31).
+ */
+export type CreateTasklistFromTemplateInput = {
+  templateId: number;
+  /** Source tasklist id INSIDE the template project — body field `tasklist_id`. */
+  sourceTasklistId: number;
+  targetProjectId?: number;
+  targetTasklistId?: number;
+  /** ISO-8601 calendar date `YYYY-MM-DD`. Validated upstream. */
+  dateStart?: string;
+  workers?: readonly number[];
+};
+
+/**
+ * Wire body shape for `POST /tasklist/create-from-template/{template_id}`
+ * (yaml :1315-1337). Optional fields are omitted entirely (not emitted
+ * as `undefined`) so the JSON serialization is clean.
+ */
+export type CreateTasklistFromTemplateBody = {
+  tasklist_id: number;
+  target_project_id?: number;
+  target_tasklist_id?: number;
+  preset_date_from?: string;
+  users_ids?: number[];
+};
+
+/**
+ * Envelope `data` shape for `freelo.tasklists.create-from-template/v1`
+ * (spec 0047 §3.2).
+ *
+ * `data.template_id` is always present (the path-positional and the most
+ * keyed-off output for agents).
+ * `data.tasklist` is present on **live success** — the parsed
+ * `TasklistFromTemplateSchema` shape.
+ * `data.would` is present on **--dry-run** — the call that would have happened.
+ * Exactly one of `tasklist` / `would` is set per envelope.
+ */
+export type TasklistsCreateFromTemplateData = {
+  template_id: number;
+  tasklist?: TasklistFromTemplate;
+  would?: {
+    method: 'POST';
+    /** `/tasklist/create-from-template/{template_id}`. */
+    path: string;
+    body: CreateTasklistFromTemplateBody;
+  };
+};
