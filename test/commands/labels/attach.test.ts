@@ -397,6 +397,122 @@ describe('freelo labels attach — validation', () => {
   });
 });
 
+describe('freelo labels attach — palette (R24.5, spec 0048)', () => {
+  it('--palette red resolves to #E9483A on the wire', async () => {
+    server.use(
+      projectLabelsHandlers.attachOkWhenBody((body) => {
+        const b = body as Record<string, unknown>;
+        return b['color'] === '#E9483A';
+      }),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'labels',
+      'attach',
+      '--project',
+      '7',
+      '--name',
+      'Billable',
+      '--palette',
+      'red',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(0);
+    const env = parseFirstJson(stdout) as { data: { color?: string } };
+    expect(env.data.color).toBe('#E9483A');
+  });
+
+  it('--palette is case-insensitive (Red → #E9483A)', async () => {
+    server.use(
+      projectLabelsHandlers.attachOkWhenBody((body) => {
+        const b = body as Record<string, unknown>;
+        return b['color'] === '#E9483A';
+      }),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { exitCode } = await runCli(run, [
+      'labels',
+      'attach',
+      '--project',
+      '7',
+      '--name',
+      'Billable',
+      '--palette',
+      'Red',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(0);
+  });
+
+  it('--palette green --dry-run: would.body.color === #10AA40', async () => {
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'labels',
+      'attach',
+      '--project',
+      '7',
+      '--name',
+      'Billable',
+      '--palette',
+      'green',
+      '--dry-run',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(0);
+    const env = parseFirstJson(stdout) as {
+      dry_run?: boolean;
+      data: { would?: { body: Record<string, unknown> } };
+    };
+    expect(env.dry_run).toBe(true);
+    expect((env.data.would?.body as { color?: string }).color).toBe('#10AA40');
+  });
+
+  it('mutex --palette + --hex → ValidationError exit 2 with hint listing names', async () => {
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, stderr, exitCode } = await runCli(run, [
+      'labels',
+      'attach',
+      '--project',
+      '7',
+      '--name',
+      'Billable',
+      '--palette',
+      'red',
+      '--hex',
+      '#ff0000',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(2);
+    const out = stdout + stderr;
+    expect(out).toMatch(/mutually exclusive|VALIDATION/);
+    expect(out).toMatch(/gray.*aqua.*blue.*green.*pink.*purple.*red.*orange.*yellow/);
+  });
+
+  it('unknown --palette name → ValidationError exit 2 with hint enumerating names', async () => {
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, stderr, exitCode } = await runCli(run, [
+      'labels',
+      'attach',
+      '--project',
+      '7',
+      '--name',
+      'Billable',
+      '--palette',
+      'turquoise',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(2);
+    const out = stdout + stderr;
+    expect(out).toMatch(/turquoise|not a recognized|VALIDATION/);
+    expect(out).toMatch(/gray.*aqua.*blue.*green.*pink.*purple.*red.*orange.*yellow/);
+  });
+});
+
 describe('freelo labels attach — error paths', () => {
   it('403 → exit 4 (FORBIDDEN)', async () => {
     server.use(projectLabelsHandlers.attachForbidden());

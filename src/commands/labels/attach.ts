@@ -1,7 +1,8 @@
 /**
- * `freelo labels attach --project <id> --name <str>... [--hex <color>] [--private | --public] [--dry-run]`
+ * `freelo labels attach --project <id> --name <str>... [--palette <name> | --hex <#RRGGBB>] [--private | --public] [--dry-run]`
  * (R23, spec 0035; decision 11 — `--hex` instead of spec's `--color` to avoid
- * collision with the root global `--color <mode>` flag).
+ * collision with the root global `--color <mode>` flag. R24.5, spec 0048 —
+ * added `--palette <name>` mutex with `--hex`.)
  *
  * Attach one or more labels to a project. The wire endpoint is **fetch-or-create**:
  * passing a `name` that doesn't yet exist for the caller creates a new label;
@@ -43,6 +44,7 @@ import { handleTopLevelError } from '../../errors/handle.js';
 import { ValidationError } from '../../errors/validation-error.js';
 import { BaseError } from '../../errors/base.js';
 import { attachMeta, type CommandMeta } from '../../lib/introspect.js';
+import { paletteHelpBlock, resolveColorFlags } from '../../lib/label-color.js';
 
 export const meta: CommandMeta = {
   outputSchema: 'freelo.labels.attach/v1',
@@ -56,6 +58,7 @@ const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 type AttachOpts = {
   project?: number;
   name?: string[];
+  palette?: string;
   hex?: string;
   private?: boolean;
   public?: boolean;
@@ -116,13 +119,18 @@ export function registerAttach(
       collectName,
     )
     .option(
+      '--palette <name>',
+      'Palette color name (case-insensitive). Mutex with --hex. Applied only when the server creates a new label. See list below.',
+    )
+    .option(
       '--hex <color>',
-      'Color in #RRGGBB format. Applied only when the server creates a new label. Named `--hex` (not `--color`) to avoid collision with the global `--color <mode>` output-colorization flag — see decision 11.',
+      'Color in #RRGGBB format. Mutex with --palette. Applied only when the server creates a new label. Named `--hex` (not `--color`) to avoid collision with the global `--color <mode>` output-colorization flag — see decision 11.',
       parseHexColorFlag,
     )
     .option('--private', 'Attach as a private label (default; mutex with --public).')
     .option('--public', 'Attach as a public label (mutex with --private).')
-    .option('--dry-run', 'Skip every POST; envelope echoes one `would` per --name.');
+    .option('--dry-run', 'Skip every POST; envelope echoes one `would` per --name.')
+    .addHelpText('after', paletteHelpBlock());
   attachMeta(cmd, meta);
 
   cmd.action(async (opts: AttachOpts) => {
@@ -146,15 +154,18 @@ export function registerAttach(
       const projectId = opts.project!;
       const isPrivate: boolean = opts.public === true ? false : true;
 
+      // Resolve --palette / --hex (mutex + lookup happen here).
+      const color = resolveColorFlags({ palette: opts.palette, hex: opts.hex });
+
       if (opts.dryRun === true) {
         for (const name of names) {
-          emitDryRun(projectId, name, isPrivate, opts.hex, appConfig);
+          emitDryRun(projectId, name, isPrivate, color, appConfig);
         }
         return;
       }
 
       // ---- Live fan-out.
-      await runFanOut(projectId, names, isPrivate, opts.hex, appConfig, env);
+      await runFanOut(projectId, names, isPrivate, color, appConfig, env);
     } catch (err: unknown) {
       await handleTopLevelError(err, mode);
     }

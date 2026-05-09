@@ -271,6 +271,123 @@ describe('freelo task-labels create — validation', () => {
   });
 });
 
+describe('freelo task-labels create — palette (R24.5, spec 0048)', () => {
+  it('--palette red applies #E9483A to every --name', async () => {
+    server.use(
+      taskLabelsHandlers.createOkWhenBody((body) => {
+        const b = body as { labels?: Array<{ name?: string; color?: string }> };
+        if (!Array.isArray(b.labels) || b.labels.length !== 2) return false;
+        return b.labels.every((l) => l.color === '#E9483A');
+      }),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'task-labels',
+      'create',
+      '--name',
+      'Bug',
+      '--name',
+      'Wip',
+      '--palette',
+      'red',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(0);
+    const env = parseFirstJson(stdout) as {
+      data: { count: number; labels: Array<{ color?: string }> };
+    };
+    expect(env.data.count).toBe(2);
+    expect(env.data.labels[0]?.color).toBe('#E9483A');
+    expect(env.data.labels[1]?.color).toBe('#E9483A');
+  });
+
+  it('--palette is case-insensitive (Yellow → #E3B51E)', async () => {
+    server.use(
+      taskLabelsHandlers.createOkWhenBody((body) => {
+        const b = body as { labels?: Array<{ color?: string }> };
+        return Array.isArray(b.labels) && b.labels.every((l) => l.color === '#E3B51E');
+      }),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { exitCode } = await runCli(run, [
+      'task-labels',
+      'create',
+      '--name',
+      'Bug',
+      '--palette',
+      'Yellow',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(0);
+  });
+
+  it('--palette green --dry-run: would.body.labels[*].color === #10AA40', async () => {
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'task-labels',
+      'create',
+      '--name',
+      'Bug',
+      '--palette',
+      'green',
+      '--dry-run',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(0);
+    const env = parseFirstJson(stdout) as {
+      dry_run?: boolean;
+      data: { would?: { body: { labels?: Array<{ color?: string }> } } };
+    };
+    expect(env.dry_run).toBe(true);
+    const labels = env.data.would?.body.labels ?? [];
+    expect(labels.length).toBeGreaterThan(0);
+    for (const l of labels) {
+      expect(l.color).toBe('#10AA40');
+    }
+  });
+
+  it('mutex --palette + --hex → ValidationError exit 2 with hint listing names', async () => {
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, stderr, exitCode } = await runCli(run, [
+      'task-labels',
+      'create',
+      '--name',
+      'Bug',
+      '--palette',
+      'red',
+      '--hex',
+      '#ff0000',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(2);
+    const out = stdout + stderr;
+    expect(out).toMatch(/mutually exclusive|VALIDATION/);
+    expect(out).toMatch(/gray.*aqua.*blue.*green.*pink.*purple.*red.*orange.*yellow/);
+  });
+
+  it('unknown --palette name → ValidationError exit 2 with hint enumerating names', async () => {
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, stderr, exitCode } = await runCli(run, [
+      'task-labels',
+      'create',
+      '--name',
+      'Bug',
+      '--palette',
+      'turquoise',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(2);
+    const out = stdout + stderr;
+    expect(out).toMatch(/turquoise|not a recognized|VALIDATION/);
+    expect(out).toMatch(/gray.*aqua.*blue.*green.*pink.*purple.*red.*orange.*yellow/);
+  });
+});
+
 describe('freelo task-labels create — error paths (Calibration §2)', () => {
   it('5xx → FreeloApiError exit 4', async () => {
     server.use(taskLabelsHandlers.createServerError(500));
