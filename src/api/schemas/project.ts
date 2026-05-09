@@ -522,6 +522,89 @@ export type ProjectsCreateFromTemplateData = {
 };
 
 /* ------------------------------------------------------------------------- *
+ *  R33 — `freelo projects invite` (spec 0046)
+ *
+ *  POST /users/manage-workers (yaml :3417-3498)
+ *
+ *  Single bulk POST: `projects_ids` (required), `users_ids` (optional),
+ *  `emails` (optional). At least one of `users_ids` / `emails` must be
+ *  non-empty (server enforces; CLI also enforces client-side per spec 0046
+ *  decision 2). The wire body accepts both `users_ids` AND `emails` in one
+ *  call — they are NOT mutex (decision 2). Response carries four buckets;
+ *  the CLI surfaces all four as-is in `data.result`.
+ * ------------------------------------------------------------------------- */
+
+/** Wire body shape for `POST /users/manage-workers`. Spec 0046 §5.2. */
+export type ProjectsInviteBody = {
+  projects_ids: number[];
+  emails?: string[];
+  users_ids?: number[];
+};
+
+/**
+ * Wire response shape for `POST /users/manage-workers` (yaml :3460-3497).
+ *
+ * - `newly_invited_users_to_projects`: existing users granted access to one
+ *   or more new projects via this call. Documented as `unknown[]` because
+ *   only the array container is documented, not the per-element shape.
+ * - `newly_created_users`: new accounts provisioned from unknown emails.
+ *   Documented per-element fields are `id` and `email`; we type them and
+ *   passthrough the rest.
+ * - `newly_invited_users`: invited (existing or just-created) users keyed
+ *   by `id`, with `email` and the array of `projects_ids` they were
+ *   granted on this call.
+ * - `removed_users_from_projects`: ACL adjustments that implicitly removed
+ *   workers (yaml :3436). Surfaced as informational.
+ *
+ * All four arrays are defaulted to `[]` at parse time so the response is
+ * always shape-stable for envelope consumers. `.passthrough()` so any
+ * undocumented fields the server adds are not silently dropped.
+ */
+export type ProjectsInviteNewlyCreatedUser = {
+  id?: number;
+  email?: string | null;
+};
+
+export type ProjectsInviteNewlyInvitedUser = {
+  id?: number;
+  email?: string | null;
+  projects_ids?: number[];
+};
+
+export type ProjectsInviteResult = {
+  newly_invited_users_to_projects: unknown[];
+  newly_created_users: ProjectsInviteNewlyCreatedUser[];
+  newly_invited_users: ProjectsInviteNewlyInvitedUser[];
+  removed_users_from_projects: unknown[];
+};
+
+/**
+ * Envelope `data` shape for `freelo.projects.invite/v1`. Spec 0046 §3.3.
+ *
+ * - `projects_ids` is always present (echoed input, deduplicated, in input
+ *   order).
+ * - `users_ids` is present iff `--user` was supplied (≥ 1 after dedup).
+ * - `emails` is present iff `--email` was supplied (≥ 1 after dedup).
+ * - `result` is present on **live success only** — the parsed wire body.
+ * - `would` is present on **--dry-run only** — the call that would have
+ *   happened.
+ *
+ * Exactly one of `result` / `would` is set per envelope.
+ */
+export type ProjectsInviteData = {
+  projects_ids: number[];
+  users_ids?: number[];
+  emails?: string[];
+  result?: ProjectsInviteResult;
+  would?: {
+    method: 'POST';
+    /** Always `/users/manage-workers`. Hard-coded for dry-run echo. */
+    path: '/users/manage-workers';
+    body: ProjectsInviteBody;
+  };
+};
+
+/* ------------------------------------------------------------------------- *
  *  R32 — `freelo projects workers list` / `remove` (spec 0045)
  *
  *  GET  /project/{id}/workers                       (already wired in R04)
