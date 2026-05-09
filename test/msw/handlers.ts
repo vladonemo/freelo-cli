@@ -4341,6 +4341,161 @@ export const tasksUnshareHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo tasks estimate set` (R37, spec 0051).
+ *
+ * Two endpoint variants (path differs by whether `--user` is set):
+ *   - `POST /task/{task_id}/total-time-estimate`           (total scope)
+ *   - `POST /task/{task_id}/users-time-estimates/{user_id}` (per-user scope)
+ *
+ * Per `docs/api/freelo-api.yaml:2254-2289` and `:2311-2352`, body is
+ * `{ minutes: <int> }`. Server upserts on every call (yaml :2267, :2324) —
+ * a second call overwrites the prior value. Response is the generic
+ * `SuccessResponse`.
+ */
+export const tasksEstimateSetHandlers = {
+  /** `POST /task/{id}/total-time-estimate` — 200 success. */
+  okTotal(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/total-time-estimate`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /** `POST /task/{id}/users-time-estimates/{user_id}` — 200 success. */
+  okUser(taskId: number, userId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/users-time-estimates/${userId}`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /**
+   * Match-on-body variant for the total path: `predicate(body)` decides
+   * whether the supplied response or a 500 diagnostic comes back. Useful
+   * when a test asserts the wire body shape (`{ minutes: <n> }`).
+   */
+  okTotalWhenBody(taskId: number, predicate: (body: unknown) => boolean): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/total-time-estimate`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json({ result: 'success' });
+    });
+  },
+
+  /** Match-on-body variant for the per-user path. */
+  okUserWhenBody(
+    taskId: number,
+    userId: number,
+    predicate: (body: unknown) => boolean,
+  ): RequestHandler {
+    return http.post(
+      `${API_BASE}/task/${taskId}/users-time-estimates/${userId}`,
+      async ({ request }) => {
+        const body: unknown = await request.clone().json();
+        if (!predicate(body)) {
+          return HttpResponse.json(
+            { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+            { status: 500 },
+          );
+        }
+        return HttpResponse.json({ result: 'success' });
+      },
+    );
+  },
+
+  /** `POST /task/{id}/total-time-estimate` — 401. */
+  unauthorizedTotal(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/total-time-estimate`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `POST /task/{id}/total-time-estimate` — 403. */
+  forbiddenTotal(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/total-time-estimate`, () =>
+      HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** `POST /task/{id}/total-time-estimate` — 404 (task not found). */
+  notFoundTotal(taskId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/total-time-estimate`, () =>
+      HttpResponse.json({ errors: ['Task not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `POST /task/{id}/total-time-estimate` — 5xx. */
+  serverErrorTotal(taskId: number, status = 500): RequestHandler {
+    return http.post(`${API_BASE}/task/${taskId}/total-time-estimate`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+};
+
+/**
+ * MSW handlers for `freelo tasks estimate clear` (R37, spec 0051).
+ *
+ * Two endpoint variants:
+ *   - `DELETE /task/{task_id}/total-time-estimate`
+ *   - `DELETE /task/{task_id}/users-time-estimates/{user_id}`
+ *
+ * Both return `SuccessResponse` (200 even when no estimate existed —
+ * yaml :2299 and :2362). The CLI re-classifies a 404 as
+ * `already_in_target_state: true` defensively (forward-compat).
+ */
+export const tasksEstimateClearHandlers = {
+  /** `DELETE /task/{id}/total-time-estimate` — 200 success. */
+  okTotal(taskId: number): RequestHandler {
+    return http.delete(`${API_BASE}/task/${taskId}/total-time-estimate`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /** `DELETE /task/{id}/users-time-estimates/{user_id}` — 200 success. */
+  okUser(taskId: number, userId: number): RequestHandler {
+    return http.delete(`${API_BASE}/task/${taskId}/users-time-estimates/${userId}`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /**
+   * `DELETE /task/{id}/total-time-estimate` — 404. Defensive forward-compat
+   * path; the documented behavior is 200 for the no-estimate case
+   * (yaml :2299), but the command layer re-classifies a 404 as
+   * `already_in_target_state: true` for safety.
+   */
+  notFoundTotal(taskId: number): RequestHandler {
+    return http.delete(`${API_BASE}/task/${taskId}/total-time-estimate`, () =>
+      HttpResponse.json({ errors: ['Estimate not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `DELETE /task/{id}/users-time-estimates/{user_id}` — 404 (defensive). */
+  notFoundUser(taskId: number, userId: number): RequestHandler {
+    return http.delete(`${API_BASE}/task/${taskId}/users-time-estimates/${userId}`, () =>
+      HttpResponse.json({ errors: ['Estimate not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `DELETE /task/{id}/total-time-estimate` — 401. */
+  unauthorizedTotal(taskId: number): RequestHandler {
+    return http.delete(`${API_BASE}/task/${taskId}/total-time-estimate`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `DELETE /task/{id}/total-time-estimate` — 5xx. */
+  serverErrorTotal(taskId: number, status = 500): RequestHandler {
+    return http.delete(`${API_BASE}/task/${taskId}/total-time-estimate`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
