@@ -1,0 +1,9 @@
+{
+  "id": 9001,
+  "name": "Acme Q3",
+  "owner": {
+    "id": 314,
+    "fullname": "Jane Doe"
+  },
+  "currency_iso": "EUR"
+}

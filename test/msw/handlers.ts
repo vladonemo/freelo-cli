@@ -3323,6 +3323,108 @@ export const projectsCreateHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo projects create-from-template` (R31, spec 0044).
+ *
+ * Single endpoint: `POST /project/create-from-template/{template_id}` returning
+ * `ProjectFromTemplate { id, name, owner?, currency_iso? }`. Factories mirror
+ * `projectsCreateHandlers` for consistency, parameterized by `templateId`.
+ */
+export const projectsCreateFromTemplateHandlers = {
+  /** `POST /project/create-from-template/{templateId}` — 200 with the supplied body. */
+  ok(templateId: number, body: Record<string, unknown>): RequestHandler {
+    return http.post(`${API_BASE}/project/create-from-template/${templateId}`, () =>
+      HttpResponse.json(body),
+    );
+  },
+
+  /**
+   * Match-on-body variant: `predicate(body, request)` decides whether the
+   * supplied response or a 500 diagnostic comes back. Used to assert the exact
+   * wire body.
+   */
+  okWhenBody(
+    templateId: number,
+    predicate: (body: unknown, request: Request) => boolean,
+    response: Record<string, unknown>,
+  ): RequestHandler {
+    return http.post(
+      `${API_BASE}/project/create-from-template/${templateId}`,
+      async ({ request }) => {
+        const body: unknown = await request.clone().json();
+        if (!predicate(body, request)) {
+          return HttpResponse.json(
+            { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+            { status: 500 },
+          );
+        }
+        return HttpResponse.json(response);
+      },
+    );
+  },
+
+  /** 400 — server-side validation (e.g. invalid owner / out-of-template worker). */
+  badRequest(templateId: number, message: string): RequestHandler {
+    return http.post(`${API_BASE}/project/create-from-template/${templateId}`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  /** 401. */
+  unauthorized(templateId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/create-from-template/${templateId}`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** 403. */
+  forbidden(templateId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/create-from-template/${templateId}`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** 404 — template not found. */
+  notFound(templateId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/create-from-template/${templateId}`, () =>
+      HttpResponse.json({ errors: ['Template not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** 422. */
+  unprocessable(templateId: number, message = 'Server-side validation failed.'): RequestHandler {
+    return http.post(`${API_BASE}/project/create-from-template/${templateId}`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 422 }),
+    );
+  },
+
+  /** 429 (Retry-After: 0). */
+  rateLimited(templateId: number): RequestHandler {
+    return http.post(
+      `${API_BASE}/project/create-from-template/${templateId}`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** 5xx. */
+  serverError(templateId: number, status = 500): RequestHandler {
+    return http.post(`${API_BASE}/project/create-from-template/${templateId}`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** Connection-closed (network error). */
+  networkError(templateId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/create-from-template/${templateId}`, () =>
+      HttpResponse.error(),
+    );
+  },
+};
+
+/**
  * MSW handlers for `freelo projects archive` and `freelo projects activate`
  * (R30, spec 0043). Two endpoints, identical shape:
  *   - `POST /project/{id}/archive` → SuccessResponse, server idempotent.
