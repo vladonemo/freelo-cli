@@ -7,20 +7,39 @@ Attach one or more labels to a project. Each `--name` fans out to one POST. Maps
 ## Synopsis
 
 ```bash
-freelo labels attach --project <id> --name <str>... [--hex <color>]
+freelo labels attach --project <id> --name <str>... [--palette <name> | --hex <#RRGGBB>]
                      [--private | --public] [--dry-run]
 ```
 
 ## Options
 
-| Flag              | Type / values       | Default | Purpose                                                                                                                                                                                                    |
-| ----------------- | ------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--project <id>`  | positive int        | —       | **Required.** Numeric project id (target).                                                                                                                                                                 |
-| `--name <str>...` | string (repeatable) | —       | One or more label names. Each fans out to one POST.                                                                                                                                                        |
-| `--hex <color>`   | `#RRGGBB`           | —       | Color applied **only when the server creates a new label**. Existing labels keep their color. Named `--hex` (not `--color`) to avoid collision with the global `--color <mode>` flag. _(See decision 11.)_ |
-| `--private`       | bool                | true    | Attach as a private label (caller-only). **Mutex** with `--public`. Default per spec decision 06.                                                                                                          |
-| `--public`        | bool                | false   | Attach as a public label. **Mutex** with `--private`.                                                                                                                                                      |
-| `--dry-run`       | bool                | false   | Skip every POST; envelope echoes `data.would` per name.                                                                                                                                                    |
+| Flag               | Type / values       | Default | Purpose                                                                                                                                                                                              |
+| ------------------ | ------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--project <id>`   | positive int        | —       | **Required.** Numeric project id (target).                                                                                                                                                           |
+| `--name <str>...`  | string (repeatable) | —       | One or more label names. Each fans out to one POST.                                                                                                                                                  |
+| `--palette <name>` | palette name        | —       | Color applied **only when the server creates a new label**. Resolves a palette name (case-insensitive) to its canonical hex. **Mutex** with `--hex`. See [Palette](#palette). _(R24.5, spec 0048.)_  |
+| `--hex <color>`    | `#RRGGBB`           | —       | Color applied **only when the server creates a new label**. Free-form six-digit hex; values outside the palette are silently snapped on the server. **Mutex** with `--palette`. _(See decision 11.)_ |
+| `--private`        | bool                | true    | Attach as a private label (caller-only). **Mutex** with `--public`. Default per spec decision 06.                                                                                                    |
+| `--public`         | bool                | false   | Attach as a public label. **Mutex** with `--private`.                                                                                                                                                |
+| `--dry-run`        | bool                | false   | Skip every POST; envelope echoes `data.would` per name.                                                                                                                                              |
+
+## Palette
+
+Freelo's UI renders nine canonical hues; any hex outside the palette is silently snapped on the server. Prefer `--palette` over `--hex`.
+
+| Name     | Hex       |
+| -------- | --------- |
+| `gray`   | `#77787A` |
+| `aqua`   | `#15ACC0` |
+| `blue`   | `#367FEE` |
+| `green`  | `#10AA40` |
+| `pink`   | `#CA3E99` |
+| `purple` | `#9235E4` |
+| `red`    | `#E9483A` |
+| `orange` | `#F2830B` |
+| `yellow` | `#E3B51E` |
+
+`--palette` is case-insensitive. Unknown names fail fast with `VALIDATION_ERROR` (exit 2). `freelo labels attach --help` prints this table inline.
 
 ## Permissions
 
@@ -67,12 +86,21 @@ $ freelo labels attach --project 7 --name "Billable" --public
 Attached "Billable" to project #7.
 ```
 
+### Attach with a palette color
+
+```bash
+$ freelo labels attach --project 7 --name "Bug" --palette red --output json
+{"schema":"freelo.labels.attach/v1","data":{"project_id":7,"name":"Bug","is_private":true,"color":"#E9483A"}}
+```
+
 ## Errors
 
 | Trigger                                 | Code               | Exit |
 | --------------------------------------- | ------------------ | ---- |
 | Missing `--project` / `--name`          | `VALIDATION_ERROR` | 2    |
 | `--private` and `--public` both set     | `VALIDATION_ERROR` | 2    |
+| `--palette` and `--hex` both set        | `VALIDATION_ERROR` | 2    |
+| Unknown `--palette <name>`              | `VALIDATION_ERROR` | 2    |
 | Bad `--hex` (e.g. `#abc`)               | `VALIDATION_ERROR` | 2    |
 | Bad `--project` (non-positive int)      | `VALIDATION_ERROR` | 2    |
 | 401                                     | `AUTH_EXPIRED`     | 3    |

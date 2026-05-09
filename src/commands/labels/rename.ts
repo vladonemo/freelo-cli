@@ -1,10 +1,12 @@
 /**
- * `freelo labels rename <id> [--name <str>] [--hex <color>] [--is-private | --is-public] [--dry-run]`
+ * `freelo labels rename <id> [--name <str>] [--palette <name> | --hex <#RRGGBB>] [--is-private | --is-public] [--dry-run]`
  * (R23, spec 0035; decision 11 — `--hex` instead of spec's `--color` to avoid
- * collision with the root global `--color <mode>` flag).
+ * collision with the root global `--color <mode>` flag. R24.5, spec 0048 —
+ * added `--palette <name>` mutex with `--hex`; both resolve to the same wire
+ * `color: "#RRGGBB"` field.)
  *
  * Renames / recolors / toggles privacy on an existing project label. At
- * least one of `--name` / `--hex` / `--is-private` / `--is-public` is
+ * least one of `--name` / `--palette` / `--hex` / `--is-private` / `--is-public` is
  * required (empty edit rejected per decision 04).
  *
  * Maps to **`POST /project-labels/{labelId}`** (verb is POST, not PATCH —
@@ -35,6 +37,7 @@ import { renderLabelsRenameHuman } from '../../ui/human/labels-rename.js';
 import { handleTopLevelError } from '../../errors/handle.js';
 import { ValidationError } from '../../errors/validation-error.js';
 import { attachMeta, type CommandMeta } from '../../lib/introspect.js';
+import { paletteHelpBlock, resolveColorFlags } from '../../lib/label-color.js';
 
 export const meta: CommandMeta = {
   outputSchema: 'freelo.labels.rename/v1',
@@ -47,6 +50,7 @@ const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
 type RenameOpts = {
   name?: string;
+  palette?: string;
   hex?: string;
   isPrivate?: boolean;
   isPublic?: boolean;
@@ -93,13 +97,18 @@ export function registerRename(
     .argument('<id>', 'Numeric label id from `freelo labels list`.', parseLabelId)
     .option('--name <str>', 'New label name.')
     .option(
+      '--palette <name>',
+      'Palette color name (case-insensitive). Mutex with --hex. See list below.',
+    )
+    .option(
       '--hex <color>',
-      'New label color in #RRGGBB format (six hex digits). Named `--hex` (not `--color`) to avoid collision with the global `--color <mode>` output-colorization flag — see decision 11.',
+      'New label color in #RRGGBB format (six hex digits). Mutex with --palette. Named `--hex` (not `--color`) to avoid collision with the global `--color <mode>` output-colorization flag — see decision 11.',
       parseHexColorFlag,
     )
     .option('--is-private', 'Flip the label to private (mutex with --is-public).')
     .option('--is-public', 'Flip the label to public (mutex with --is-private).')
-    .option('--dry-run', 'Skip the POST; envelope echoes the body that would have been sent.');
+    .option('--dry-run', 'Skip the POST; envelope echoes the body that would have been sent.')
+    .addHelpText('after', paletteHelpBlock());
   attachMeta(cmd, meta);
 
   cmd.action(async (id: number, opts: RenameOpts) => {
@@ -114,15 +123,18 @@ export function registerRename(
         });
       }
 
+      // Resolve --palette / --hex (mutex + lookup happen here).
+      const color = resolveColorFlags({ palette: opts.palette, hex: opts.hex });
+
       // Empty-edit rejection (decision 04).
       const hasNoChange =
         opts.name === undefined &&
-        opts.hex === undefined &&
+        color === undefined &&
         opts.isPrivate !== true &&
         opts.isPublic !== true;
       if (hasNoChange) {
         throw new ValidationError(
-          '`labels rename` requires at least one of --name, --hex, --is-private, or --is-public.',
+          '`labels rename` requires at least one of --name, --palette, --hex, --is-private, or --is-public.',
           {
             hintNext:
               'Pass at least one change flag, e.g. `freelo labels rename 12 --name "Billable"`.',
@@ -135,14 +147,14 @@ export function registerRename(
 
       const apiInput: EditProjectLabelInput = {
         ...(opts.name !== undefined ? { name: opts.name } : {}),
-        ...(opts.hex !== undefined ? { color: opts.hex } : {}),
+        ...(color !== undefined ? { color } : {}),
         ...(isPrivate !== undefined ? { isPrivate } : {}),
       };
       const body = buildEditProjectLabelBody(apiInput);
 
       const appliedChanges: LabelsRenameAppliedChanges = {};
       if (opts.name !== undefined) appliedChanges.name = opts.name;
-      if (opts.hex !== undefined) appliedChanges.color = opts.hex;
+      if (color !== undefined) appliedChanges.color = color;
       if (isPrivate !== undefined) appliedChanges.is_private = isPrivate;
 
       // ---- Dry-run.

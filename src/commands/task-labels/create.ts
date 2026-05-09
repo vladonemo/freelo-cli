@@ -1,6 +1,7 @@
 /**
- * `freelo task-labels create --name <str>... [--hex <color>] [--dry-run]`
- * (R24, spec 0036).
+ * `freelo task-labels create --name <str>... [--palette <name> | --hex <#RRGGBB>] [--dry-run]`
+ * (R24, spec 0036; R24.5, spec 0048 — added `--palette <name>` mutex with
+ * `--hex`; both resolve to the same wire `color: "#RRGGBB"` field.)
  *
  * Bulk-create task-label definitions in the caller's account. Server-side
  * fetch-or-create on `name` (case-sensitive) — the API does not report
@@ -33,6 +34,7 @@ import { renderTaskLabelsCreateHuman } from '../../ui/human/task-labels-create.j
 import { handleTopLevelError } from '../../errors/handle.js';
 import { ValidationError } from '../../errors/validation-error.js';
 import { attachMeta, type CommandMeta } from '../../lib/introspect.js';
+import { paletteHelpBlock, resolveColorFlags } from '../../lib/label-color.js';
 
 export const meta: CommandMeta = {
   outputSchema: 'freelo.task_labels.create/v1',
@@ -45,6 +47,7 @@ const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
 type CreateOpts = {
   name?: string[];
+  palette?: string;
   hex?: string;
   dryRun?: boolean;
 };
@@ -92,11 +95,16 @@ export function registerCreate(
       collectName,
     )
     .option(
+      '--palette <name>',
+      'Palette color name (case-insensitive). Mutex with --hex. Applied to every --name in this call. See list below.',
+    )
+    .option(
       '--hex <color>',
-      'Color in #RRGGBB format. Applied to every --name in this call (spec 0036 decision 04). Named `--hex` (not `--color`) to avoid the root global `--color <mode>` flag — see decision 02.',
+      'Color in #RRGGBB format. Mutex with --palette. Applied to every --name in this call (spec 0036 decision 04). Named `--hex` (not `--color`) to avoid the root global `--color <mode>` flag — see decision 02.',
       parseHexColorFlag,
     )
-    .option('--dry-run', 'Skip the POST; envelope echoes the wire body in `would`.');
+    .option('--dry-run', 'Skip the POST; envelope echoes the wire body in `would`.')
+    .addHelpText('after', paletteHelpBlock());
   attachMeta(cmd, meta);
 
   cmd.action(async (opts: CreateOpts) => {
@@ -111,9 +119,12 @@ export function registerCreate(
         });
       }
 
+      // Resolve --palette / --hex (mutex + lookup happen here).
+      const color = resolveColorFlags({ palette: opts.palette, hex: opts.hex });
+
       const body = buildCreateTaskLabelsBody({
         names,
-        ...(opts.hex !== undefined ? { color: opts.hex } : {}),
+        ...(color !== undefined ? { color } : {}),
       });
 
       if (opts.dryRun === true) {

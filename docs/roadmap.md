@@ -443,7 +443,7 @@ freelo task-labels detach --task <id> (--name <str>|--uuid <id>)...
 
 **Depends on:** R10.
 
-### R24.5 — Label color palette (`--palette <name>` + hex-color discovery in help) (queued)
+### R24.5 — Label color palette (`--palette <name>` + hex-color discovery in help) (done — spec 0048)
 
 **Outcome:** Users (and agents) can pass a Freelo-supported color by name — `--palette red` — instead of memorizing a hex code, on every command that today accepts `--hex`. The existing `--hex <#RRGGBB>` flag stays supported for free-form input, and its `--help` output now lists the nine palette hex values so a user typing `--help` sees what Freelo will actually render. Closes the gap surfaced by Freelo's fixed nine-color label palette: any hex outside the palette is silently snapped on the server, so the CLI surface should make the palette discoverable rather than hidden.
 
