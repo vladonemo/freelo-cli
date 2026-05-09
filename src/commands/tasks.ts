@@ -16,6 +16,7 @@ import { registerEstimate } from './tasks/estimate.js';
 import { registerProject } from './tasks/project.js';
 import { registerRelations } from './tasks/relations.js';
 import { registerFindRelations } from './tasks/find-relations.js';
+import { registerCreateFromTemplate } from './tasks/create-from-template.js';
 
 /**
  * Register the `tasks` subcommand tree on the root program. Mirrors the
@@ -49,4 +50,5 @@ export function register(
   registerProject(tasks, getConfig, env);
   registerRelations(tasks, getConfig, env);
   registerFindRelations(tasks, getConfig, env);
+  registerCreateFromTemplate(tasks, getConfig, env);
 }
