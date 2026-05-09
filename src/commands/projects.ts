@@ -7,6 +7,7 @@ import { registerCreateFromTemplate } from './projects/create-from-template.js';
 import { registerArchive } from './projects/archive.js';
 import { registerActivate } from './projects/activate.js';
 import { registerDelete } from './projects/delete.js';
+import { registerWorkers } from './projects/workers.js';
 
 /**
  * Register the `projects` subcommand tree on the root program. Mirrors the
@@ -28,4 +29,5 @@ export function register(
   registerArchive(projects, getConfig, env);
   registerActivate(projects, getConfig, env);
   registerDelete(projects, getConfig, env);
+  registerWorkers(projects, getConfig, env);
 }

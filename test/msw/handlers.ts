@@ -3576,6 +3576,257 @@ export const projectsDeleteHandlers = {
 };
 
 /**
+ * MSW handler factories for R32 `projects workers list` and `remove`
+ * (spec 0045).
+ *
+ * Three endpoints:
+ *   - `GET  /project/{id}/workers?p=N`               (list, paginated)
+ *   - `POST /project/{id}/remove-workers/by-ids`     (remove, atomic array)
+ *   - `POST /project/{id}/remove-workers/by-emails`  (remove, atomic array)
+ *
+ * The list-side reuses the same paginated wire shape as `projectShowHandlers.workersPaged`.
+ */
+export const projectsWorkersHandlers = {
+  /**
+   * `GET /project/{id}/workers?p=N` — single-page handler. Returns the
+   * supplied `fixture` for any `?p` value (use `listPaged` for multi-page).
+   */
+  listOk(projectId: number, fixture: PagedFixture): RequestHandler {
+    return http.get(`${API_BASE}/project/${projectId}/workers`, () => HttpResponse.json(fixture));
+  },
+
+  /**
+   * `GET /project/{id}/workers?p=N` — multi-page. `pages` is keyed by 0-indexed
+   * page number; missing pages return an empty page using the last-known
+   * `per_page` and `total`. Mirrors `projectShowHandlers.workersPaged`.
+   */
+  listPaged(projectId: number, pages: Record<number, PagedFixture>): RequestHandler {
+    return http.get(`${API_BASE}/project/${projectId}/workers`, ({ request }) => {
+      const u = new URL(request.url);
+      const p = Number(u.searchParams.get('p') ?? '0');
+      const fix = pages[p];
+      if (fix) return HttpResponse.json(fix);
+
+      const ref = pages[Math.max(...Object.keys(pages).map(Number))];
+      if (!ref) {
+        return HttpResponse.json({
+          total: 0,
+          count: 0,
+          page: p,
+          per_page: 25,
+          data: { workers: [] },
+        });
+      }
+      return HttpResponse.json({
+        total: ref.total,
+        count: 0,
+        page: p,
+        per_page: ref.per_page,
+        data: { workers: [] },
+      });
+    });
+  },
+
+  /**
+   * Mid-stream `--all` failure: succeeds for `p < failPage`, errors at
+   * `p === failPage`. Drives the `PartialPagesError` unwrap path on `list`.
+   */
+  listMidStreamError(opts: {
+    projectId: number;
+    pages: Record<number, PagedFixture>;
+    failPage: number;
+    status?: number;
+  }): RequestHandler {
+    const { projectId, pages, failPage, status = 500 } = opts;
+    return http.get(`${API_BASE}/project/${projectId}/workers`, ({ request }) => {
+      const u = new URL(request.url);
+      const p = Number(u.searchParams.get('p') ?? '0');
+      if (p >= failPage) {
+        return HttpResponse.json({ errors: ['Internal server error.'] }, { status });
+      }
+      const fix = pages[p];
+      if (fix) return HttpResponse.json(fix);
+      return HttpResponse.json({
+        total: 0,
+        count: 0,
+        page: p,
+        per_page: 25,
+        data: { workers: [] },
+      });
+    });
+  },
+
+  /** `GET /project/{id}/workers` — 401. */
+  listUnauthorized(projectId: number): RequestHandler {
+    return http.get(`${API_BASE}/project/${projectId}/workers`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `GET /project/{id}/workers` — 403. */
+  listForbidden(projectId: number): RequestHandler {
+    return http.get(`${API_BASE}/project/${projectId}/workers`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** `GET /project/{id}/workers` — 404. */
+  listNotFound(projectId: number): RequestHandler {
+    return http.get(`${API_BASE}/project/${projectId}/workers`, () =>
+      HttpResponse.json({ errors: ['Project not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `GET /project/{id}/workers` — 429 (Retry-After: 0). */
+  listRateLimited(projectId: number): RequestHandler {
+    return http.get(
+      `${API_BASE}/project/${projectId}/workers`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** `GET /project/{id}/workers` — 5xx. */
+  listServerError(projectId: number, status = 500): RequestHandler {
+    return http.get(`${API_BASE}/project/${projectId}/workers`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** `POST /project/{id}/remove-workers/by-ids` — 200 success. */
+  removeByIdsOk(projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/remove-workers/by-ids`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /**
+   * `POST /project/{id}/remove-workers/by-ids` — 200 success when the body
+   * matches `predicate(body, request)`; otherwise 500 with a diagnostic.
+   * Used to assert the exact wire body shape.
+   */
+  removeByIdsOkWhenBody(
+    projectId: number,
+    predicate: (body: unknown, request: Request) => boolean,
+  ): RequestHandler {
+    return http.post(
+      `${API_BASE}/project/${projectId}/remove-workers/by-ids`,
+      async ({ request }) => {
+        const body: unknown = await request.clone().json();
+        if (!predicate(body, request)) {
+          return HttpResponse.json(
+            { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+            { status: 500 },
+          );
+        }
+        return HttpResponse.json({ result: 'success' });
+      },
+    );
+  },
+
+  /** `POST /project/{id}/remove-workers/by-emails` — 200 success. */
+  removeByEmailsOk(projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/remove-workers/by-emails`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /** Body-asserting variant for the by-emails endpoint. */
+  removeByEmailsOkWhenBody(
+    projectId: number,
+    predicate: (body: unknown, request: Request) => boolean,
+  ): RequestHandler {
+    return http.post(
+      `${API_BASE}/project/${projectId}/remove-workers/by-emails`,
+      async ({ request }) => {
+        const body: unknown = await request.clone().json();
+        if (!predicate(body, request)) {
+          return HttpResponse.json(
+            { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+            { status: 500 },
+          );
+        }
+        return HttpResponse.json({ result: 'success' });
+      },
+    );
+  },
+
+  /** `POST .../remove-workers/by-ids` — 400 with the supplied message. */
+  removeByIdsBadRequest(projectId: number, message: string): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/remove-workers/by-ids`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  /** `POST .../remove-workers/by-emails` — 400 with the supplied message. */
+  removeByEmailsBadRequest(projectId: number, message: string): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/remove-workers/by-emails`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  /** 401 — by-ids. */
+  removeByIdsUnauthorized(projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/remove-workers/by-ids`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** 403 — by-ids. */
+  removeByIdsForbidden(projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/remove-workers/by-ids`, () =>
+      HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** 404 — by-ids (project not found). */
+  removeByIdsNotFound(projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/remove-workers/by-ids`, () =>
+      HttpResponse.json({ errors: ['Project not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** 422 — by-emails (typical for "email not in project"). */
+  removeByEmailsUnprocessable(
+    projectId: number,
+    message = 'Email not currently in the project.',
+  ): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/remove-workers/by-emails`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 422 }),
+    );
+  },
+
+  /** 429 (Retry-After: 0) — by-ids. */
+  removeByIdsRateLimited(projectId: number): RequestHandler {
+    return http.post(
+      `${API_BASE}/project/${projectId}/remove-workers/by-ids`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** 5xx — by-ids. */
+  removeByIdsServerError(projectId: number, status = 500): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/remove-workers/by-ids`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** Network error — by-ids. */
+  removeByIdsNetworkError(projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/remove-workers/by-ids`, () =>
+      HttpResponse.error(),
+    );
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));

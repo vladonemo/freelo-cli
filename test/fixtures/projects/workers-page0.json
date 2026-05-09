@@ -1,0 +1,12 @@
+{
+  "total": 2,
+  "count": 2,
+  "page": 0,
+  "per_page": 25,
+  "data": {
+    "workers": [
+      { "id": 305, "fullname": "Jane Doe" },
+      { "id": 150, "fullname": "Bob Smith" }
+    ]
+  }
+}
