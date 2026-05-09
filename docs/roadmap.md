@@ -443,6 +443,58 @@ freelo task-labels detach --task <id> (--name <str>|--uuid <id>)...
 
 **Depends on:** R10.
 
+### R24.5 — Label color palette (`--palette <name>` + hex-color discovery in help) (queued)
+
+**Outcome:** Users (and agents) can pass a Freelo-supported color by name — `--palette red` — instead of memorizing a hex code, on every command that today accepts `--hex`. The existing `--hex <#RRGGBB>` flag stays supported for free-form input, and its `--help` output now lists the nine palette hex values so a user typing `--help` sees what Freelo will actually render. Closes the gap surfaced by Freelo's fixed nine-color label palette: any hex outside the palette is silently snapped on the server, so the CLI surface should make the palette discoverable rather than hidden.
+
+**Endpoints:** none (client-side enhancement layered on R23 / R24 commands; wire body still carries `color: "#RRGGBB"`).
+
+**Surface (additive — three commands):**
+
+```
+freelo labels rename       <id> [--name <str>] [--palette <name> | --hex <#RRGGBB>] [--is-private | --is-public] [--dry-run]
+freelo labels attach       --project <id> --name <str>... [--palette <name> | --hex <#RRGGBB>] [--private | --public] [--dry-run]
+freelo task-labels create  --name <str>... [--palette <name> | --hex <#RRGGBB>] [--dry-run]
+```
+
+**Palette (Freelo-supported nine, locked at build time — source: this requirement):**
+
+| Name   | Hex       |
+| ------ | --------- |
+| gray   | `#77787A` |
+| aqua   | `#15ACC0` |
+| blue   | `#367FEE` |
+| green  | `#10AA40` |
+| pink   | `#CA3E99` |
+| purple | `#9235E4` |
+| red    | `#E9483A` |
+| orange | `#F2830B` |
+| yellow | `#E3B51E` |
+
+**Behavior:**
+
+- `--palette` and `--hex` are **mutually exclusive** (`ValidationError`, exit 2, `hintNext` lists the nine palette names).
+- `--palette <name>` is case-insensitive; unknown names fail closed with a `ValidationError` whose `hintNext` enumerates the nine accepted values.
+- `--hex` validation is **unchanged** — still `^#[0-9a-fA-F]{6}$`, still accepts any six-digit hex. We do **not** narrow the existing surface to palette-only (no behavior breakage; non-palette hex still goes to the server, which decides what to render). Tracked here so users have a recourse when Freelo changes the palette.
+- Both flags resolve to the same wire field (`color: "#RRGGBB"`); the dry-run envelope's `would.body.color` shows the resolved hex regardless of which flag was used.
+- Help text on every affected command lists the palette table inline (Commander long-description block), so `freelo labels attach --help` shows the nine accepted names alongside their hex values without requiring a separate doc lookup.
+
+**Ships with this slice:**
+
+- `src/lib/label-color.ts` — single source of truth for the palette: `PALETTE: Record<string, `#${string}`>`, `resolveColorFlags({ palette?, hex? }): string | undefined` (mutex + lookup), `paletteHelpBlock(): string` (formatted table for Commander `--help`).
+- The three command files import the helper; their existing `parseHexColorFlag` stays for `--hex`.
+- Unit tests for `label-color.ts` (resolution, mutex, case-insensitive lookup, help block formatting).
+- Per-command tests: each existing test file gains palette / mutex / unknown-name cases.
+- Doc updates: `docs/commands/labels-rename.md`, `docs/commands/labels-attach.md`, plus the task-labels create page list the palette table and call out the recommendation to prefer `--palette` over `--hex`.
+
+**Why a separate slice (and not folded into R23 / R24):** R23 and R24 are already shipped (decisions 11 and 02 respectively pinned the `--hex` name to dodge the global `--color <mode>` collision). This slice is a pure UX layer on top — no envelope schema change, no API change, no breaking flag rename — and is independently valuable. Folding it back into R23/R24 would re-open shipped specs.
+
+**Why `--palette` (not `--color-name` / `--named-color`):** short, single-word, doesn't repeat "color", and reads as "pick from the palette" — which is exactly what Freelo's nine fixed values are. `--color` itself is reserved by the global output-colorization flag (decision 11 / 02).
+
+**Tier:** Yellow (additive flag on three user-visible commands; no auth/HTTP defaults change; no envelope schema bump).
+**Changeset:** `freelo-cli: minor` (new flag on three commands).
+**Depends on:** R23, R24.
+
 ### R25 — `freelo files upload`
 
 **Endpoints:** `POST /file/upload` (multipart).
