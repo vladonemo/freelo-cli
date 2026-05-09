@@ -85,6 +85,7 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 - `freelo projects activate [id...]` — Activate (unarchive or undelete) one or more projects. Idempotent on the server: already-active projects return 200 no-op. May fail with PlanExceededException when restoring exceeds the plan cap.
 - `freelo projects archive [id...]` — Archive one or more projects. Idempotent on the server: re-archiving an already-archived project succeeds (200 no-op).
 - `freelo projects create` — Create a new project.
+- `freelo projects create-from-template <template_id>` — Create a new project by cloning a project template (state=3).
 - `freelo projects delete [id...]` — Soft-delete one or more projects. Destructive — requires --yes (non-TTY) or interactive confirmation (TTY). Reversible via 'freelo projects activate'. 404-after-delete is treated as idempotent already-deleted.
 - `freelo projects list` — List projects in the chosen scope. Default scope is 'owned'.
 - `freelo projects show <id>` — Show one project's full detail, with optional side-cars.
