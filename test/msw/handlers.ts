@@ -4238,6 +4238,109 @@ export const tasksRemindClearHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo tasks share` (R36, spec 0050).
+ *
+ * Single endpoint:
+ *   - `GET /public-link/task/{task_id}` — `{ url: <string> }`
+ *
+ * Per `docs/api/freelo-api.yaml:2137-2165`, this is a "GET that creates":
+ * first call mints the URL, subsequent calls return the same one. The CLI
+ * cannot distinguish the two cases on the wire (spec 0050 decision 2).
+ *
+ * Note on the verb: the roadmap shorthand says POST; the authoritative
+ * OpenAPI documents this as GET. Tests follow the yaml (spec 0050
+ * decision 1).
+ */
+export const tasksShareHandlers = {
+  /** `GET /public-link/task/{id}` — 200 with `{ url }`. */
+  ok(taskId: number, url: string): RequestHandler {
+    return http.get(`${API_BASE}/public-link/task/${taskId}`, () => HttpResponse.json({ url }));
+  },
+
+  /**
+   * `GET /public-link/task/{id}` — 200 with a body that DOES NOT contain
+   * `url`. Exercises the schema-validation error path (zod rejects the
+   * body; client surfaces `FreeloApiError` with `VALIDATION_ERROR`).
+   */
+  okMissingUrl(taskId: number): RequestHandler {
+    return http.get(`${API_BASE}/public-link/task/${taskId}`, () => HttpResponse.json({}));
+  },
+
+  /** `GET /public-link/task/{id}` — 401. */
+  unauthorized(taskId: number): RequestHandler {
+    return http.get(`${API_BASE}/public-link/task/${taskId}`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `GET /public-link/task/{id}` — 403. */
+  forbidden(taskId: number): RequestHandler {
+    return http.get(`${API_BASE}/public-link/task/${taskId}`, () =>
+      HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** `GET /public-link/task/{id}` — 404 (task not found). */
+  notFound(taskId: number): RequestHandler {
+    return http.get(`${API_BASE}/public-link/task/${taskId}`, () =>
+      HttpResponse.json({ errors: ['Task not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `GET /public-link/task/{id}` — 5xx. */
+  serverError(taskId: number, status = 500): RequestHandler {
+    return http.get(`${API_BASE}/public-link/task/${taskId}`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+};
+
+/**
+ * MSW handlers for `freelo tasks unshare` (R36, spec 0050).
+ *
+ * Single endpoint:
+ *   - `DELETE /public-link/task/{task_id}` — `SuccessResponse`.
+ *
+ * The OpenAPI is silent on the no-link case; the command layer maps a
+ * 404 to `already_in_target_state: true` (spec 0050 decision 5,
+ * mirroring R13 / R35 idempotency on destructive ops).
+ */
+export const tasksUnshareHandlers = {
+  /** `DELETE /public-link/task/{id}` — 200 success. */
+  ok(taskId: number): RequestHandler {
+    return http.delete(`${API_BASE}/public-link/task/${taskId}`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /**
+   * `DELETE /public-link/task/{id}` — 404. Defensive forward-compat path:
+   * the OpenAPI does not document a 404 for the no-link case, but if
+   * Freelo ever tightens the endpoint we re-classify the 404 as
+   * `already_in_target_state: true`.
+   */
+  notFound(taskId: number): RequestHandler {
+    return http.delete(`${API_BASE}/public-link/task/${taskId}`, () =>
+      HttpResponse.json({ errors: ['Public link not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `DELETE /public-link/task/{id}` — 401. */
+  unauthorized(taskId: number): RequestHandler {
+    return http.delete(`${API_BASE}/public-link/task/${taskId}`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `DELETE /public-link/task/{id}` — 5xx. */
+  serverError(taskId: number, status = 500): RequestHandler {
+    return http.delete(`${API_BASE}/public-link/task/${taskId}`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));

@@ -10,7 +10,7 @@ import { type Envelope, type SchemaString } from '../ui/envelope.js';
  * Spec 0019 §3.2 / decision 8.
  */
 export type Would = {
-  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   path: string;
   body: unknown;
 };
