@@ -3827,6 +3827,120 @@ export const projectsWorkersHandlers = {
 };
 
 /**
+ * MSW handler factories for `POST /users/manage-workers` (R33, spec 0046).
+ *
+ * One endpoint, multiple shapes. The default 200 result body has empty arrays
+ * for all four buckets — useful when the test only cares about exit-0 / body
+ * assertion. `okWithResult` and `okWhenBody` cover the two informative
+ * variants.
+ */
+const INVITE_URL = `${API_BASE}/users/manage-workers`;
+
+type InviteResultBody = {
+  newly_invited_users_to_projects: unknown[];
+  newly_created_users: { id?: number; email?: string }[];
+  newly_invited_users: { id?: number; email?: string; projects_ids?: number[] }[];
+  removed_users_from_projects: unknown[];
+};
+
+const INVITE_OK_DEFAULT: InviteResultBody = {
+  newly_invited_users_to_projects: [],
+  newly_created_users: [],
+  newly_invited_users: [],
+  removed_users_from_projects: [],
+};
+
+export const projectsInviteHandlers = {
+  /** 200 with the default empty-buckets body. */
+  ok(): RequestHandler {
+    return http.post(INVITE_URL, () => HttpResponse.json(INVITE_OK_DEFAULT));
+  },
+
+  /** 200 with the supplied result body (override one or more buckets). */
+  okWithResult(result: Partial<InviteResultBody>): RequestHandler {
+    return http.post(INVITE_URL, () => HttpResponse.json({ ...INVITE_OK_DEFAULT, ...result }));
+  },
+
+  /**
+   * 200 if the request body matches `predicate(body, request)`; otherwise 500
+   * with a diagnostic. Used to assert the exact wire body shape.
+   */
+  okWhenBody(predicate: (body: unknown, request: Request) => boolean): RequestHandler {
+    return http.post(INVITE_URL, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json(INVITE_OK_DEFAULT);
+    });
+  },
+
+  /** 400 with a single string-form error. */
+  badRequest(message: string): RequestHandler {
+    return http.post(INVITE_URL, () => HttpResponse.json({ errors: [message] }, { status: 400 }));
+  },
+
+  /**
+   * 400 with the exact `errors[]` array supplied. Used to drive the
+   * field-level hint scan (spec 0046 decision 8).
+   */
+  badRequestWithErrors(errors: readonly string[]): RequestHandler {
+    return http.post(INVITE_URL, () => HttpResponse.json({ errors: [...errors] }, { status: 400 }));
+  },
+
+  /** 401 — invalid or expired token. */
+  unauthorized(): RequestHandler {
+    return http.post(INVITE_URL, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** 403 — caller lacks permission on one or more projects. */
+  forbidden(message = 'Role action forbidden.'): RequestHandler {
+    return http.post(INVITE_URL, () => HttpResponse.json({ errors: [message] }, { status: 403 }));
+  },
+
+  /** 404 — one or more project ids not found. */
+  notFound(): RequestHandler {
+    return http.post(INVITE_URL, () =>
+      HttpResponse.json({ errors: ['Project not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** 422 — typically plan-exceeded or semantically invalid request. */
+  unprocessable(message = 'Plan limit exceeded.'): RequestHandler {
+    return http.post(INVITE_URL, () => HttpResponse.json({ errors: [message] }, { status: 422 }));
+  },
+
+  /** 429 (Retry-After: 0) — rate-limited. */
+  rateLimited(): RequestHandler {
+    return http.post(
+      INVITE_URL,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** 5xx server error. */
+  serverError(status = 500): RequestHandler {
+    return http.post(INVITE_URL, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** Network error (e.g. DNS failure, connection reset). */
+  networkError(): RequestHandler {
+    return http.post(INVITE_URL, () => HttpResponse.error());
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));

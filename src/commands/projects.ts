@@ -8,6 +8,7 @@ import { registerArchive } from './projects/archive.js';
 import { registerActivate } from './projects/activate.js';
 import { registerDelete } from './projects/delete.js';
 import { registerWorkers } from './projects/workers.js';
+import { registerInvite } from './projects/invite.js';
 
 /**
  * Register the `projects` subcommand tree on the root program. Mirrors the
@@ -30,4 +31,5 @@ export function register(
   registerActivate(projects, getConfig, env);
   registerDelete(projects, getConfig, env);
   registerWorkers(projects, getConfig, env);
+  registerInvite(projects, getConfig, env);
 }

@@ -87,6 +87,7 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 - `freelo projects create` — Create a new project.
 - `freelo projects create-from-template <template_id>` — Create a new project by cloning a project template (state=3).
 - `freelo projects delete [id...]` — Soft-delete one or more projects. Destructive — requires --yes (non-TTY) or interactive confirmation (TTY). Reversible via 'freelo projects activate'. 404-after-delete is treated as idempotent already-deleted.
+- `freelo projects invite` — Invite existing users (--user) and/or external people (--email) to one or more projects (--project). Single bulk POST to /users/manage-workers; --user and --email are not mutex (the API body accepts both in one call). Unknown emails trigger user creation server-side.
 - `freelo projects list` — List projects in the chosen scope. Default scope is 'owned'.
 - `freelo projects show <id>` — Show one project's full detail, with optional side-cars.
 - `freelo projects workers list` — List a project's workers (active members + owner + guests). Paginated; defaults to fetching all pages.
