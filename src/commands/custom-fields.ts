@@ -7,6 +7,7 @@ import { registerRename } from './custom-fields/rename.js';
 import { registerDelete } from './custom-fields/delete.js';
 import { registerRestore } from './custom-fields/restore.js';
 import { registerValue } from './custom-fields/value.js';
+import { registerEnum } from './custom-fields/enum.js';
 
 /**
  * Register the `custom-fields` subcommand tree on the root program.
@@ -24,9 +25,9 @@ import { registerValue } from './custom-fields/value.js';
  *     - `freelo custom-fields delete <uuid>...`               — soft-delete (destructive).
  *     - `freelo custom-fields restore <uuid>...`              — restore a soft-deleted field.
  *
- * Wave 7 will keep adding leaves here:
- *   - R42 — value set / value clear (this slice adds the `value` parent).
- *   - R43 — enum {list, add, rename, delete}.
+ * Wave 7 leaves:
+ *   - R42 — `value` parent: `set` / `clear`.
+ *   - R43 — `enum` parent: `list` / `add` / `rename` / `delete`.
  */
 export function register(
   program: Command,
@@ -46,4 +47,5 @@ export function register(
   registerDelete(customFields, getConfig, env);
   registerRestore(customFields, getConfig, env);
   registerValue(customFields, getConfig, env);
+  registerEnum(customFields, getConfig, env);
 }

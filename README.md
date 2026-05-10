@@ -60,6 +60,10 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 
 - `freelo custom-fields create` — Create a custom-field definition on a project. Caller must be a project commander. The --type uuid comes from `freelo custom-fields types`.
 - `freelo custom-fields delete [uuid...]` — Soft-delete one or more custom-field definitions. Existing task values are preserved server-side and hidden until restore. Destructive — requires --yes (non-TTY) or interactive confirmation (TTY). 404 treated as idempotent (already-deleted).
+- `freelo custom-fields enum add` — Add an enum option to an enum-typed custom field. Caller must be a project commander on the field's project. Server returns 400 if the target field is not enum-typed.
+- `freelo custom-fields enum delete [enum_uuid...]` — Delete one or more enum options. Default (safe) refuses if the option is in use; --force cascades — referencing task values are cleared. Destructive — requires --yes (non-TTY) or interactive confirmation (TTY). 404 treated as idempotent (already-deleted).
+- `freelo custom-fields enum list` — List enum options defined on an enum-typed custom field. Empty result is valid (no options yet, or all soft-deleted). Read-only.
+- `freelo custom-fields enum rename <enum_uuid>` — Rename the display value of an enum option. The option's uuid is preserved, so existing task values referencing it continue to work. Caller must be a project commander on the field's project.
 - `freelo custom-fields list` — List all custom-field definitions configured on a project, plus the caller's commander status (true = can call create / rename / delete / restore on this project). Soft-deleted fields are excluded by Freelo. Read-only.
 - `freelo custom-fields rename <uuid>` — Rename a custom-field definition. Only `name` is mutable via this endpoint; uuid + type are immutable. Caller must be a project commander of the field's project.
 - `freelo custom-fields restore [uuid...]` — Restore one or more soft-deleted custom-field definitions. Non-destructive — no --yes flag. 404 treated as idempotent (already-active or never-deleted).

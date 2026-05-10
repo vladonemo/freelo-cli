@@ -5462,6 +5462,330 @@ export const customFieldsValueHandlers = {
 };
 
 /**
+ * MSW handler factories for the R43 (`custom-fields enum`) endpoint family
+ * (spec 0057). Mirrors `customFieldsCrudHandlers` modulo:
+ *   - `list`, `add` use `:fieldUuid` (custom-field uuid);
+ *   - `rename`, `delete*` use `:enumUuid` (enum-option uuid);
+ *   - `delete` is split into `safeDelete*` and `forceDelete*` so tests can
+ *     pin which endpoint they expect.
+ */
+export const customFieldsEnumHandlers = {
+  /* ---------------------------------------------------------------------
+   *  GET /custom-field-enum/get-for-custom-field/{custom_field_uuid}
+   * ------------------------------------------------------------------- */
+
+  listOk(options?: Array<{ uuid: string; value: string }>): RequestHandler {
+    const arr = options ?? [
+      { uuid: 'enum-1111-2222', value: 'Low' },
+      { uuid: 'enum-3333-4444', value: 'Medium' },
+      { uuid: 'enum-5555-6666', value: 'High' },
+    ];
+    return http.get(`${API_BASE}/custom-field-enum/get-for-custom-field/:fieldUuid`, () =>
+      HttpResponse.json({ custom_field_enum: arr }),
+    );
+  },
+
+  listEmpty(): RequestHandler {
+    return http.get(`${API_BASE}/custom-field-enum/get-for-custom-field/:fieldUuid`, () =>
+      HttpResponse.json({ custom_field_enum: [] }),
+    );
+  },
+
+  listBadRequest(message = 'Invalid request.'): RequestHandler {
+    return http.get(`${API_BASE}/custom-field-enum/get-for-custom-field/:fieldUuid`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  listUnauthorized(): RequestHandler {
+    return http.get(`${API_BASE}/custom-field-enum/get-for-custom-field/:fieldUuid`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  listForbidden(): RequestHandler {
+    return http.get(`${API_BASE}/custom-field-enum/get-for-custom-field/:fieldUuid`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  listNotFound(): RequestHandler {
+    return http.get(`${API_BASE}/custom-field-enum/get-for-custom-field/:fieldUuid`, () =>
+      HttpResponse.json({ errors: ['Custom field not found.'] }, { status: 404 }),
+    );
+  },
+
+  listServerError(status = 500): RequestHandler {
+    return http.get(`${API_BASE}/custom-field-enum/get-for-custom-field/:fieldUuid`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  listRateLimited(): RequestHandler {
+    return http.get(
+      `${API_BASE}/custom-field-enum/get-for-custom-field/:fieldUuid`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /* ---------------------------------------------------------------------
+   *  POST /custom-field-enum/create/{custom_field_uuid}
+   * ------------------------------------------------------------------- */
+
+  addOk(option?: { uuid: string; value: string }): RequestHandler {
+    return http.post(`${API_BASE}/custom-field-enum/create/:fieldUuid`, async ({ request }) => {
+      const body = (await request.json()) as Record<string, unknown>;
+      const raw = body['value'];
+      const value = typeof raw === 'string' ? raw : '';
+      return HttpResponse.json({
+        custom_field_enum: option ?? { uuid: 'enum-server-generated', value: value || 'Default' },
+      });
+    });
+  },
+
+  addOkWhenBody(
+    predicate: (body: unknown, request: Request) => boolean,
+    response?: { uuid: string; value: string },
+  ): RequestHandler {
+    return http.post(`${API_BASE}/custom-field-enum/create/:fieldUuid`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json({
+        custom_field_enum: response ?? { uuid: 'enum-server-generated', value: 'X' },
+      });
+    });
+  },
+
+  addBadRequest(message = 'value is required.'): RequestHandler {
+    return http.post(`${API_BASE}/custom-field-enum/create/:fieldUuid`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  addUnauthorized(): RequestHandler {
+    return http.post(`${API_BASE}/custom-field-enum/create/:fieldUuid`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  addForbidden(): RequestHandler {
+    return http.post(`${API_BASE}/custom-field-enum/create/:fieldUuid`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  addNotFound(): RequestHandler {
+    return http.post(`${API_BASE}/custom-field-enum/create/:fieldUuid`, () =>
+      HttpResponse.json({ errors: ['Custom field not found.'] }, { status: 404 }),
+    );
+  },
+
+  addServerError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/custom-field-enum/create/:fieldUuid`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  addRateLimited(): RequestHandler {
+    return http.post(
+      `${API_BASE}/custom-field-enum/create/:fieldUuid`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /* ---------------------------------------------------------------------
+   *  POST /custom-field-enum/change/{custom_field_enum_uuid}
+   * ------------------------------------------------------------------- */
+
+  renameOk(option?: { uuid: string; value: string }): RequestHandler {
+    return http.post(
+      `${API_BASE}/custom-field-enum/change/:enumUuid`,
+      async ({ request, params }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        const raw = body['value'];
+        const value = typeof raw === 'string' ? raw : '';
+        return HttpResponse.json({
+          custom_field_enum: option ?? {
+            uuid: String(params['enumUuid']),
+            value: value || 'Default',
+          },
+        });
+      },
+    );
+  },
+
+  renameOkWhenBody(predicate: (body: unknown, request: Request) => boolean): RequestHandler {
+    return http.post(
+      `${API_BASE}/custom-field-enum/change/:enumUuid`,
+      async ({ request, params }) => {
+        const body: unknown = await request.clone().json();
+        if (!predicate(body, request)) {
+          return HttpResponse.json(
+            { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+            { status: 500 },
+          );
+        }
+        return HttpResponse.json({
+          custom_field_enum: { uuid: String(params['enumUuid']), value: 'New Value' },
+        });
+      },
+    );
+  },
+
+  renameBadRequest(message = 'Invalid request body.'): RequestHandler {
+    return http.post(`${API_BASE}/custom-field-enum/change/:enumUuid`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  renameUnauthorized(): RequestHandler {
+    return http.post(`${API_BASE}/custom-field-enum/change/:enumUuid`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  renameForbidden(): RequestHandler {
+    return http.post(`${API_BASE}/custom-field-enum/change/:enumUuid`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  renameNotFound(): RequestHandler {
+    return http.post(`${API_BASE}/custom-field-enum/change/:enumUuid`, () =>
+      HttpResponse.json({ errors: ['Enum option not found.'] }, { status: 404 }),
+    );
+  },
+
+  renameServerError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/custom-field-enum/change/:enumUuid`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  renameRateLimited(): RequestHandler {
+    return http.post(
+      `${API_BASE}/custom-field-enum/change/:enumUuid`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /* ---------------------------------------------------------------------
+   *  DELETE /custom-field-enum/delete/{custom_field_enum_uuid}      (safe)
+   *  DELETE /custom-field-enum/force-delete/{custom_field_enum_uuid} (cascading)
+   * ------------------------------------------------------------------- */
+
+  safeDeleteOk(): RequestHandler {
+    return http.delete(`${API_BASE}/custom-field-enum/delete/:enumUuid`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  safeDeleteNotFound(): RequestHandler {
+    return http.delete(`${API_BASE}/custom-field-enum/delete/:enumUuid`, () =>
+      HttpResponse.json({ errors: ['Not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** Server refuses safe delete because the option is referenced. */
+  safeDeleteInUse(message = 'Enum option is in use by tasks.'): RequestHandler {
+    return http.delete(`${API_BASE}/custom-field-enum/delete/:enumUuid`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  safeDeleteForbidden(): RequestHandler {
+    return http.delete(`${API_BASE}/custom-field-enum/delete/:enumUuid`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  safeDeleteUnauthorized(): RequestHandler {
+    return http.delete(`${API_BASE}/custom-field-enum/delete/:enumUuid`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  safeDeleteServerError(status = 500): RequestHandler {
+    return http.delete(`${API_BASE}/custom-field-enum/delete/:enumUuid`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  safeDeleteRateLimited(): RequestHandler {
+    return http.delete(
+      `${API_BASE}/custom-field-enum/delete/:enumUuid`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** Per-uuid router — different responses per uuid for safe delete. */
+  safeDeletePerUuidRouter(routes: Record<string, () => Response | HttpResponse>): RequestHandler {
+    return http.delete(`${API_BASE}/custom-field-enum/delete/:enumUuid`, ({ params }) => {
+      const u = String(params['enumUuid']);
+      const route = routes[u];
+      if (route) return route();
+      return HttpResponse.json({ result: 'success' });
+    });
+  },
+
+  forceDeleteOk(): RequestHandler {
+    return http.delete(`${API_BASE}/custom-field-enum/force-delete/:enumUuid`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  forceDeleteNotFound(): RequestHandler {
+    return http.delete(`${API_BASE}/custom-field-enum/force-delete/:enumUuid`, () =>
+      HttpResponse.json({ errors: ['Not found.'] }, { status: 404 }),
+    );
+  },
+
+  forceDeleteForbidden(): RequestHandler {
+    return http.delete(`${API_BASE}/custom-field-enum/force-delete/:enumUuid`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  forceDeleteServerError(status = 500): RequestHandler {
+    return http.delete(`${API_BASE}/custom-field-enum/force-delete/:enumUuid`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  forceDeleteRateLimited(): RequestHandler {
+    return http.delete(
+      `${API_BASE}/custom-field-enum/force-delete/:enumUuid`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
