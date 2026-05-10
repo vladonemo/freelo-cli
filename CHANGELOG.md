@@ -1,5 +1,188 @@
 # freelo-cli
 
+## 0.20.0
+
+### Minor Changes
+
+- 7cd5e25: feat(commands): `custom-fields types` and `custom-fields list` (R40)
+
+  Two new read-only subcommands under a new top-level `custom-fields` parent
+  — the first slice of Wave 7 (custom fields, notes, pinned items):
+
+  - `freelo custom-fields types` — list the server-curated catalog of
+    custom-field type definitions (`text`, `number`, `enum`). Wire:
+    `GET /custom-field/get-types`.
+  - `freelo custom-fields list --project <id>` — list all custom-field
+    definitions configured on a project, plus an `is_commander` boolean
+    signalling whether the caller can call the R41+ mutation endpoints
+    on that project. Wire: `GET /custom-field/find-by-project/{project_id}`.
+
+  Both leaves are pure GETs with no `--dry-run`, no `--yes`, no destructive
+  behaviour.
+
+  Schemas added (additive):
+
+  - `freelo.custom-fields.types/v1` — `{ types: { uuid, name }[] }`.
+  - `freelo.custom-fields.list/v1` — `{ project_id, custom_fields[], is_commander }`.
+
+  R41 (create / rename / delete / restore), R42 (value set / clear), and R43
+  (enum CRUD) build on this parent in later slices.
+
+- d6feccb: feat(commands): `custom-fields create` / `rename` / `delete` / `restore` (R41)
+
+  Four new subcommands under the existing `custom-fields` parent — the second
+  slice of Wave 7 (custom fields, notes, pinned items):
+
+  - `freelo custom-fields create --project <id> --name <str> --type <type-uuid> [--uuid <uuid>] [--dry-run]`
+    — define a custom field on a project. Single-shot, non-destructive.
+    Wire: `POST /custom-field/create/{project_id}`.
+  - `freelo custom-fields rename <uuid> --name <str> [--dry-run]` — rename a
+    custom-field definition. Single-shot, non-destructive. Wire:
+    `POST /custom-field/rename/{uuid}` (verb is **POST**, not PATCH — the
+    OpenAPI spec is authoritative; same precedent as `labels rename`).
+  - `freelo custom-fields delete <uuid>... [--ids <list>] [--stdin] [--yes] [--dry-run]`
+    — soft-delete one or more custom-field definitions. **Destructive** —
+    requires `--yes` (non-TTY) or interactive confirmation (TTY). Idempotent:
+    404 → `already_in_target_state: true`, exit 0. Batch via positional /
+    `--ids` / `--stdin` (NDJSON). Wire: `DELETE /custom-field/delete/{uuid}`.
+  - `freelo custom-fields restore <uuid>... [--ids <list>] [--stdin] [--dry-run]`
+    — restore one or more soft-deleted custom-field definitions.
+    Non-destructive (no `--yes`). Idempotent: 404 → `already_in_target_state:
+true`, exit 0 (the OpenAPI conflates "doesn't exist" with "was never
+    soft-deleted"; both map to the active end-state). Live success carries
+    the full `custom_field` server response. Wire: `POST /custom-field/restore/{uuid}`.
+
+  Schemas added (additive):
+
+  - `freelo.custom-fields.create/v1` — `{ project_id, custom_field?, would? }`.
+  - `freelo.custom-fields.rename/v1` — `{ uuid, applied_changes: { name? }, would? }`.
+  - `freelo.custom-fields.delete/v1` — `{ uuid, previous_state: null, current_state: 'deleted', already_in_target_state, would?, line_index? }`.
+  - `freelo.custom-fields.restore/v1` — `{ uuid, previous_state: null, current_state: 'active', already_in_target_state, custom_field?, would?, line_index? }`.
+
+  Reuses the established R13 destructive-op primitives (`confirmDestructive`,
+  `iterateLines` / `parseNdjsonLine` / `ExitCodeAccumulator`, `dryRunEnvelope`,
+  `Would`) and the R40 wire wrappers / zod schemas / parent registrar.
+
+  R42 (value set / clear) and R43 (enum CRUD) round out Wave 7 in later slices.
+
+- 13a6dc1: feat(commands): `custom-fields value set` and `custom-fields value clear` (R42)
+
+  Two new subcommands under the `custom-fields` parent — the first writeable
+  surface for custom fields (Wave 7, second slice):
+
+  - `freelo custom-fields value set --task <id> --field <uuid> (--value <str>|--enum <uuid>)`
+    — upsert a custom-field value on a task. Dispatches between the scalar
+    endpoint (`POST /custom-field/add-or-edit-value`, snake_case body) and the
+    enum endpoint (`POST /custom-field/add-or-edit-enum-value`, camelCase body)
+    based on the `--value` / `--enum` mutex.
+  - `freelo custom-fields value clear --task <id> --field <uuid>` — clear a
+    value. Destructive; gates on `--yes` (non-TTY) or interactive prompt (TTY).
+    Performs a read-then-delete (`GET /task/{task_id}` → resolve `value_uuid`
+    → `DELETE /custom-field/delete-value/{uuid}`) because the DELETE endpoint
+    identifies values by their value-uuid, not by field-uuid.
+
+  Idempotency for `value clear` (two arms):
+
+  1. Read-back finds no value for the field → `already_in_target_state: true`,
+     no DELETE issued.
+  2. Read-back finds a value but DELETE returns 404 (race condition) →
+     `already_in_target_state: true`.
+
+  Both new commands support `--dry-run`. Batch input is via `--stdin` NDJSON
+  only (each job carries multiple fields, so a positional list doesn't fit).
+
+  Schemas added (additive):
+
+  - `freelo.custom-fields.value-set/v1` — `{ task_id, field_uuid, kind: 'scalar'|'enum',
+value_uuid, value, previous_value_uuid, would?, line_index? }`.
+  - `freelo.custom-fields.value-clear/v1` — `{ task_id, field_uuid, value_uuid,
+previous_state: 'set'|'absent', current_state: 'absent', already_in_target_state,
+would?, line_index? }`.
+
+  R41 (field create / rename / delete / restore) and R43 (enum CRUD) build on
+  the same parent in later slices.
+
+- 0e3d2ff: feat(commands): `custom-fields enum list / add / rename / delete` (R43)
+
+  Four new subcommands under a new `custom-fields enum` sub-parent — the third
+  slice of Wave 7 (enum-option management on enum-typed custom fields):
+
+  - `freelo custom-fields enum list --field <uuid>` — list the enum options
+    defined on an enum field. Wire: `GET /custom-field-enum/get-for-custom-field/{uuid}`.
+  - `freelo custom-fields enum add --field <uuid> --value <str>` — add a new
+    enum option. Wire: `POST /custom-field-enum/create/{uuid}`.
+  - `freelo custom-fields enum rename <enum_uuid> --value <str>` — rename
+    (relabel) an existing enum option; uuid preserved so existing task values
+    keep resolving. Wire: `PATCH /custom-field-enum/change/{uuid}`.
+  - `freelo custom-fields enum delete <enum_uuid>... [--force] [--yes]` —
+    delete one or more enum options. Default refuses if the option is in use
+    (returns 400 with a `--force` hint). `--force` switches to
+    `DELETE /custom-field-enum/force-delete/{uuid}` which cascades, clearing
+    referencing task values. Both endpoints are 404-idempotent (single-arm,
+    mirrors `custom-fields delete` from R41). Supports batch via positional /
+    `--ids` / `--stdin` NDJSON.
+
+  Schemas added (additive):
+
+  - `freelo.custom-fields.enum-list/v1` — `{ field_uuid, options: { uuid, value }[] }`.
+  - `freelo.custom-fields.enum-add/v1` — `{ field_uuid, option: { uuid, value } }`.
+  - `freelo.custom-fields.enum-rename/v1` — `{ enum_uuid, applied_changes: { value } }`.
+  - `freelo.custom-fields.enum-delete/v1` — `{ enum_uuid, force, previous_state, current_state, already_in_target_state, line_index?, would? }`.
+
+  Closes the third gap in Wave 7. R44 (`notes` + `pins`) is the final slice.
+
+- 0933556: feat(commands): `notes` and `pins` (R44)
+
+  Seven new subcommands across two new top-level command parents — the **final
+  slice of Wave 7**, closing the wave with R44 merged.
+
+  **`notes`** (project-level rich-text notes; share storage with documents internally):
+
+  - `freelo notes create --project <id> --name <str> [--content ...|--from-file ...|--editor|-]`
+    — create a project note. Content is optional (name-only notes are valid).
+    Wire: `POST /project/{id}/note`.
+  - `freelo notes show <id>` — fetch a single note (full detail, including
+    embedded files/comments). Wire: `GET /note/{id}`.
+  - `freelo notes edit <id> [--name ...] [--content ...|--from-file ...|--editor|-]`
+    — overwrite name and/or content. Wire: `POST /note/{id}` (verb is POST per
+    Freelo's OpenAPI; the roadmap PATCH was incorrect). When only `--content` is
+    supplied, the CLI issues a transparent `GET /note/{id}` first to fetch the
+    current name, because the wire body requires `name`.
+  - `freelo notes delete <id>... [--ids ...|--stdin] [--yes] [--dry-run]` —
+    soft-delete (destructive, batch). Wire: `DELETE /note/{id}`. **API quirk:**
+    the DELETE response is the deleted Note's last state, not a SuccessResponse
+    — the CLI surfaces this on `data.note` for audit-log use cases. 404-idempotent
+    (single-arm).
+
+  **`pins`** (project-level pinned items — links, tasks, documents, files):
+
+  - `freelo pins list --project <id>` — list all pinned items, ACL-filtered
+    server-side. Wire: `GET /project/{id}/pinned-items`.
+  - `freelo pins add --project <id> --link <url> [--title ...]` — pin a URL.
+    Wire field is `link` (not `url`), matching Freelo exactly. Server-side
+    dispatcher: internal-resource URLs are fetch-or-create idempotent;
+    external URLs always create a new pin.
+  - `freelo pins remove <id>... [--ids ...|--stdin] [--yes] [--dry-run]` —
+    remove pins (destructive, batch). Wire: `DELETE /pinned-item/{id}`.
+    Underlying targets unaffected. 404-idempotent (single-arm).
+
+  **Schemas added (additive — no existing schema changed):**
+
+  - `freelo.notes.create/v1` — `{ project_id, note?, byte_length, source }`.
+  - `freelo.notes.show/v1` — `{ note }`.
+  - `freelo.notes.edit/v1` — `{ note_id, note?, applied_changes, source, byte_length }`.
+  - `freelo.notes.delete/v1` — `{ note_id, note?, previous_state, current_state, already_in_target_state, line_index?, would? }`.
+  - `freelo.pins.list/v1` — `{ project_id, pins[] }`.
+  - `freelo.pins.add/v1` — `{ project_id, pin?, applied_link, applied_title?, would? }`.
+  - `freelo.pins.remove/v1` — `{ pin_id, previous_state, current_state, already_in_target_state, line_index?, would? }`.
+
+  **Notable scope decision:** `notes list` is **NOT** included — Freelo's
+  documented OpenAPI has no project-scoped notes/documents listing endpoint.
+  The gap is documented in spec 0058 §5; reserved for R45+ when an endpoint
+  becomes available.
+
+  Closes Wave 7 (custom fields + notes + pinned items).
+
 ## 0.19.0
 
 ### Minor Changes
