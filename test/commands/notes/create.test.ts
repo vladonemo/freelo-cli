@@ -448,6 +448,23 @@ describe('freelo notes create — validation', () => {
     const { exitCode } = await runCli(run, ['notes', 'create', '--project', 'abc', '--name', 'X']);
     expect(exitCode).toBe(2);
   });
+
+  it('--editor non-TTY → VALIDATION_ERROR exit 2 (covers hasEditor branch in resolveContent)', async () => {
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { exitCode, stderr } = await runCli(run, [
+      'notes',
+      'create',
+      '--project',
+      String(PROJECT_ID),
+      '--name',
+      'Meeting',
+      '--editor',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(2);
+    expect(stderr).toContain('VALIDATION_ERROR');
+  });
 });
 
 describe('freelo notes create — HTTP errors', () => {

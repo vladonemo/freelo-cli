@@ -181,7 +181,7 @@ function rewriteAddPinHint(err: unknown, projectId: number): unknown {
   const status = err.httpStatus;
   if (status === 400) {
     return new FreeloApiError(err.message, err.code, {
-      ...(status !== undefined ? { httpStatus: status } : {}),
+      httpStatus: status,
       ...(err.requestId !== undefined ? { requestId: err.requestId } : {}),
       errors: err.errors,
       rawBody: err.rawBody,
@@ -191,7 +191,7 @@ function rewriteAddPinHint(err: unknown, projectId: number): unknown {
   }
   if (status === 403) {
     return new FreeloApiError(err.message, err.code, {
-      ...(status !== undefined ? { httpStatus: status } : {}),
+      httpStatus: status,
       ...(err.requestId !== undefined ? { requestId: err.requestId } : {}),
       errors: err.errors,
       rawBody: err.rawBody,
@@ -200,7 +200,7 @@ function rewriteAddPinHint(err: unknown, projectId: number): unknown {
   }
   if (status === 404) {
     return new FreeloApiError(err.message, err.code, {
-      ...(status !== undefined ? { httpStatus: status } : {}),
+      httpStatus: status,
       ...(err.requestId !== undefined ? { requestId: err.requestId } : {}),
       errors: err.errors,
       rawBody: err.rawBody,
