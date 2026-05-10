@@ -509,6 +509,25 @@ describe('freelo custom-fields create — HTTP error paths (exit-code assertions
     expect(stderr).toContain('Server rejected --uuid');
   });
 
+  it('400 with generic message (no name/type/uuid keyword) → fallback validation hint', async () => {
+    server.use(customFieldsCrudHandlers.createBadRequest(100, 'Bad request'));
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { exitCode, stderr } = await runCli(run, [
+      'custom-fields',
+      'create',
+      '--project',
+      '100',
+      '--name',
+      'X',
+      '--type',
+      TYPE_TEXT,
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(4);
+    expect(stderr).toContain('Server-side validation rejected the request');
+  });
+
   it('5xx → exit 4', async () => {
     server.use(customFieldsCrudHandlers.createServerError(100, 503));
     const { run } = await import('../../../src/bin/freelo.js');

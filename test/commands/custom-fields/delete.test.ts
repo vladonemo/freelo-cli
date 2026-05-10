@@ -541,3 +541,61 @@ describe('isIdempotentDeleteSkip — direct unit test of the matrix', () => {
     expect(isIdempotentDeleteSkip(err)).toBe(false);
   });
 });
+
+describe('freelo custom-fields delete — human output', () => {
+  it('single delete --output human: prints "Deleted custom field <short>."', async () => {
+    server.use(customFieldsCrudHandlers.deleteOk());
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'custom-fields',
+      'delete',
+      UUID_A,
+      '--yes',
+      '--output',
+      'human',
+    ]);
+    expect(exitCode).toBe(0);
+    expect(stdout).toMatch(/Deleted custom field 11111111/);
+  });
+
+  it('404 idempotent --output human: prints already-deleted line', async () => {
+    server.use(
+      customFieldsCrudHandlers.deletePerUuidRouter({
+        [UUID_A]: () => new Response(JSON.stringify({ errors: ['Not found.'] }), { status: 404 }),
+      }),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'custom-fields',
+      'delete',
+      UUID_A,
+      '--yes',
+      '--output',
+      'human',
+    ]);
+    expect(exitCode).toBe(0);
+    expect(stdout).toMatch(/already deleted/i);
+  });
+
+  it('batch --output human with one failure: emits human error line for failed item', async () => {
+    server.use(
+      customFieldsCrudHandlers.deletePerUuidRouter({
+        [UUID_A]: () => new Response(JSON.stringify({ result: 'success' }), { status: 200 }),
+        [UUID_B]: () => new Response(JSON.stringify({ errors: ['Forbidden.'] }), { status: 403 }),
+      }),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'custom-fields',
+      'delete',
+      UUID_A,
+      UUID_B,
+      '--yes',
+      '--output',
+      'human',
+    ]);
+    expect(exitCode).toBe(4);
+    expect(stdout).toMatch(/Deleted custom field 11111111/);
+    expect(stdout).toMatch(/Failed item 2 \(uuid /);
+  });
+});

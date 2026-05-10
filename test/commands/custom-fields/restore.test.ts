@@ -493,3 +493,125 @@ describe('isIdempotentRestoreSkip — direct unit test of the matrix', () => {
     expect(isIdempotentRestoreSkip(err)).toBe(false);
   });
 });
+
+describe('freelo custom-fields restore — batch error paths', () => {
+  const UUID_C = '33333333-3333-3333-3333-333333333333';
+
+  it('multi-positional with one 5xx → exit 4, JSON error envelope carries input_index', async () => {
+    server.use(
+      customFieldsCrudHandlers.restorePerUuidRouter({
+        [UUID_A]: () =>
+          new Response(
+            JSON.stringify({
+              custom_field: {
+                uuid: UUID_A,
+                name: 'Severity',
+                custom_field_type: {
+                  uuid: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+                  slug: 'short_text',
+                },
+                project_id: 1,
+                created_at: '2026-05-10T00:00:00+00:00',
+                deleted_at: null,
+              },
+            }),
+            { status: 200 },
+          ),
+        [UUID_B]: () =>
+          new Response(JSON.stringify({ errors: ['Internal error.'] }), { status: 500 }),
+        [UUID_C]: () =>
+          new Response(
+            JSON.stringify({
+              custom_field: {
+                uuid: UUID_C,
+                name: 'Severity',
+                custom_field_type: {
+                  uuid: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+                  slug: 'short_text',
+                },
+                project_id: 1,
+                created_at: '2026-05-10T00:00:00+00:00',
+                deleted_at: null,
+              },
+            }),
+            { status: 200 },
+          ),
+      }),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'custom-fields',
+      'restore',
+      UUID_A,
+      UUID_B,
+      UUID_C,
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(4);
+    const lines = parseAllJsonLines(stdout);
+    expect(lines).toHaveLength(3);
+    expect((lines[0] as { schema: string }).schema).toBe('freelo.custom-fields.restore/v1');
+    expect((lines[1] as { schema: string }).schema).toBe('freelo.error/v1');
+    const errEnv = lines[1] as { error: { context: { input_index?: number; uuid?: string } } };
+    expect(errEnv.error.context.input_index).toBe(1);
+    expect(errEnv.error.context.uuid).toBe(UUID_B);
+    expect((lines[2] as { schema: string }).schema).toBe('freelo.custom-fields.restore/v1');
+  });
+
+  it('multi-positional with one 5xx --output human: emits human error line', async () => {
+    server.use(
+      customFieldsCrudHandlers.restorePerUuidRouter({
+        [UUID_A]: () =>
+          new Response(
+            JSON.stringify({
+              custom_field: {
+                uuid: UUID_A,
+                name: 'Severity',
+                custom_field_type: {
+                  uuid: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+                  slug: 'short_text',
+                },
+                project_id: 1,
+                created_at: '2026-05-10T00:00:00+00:00',
+                deleted_at: null,
+              },
+            }),
+            { status: 200 },
+          ),
+        [UUID_B]: () =>
+          new Response(JSON.stringify({ errors: ['Internal error.'] }), { status: 500 }),
+      }),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'custom-fields',
+      'restore',
+      UUID_A,
+      UUID_B,
+      '--output',
+      'human',
+    ]);
+    expect(exitCode).toBe(4);
+    expect(stdout).toMatch(/Restored custom field/);
+    expect(stdout).toMatch(/Failed item 2 \(uuid /);
+  });
+
+  it('single 404 --output human: prints already-active line', async () => {
+    server.use(
+      customFieldsCrudHandlers.restorePerUuidRouter({
+        [UUID_A]: () => new Response(JSON.stringify({ errors: ['Not found.'] }), { status: 404 }),
+      }),
+    );
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'custom-fields',
+      'restore',
+      UUID_A,
+      '--output',
+      'human',
+    ]);
+    expect(exitCode).toBe(0);
+    expect(stdout).toMatch(/Already active/i);
+  });
+});
