@@ -121,6 +121,7 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 ### tasks
 
 - `freelo tasks create` — Create a task in a tasklist (single or NDJSON batch via --stdin).
+- `freelo tasks create-from-template <template_id>` — Copy a single task from a project template into a target project.
 - `freelo tasks delete [id...]` — Soft-delete one or more tasks. Destructive — requires --yes (non-TTY) or interactive confirmation (TTY). 404-after-delete is treated as idempotent already-deleted.
 - `freelo tasks description get <id>` — Print one task's rich-text description.
 - `freelo tasks description set <id> [input]` — Replace one task's rich-text description from a file, an interactive editor, or stdin (upsert).

@@ -4746,6 +4746,104 @@ export const tasksFindRelationsHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo tasks create-from-template` (R39, spec 0053).
+ *
+ * Single endpoint:
+ *   - `POST /task/create-from-template/{template_id}` — yaml :2187-2253.
+ *
+ * Body: `{ task_id, target_project_id?, target_tasklist_id?,
+ * preset_date_from?, users_ids? }`.
+ * Response: `{ id, name, tasklist: { id, name } }`.
+ */
+export const tasksCreateFromTemplateHandlers = {
+  /** `POST /task/create-from-template/{templateId}` — 200 with the supplied body. */
+  ok(templateId: number, body: Record<string, unknown>): RequestHandler {
+    return http.post(`${API_BASE}/task/create-from-template/${templateId}`, () =>
+      HttpResponse.json(body),
+    );
+  },
+
+  /** Match-on-body variant. */
+  okWhenBody(
+    templateId: number,
+    predicate: (body: unknown, request: Request) => boolean,
+    response: Record<string, unknown>,
+  ): RequestHandler {
+    return http.post(`${API_BASE}/task/create-from-template/${templateId}`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json(response);
+    });
+  },
+
+  /** 400 — server-side validation. */
+  badRequest(templateId: number, message: string): RequestHandler {
+    return http.post(`${API_BASE}/task/create-from-template/${templateId}`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  /** 401. */
+  unauthorized(templateId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/create-from-template/${templateId}`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** 403. */
+  forbidden(templateId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/create-from-template/${templateId}`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** 404 — template not found. */
+  notFound(templateId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/create-from-template/${templateId}`, () =>
+      HttpResponse.json({ errors: ['Template not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** 422. */
+  unprocessable(templateId: number, message = 'Server-side validation failed.'): RequestHandler {
+    return http.post(`${API_BASE}/task/create-from-template/${templateId}`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 422 }),
+    );
+  },
+
+  /** 429 (Retry-After: 0). */
+  rateLimited(templateId: number): RequestHandler {
+    return http.post(
+      `${API_BASE}/task/create-from-template/${templateId}`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** 5xx. */
+  serverError(templateId: number, status = 500): RequestHandler {
+    return http.post(`${API_BASE}/task/create-from-template/${templateId}`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** Connection-closed (network error). */
+  networkError(templateId: number): RequestHandler {
+    return http.post(`${API_BASE}/task/create-from-template/${templateId}`, () =>
+      HttpResponse.error(),
+    );
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
