@@ -77,6 +77,146 @@ export type FindCustomFieldsByProjectResponse = z.infer<
 >;
 
 /* ---------------------------------------------------------------------------
+ *  R42 — value set / value clear (spec 0056).
+ *
+ *  Three new endpoints:
+ *    POST /custom-field/add-or-edit-value          (yaml :4198-4244)  — scalar
+ *    POST /custom-field/add-or-edit-enum-value     (yaml :4246-4294)  — enum
+ *    DELETE /custom-field/delete-value/{uuid}      (yaml :4296-4324)
+ *
+ *  Plus `CustomFieldWithValue` for the read-back via `GET /task/{task_id}`
+ *  (yaml :6135-6166) — used to resolve a (task_id, field_uuid) pair to a
+ *  value_uuid because the DELETE endpoint takes a value_uuid, not a field
+ *  uuid (spec 0056 §2.2).
+ * ------------------------------------------------------------------------- */
+
+/**
+ * `CustomFieldValue` — one persisted value record (yaml :6075-6096). Returned
+ * (wrapped) by both the scalar and enum upsert endpoints; the scalar wrapper
+ * key is `custom_field_value`, the enum wrapper key is `customFieldEnum`
+ * (camelCase). Both response inner shapes match this schema.
+ */
+export const CustomFieldValueSchema = z
+  .object({
+    uuid: z.string(),
+    value: z.string().nullable().optional(),
+    task_id: z.number().int().nullable().optional(),
+    custom_field_uuid: z.string().nullable().optional(),
+    date_add: z.string().nullable().optional(),
+    date_edited_at: z.string().nullable().optional(),
+    author_id: z.number().int().nullable().optional(),
+  })
+  .passthrough();
+export type CustomFieldValue = z.infer<typeof CustomFieldValueSchema>;
+
+/** `POST /custom-field/add-or-edit-value` response (yaml :4243-4244). */
+export const AddOrEditCustomFieldValueResponseSchema = z
+  .object({
+    custom_field_value: CustomFieldValueSchema.nullable().optional(),
+  })
+  .passthrough();
+export type AddOrEditCustomFieldValueResponse = z.infer<
+  typeof AddOrEditCustomFieldValueResponseSchema
+>;
+
+/**
+ * `POST /custom-field/add-or-edit-enum-value` response (yaml :4293-4294).
+ *
+ * Wrapper key is camelCase `customFieldEnum`. Inner shape is byte-identical
+ * to `CustomFieldValueSchema` (yaml :6098-6119).
+ */
+export const AddOrEditCustomFieldEnumValueResponseSchema = z
+  .object({
+    customFieldEnum: CustomFieldValueSchema.nullable().optional(),
+  })
+  .passthrough();
+export type AddOrEditCustomFieldEnumValueResponse = z.infer<
+  typeof AddOrEditCustomFieldEnumValueResponseSchema
+>;
+
+/**
+ * `CustomFieldWithValue` — one entry in the `TaskDetail.custom_fields[]` array
+ * returned by `GET /task/{task_id}` (yaml :6135-6166). The CLI re-validates
+ * just this slice locally inside `value clear` to recover the
+ * `(field_uuid → value_uuid)` mapping that DELETE needs. Spec 0055 §3.1.
+ */
+export const CustomFieldWithValueSchema = z
+  .object({
+    field_uuid: z.string(),
+    custom_fields_types_uuid: z.string().nullable().optional(),
+    project_id: z.number().int().nullable().optional(),
+    name: z.string().nullable().optional(),
+    priority: z.number().int().nullable().optional(),
+    field_date_add: z.string().nullable().optional(),
+    value_uuid: z.string().nullable().optional(),
+    value_author_id: z.number().int().nullable().optional(),
+    value: z.string().nullable().optional(),
+    value_date_add: z.string().nullable().optional(),
+    value_date_edited_at: z.string().nullable().optional(),
+  })
+  .passthrough();
+export type CustomFieldWithValue = z.infer<typeof CustomFieldWithValueSchema>;
+
+/* ---------------------------------------------------------------------------
+ *  Envelope `data` types (R42 / spec 0056).
+ * ------------------------------------------------------------------------- */
+
+/**
+ * `freelo.custom-fields.value-set/v1` envelope `data`.
+ *
+ * - `task_id`, `field_uuid`        — echo of the input flags.
+ * - `kind`                         — 'scalar' (--value) or 'enum' (--enum).
+ *                                   Self-correlation hint for downstream
+ *                                   consumers; mirrors which endpoint was hit.
+ * - `value_uuid`                   — server-generated/preserved record uuid.
+ *                                   Null on dry-run only.
+ * - `value`                        — for scalar: the string. For enum: the
+ *                                   enum-option uuid.
+ * - `previous_value_uuid`          — always null in v1 (we do not pre-GET to
+ *                                   discover it; reserved for future bumps).
+ * - `would`                        — present on dry-run only (no wire call).
+ * - `input_index` / `line_index`   — batch positional / NDJSON index.
+ */
+export type CustomFieldsValueSetData = {
+  task_id: number;
+  field_uuid: string;
+  kind: 'scalar' | 'enum';
+  value_uuid: string | null;
+  value: string;
+  previous_value_uuid: string | null;
+  would?: { method: 'POST'; path: string; body: Record<string, unknown> };
+  input_index?: number;
+  line_index?: number;
+};
+
+/**
+ * `freelo.custom-fields.value-clear/v1` envelope `data`.
+ *
+ * - `task_id`, `field_uuid`        — echo of the input flags.
+ * - `value_uuid`                   — the record uuid that was (or would be)
+ *                                   deleted. Null when the read-back found
+ *                                   nothing (already-cleared).
+ * - `previous_state`               — 'set' if a value existed; 'absent' otherwise.
+ * - `current_state`                — always 'absent' on success.
+ * - `already_in_target_state`      — true for the two idempotent arms:
+ *                                   (a) read-back found nothing,
+ *                                   (b) DELETE returned 404.
+ * - `would`                        — present on dry-run only.
+ * - `input_index` / `line_index`   — batch positional / NDJSON index.
+ */
+export type CustomFieldsValueClearData = {
+  task_id: number;
+  field_uuid: string;
+  value_uuid: string | null;
+  previous_state: 'set' | 'absent';
+  current_state: 'absent';
+  already_in_target_state: boolean;
+  would?: { method: 'DELETE'; path: string; body: Record<string, unknown> };
+  input_index?: number;
+  line_index?: number;
+};
+
+/* ---------------------------------------------------------------------------
  *  Envelope `data` types (consumed by `src/commands/custom-fields/{types,list}.ts`).
  * ------------------------------------------------------------------------- */
 

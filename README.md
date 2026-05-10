@@ -64,6 +64,8 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 - `freelo custom-fields rename <uuid>` — Rename a custom-field definition. Only `name` is mutable via this endpoint; uuid + type are immutable. Caller must be a project commander of the field's project.
 - `freelo custom-fields restore [uuid...]` — Restore one or more soft-deleted custom-field definitions. Non-destructive — no --yes flag. 404 treated as idempotent (already-active or never-deleted).
 - `freelo custom-fields types` — List the catalog of custom-field type definitions (text, number, enum). Each type uuid is the value to pass as `type` when creating a custom field on a project (R41 — future slice). Read-only.
+- `freelo custom-fields value clear` — Clear a custom-field value on a task. Destructive — requires --yes (non-TTY) or interactive confirmation (TTY). Idempotent: returns success if no value is set. Use --stdin for NDJSON batch input.
+- `freelo custom-fields value set` — Upsert a custom-field value on a task. Pass --value <str> for text/number fields or --enum <uuid> for enum fields (mutually exclusive). Use --stdin for NDJSON batch input.
 
 ### files
 

@@ -5294,6 +5294,173 @@ export const customFieldsCrudHandlers = {
   },
 };
 
+export const customFieldsValueHandlers = {
+  /** 200 with the supplied uuid echoed in `custom_field_value.uuid`. */
+  setScalarOk(uuid = 'cfv-1111-2222-3333'): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/add-or-edit-value`, async ({ request }) => {
+      const body = (await request.json()) as Record<string, unknown>;
+      return HttpResponse.json({
+        custom_field_value: {
+          uuid,
+          value: body['value'],
+          task_id: body['task_id'],
+          custom_field_uuid: body['custom_field_uuid'],
+          date_add: '2026-05-10T00:00:00Z',
+          author_id: 1,
+        },
+      });
+    });
+  },
+
+  /** 200 with the supplied uuid echoed in `customFieldEnum.uuid`. */
+  setEnumOk(uuid = 'cfe-1111-2222-3333'): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/add-or-edit-enum-value`, async ({ request }) => {
+      const body = (await request.json()) as Record<string, unknown>;
+      return HttpResponse.json({
+        customFieldEnum: {
+          uuid,
+          value: body['value'],
+          task_id: body['task_id'],
+          custom_field_uuid: body['customFieldUuid'],
+          date_add: '2026-05-10T00:00:00Z',
+          author_id: 1,
+        },
+      });
+    });
+  },
+
+  /** Variant: 200 but server omits the wrapped value entirely (defensive shape). */
+  setScalarOkEmptyBody(): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/add-or-edit-value`, () => HttpResponse.json({}));
+  },
+
+  setScalarBadRequest(message = "Field 'value' is invalid."): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/add-or-edit-value`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  setScalarNotFound(): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/add-or-edit-value`, () =>
+      HttpResponse.json({ errors: ['Task or custom field not found.'] }, { status: 404 }),
+    );
+  },
+
+  setScalarConflict(): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/add-or-edit-value`, () =>
+      HttpResponse.json(
+        { errors: ['Custom field is in the different project than the task.'] },
+        { status: 409 },
+      ),
+    );
+  },
+
+  setScalarUnauthorized(): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/add-or-edit-value`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  setScalarForbidden(): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/add-or-edit-value`, () =>
+      HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  setScalarRateLimited(): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/add-or-edit-value`, () =>
+      HttpResponse.json({ errors: ['Too many requests.'] }, { status: 429 }),
+    );
+  },
+
+  setScalarServerError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/add-or-edit-value`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  setEnumNotFound(message = 'Enum was not found.'): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/add-or-edit-enum-value`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 404 }),
+    );
+  },
+
+  /** Per-task body router for batch tests (key by task_id). */
+  setScalarPerTaskRouter(map: Record<string, () => Response | Promise<Response>>): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/add-or-edit-value`, async ({ request }) => {
+      const body = (await request.json()) as Record<string, unknown>;
+      const key = String(body['task_id']);
+      const fn = map[key];
+      if (fn === undefined) {
+        return HttpResponse.json({ errors: [`No handler for task_id=${key}`] }, { status: 500 });
+      }
+      return fn();
+    });
+  },
+
+  /** 200 success body for DELETE /custom-field/delete-value/{uuid}. */
+  deleteOk(): RequestHandler {
+    return http.delete(`${API_BASE}/custom-field/delete-value/:uuid`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  deleteNotFound(): RequestHandler {
+    return http.delete(`${API_BASE}/custom-field/delete-value/:uuid`, () =>
+      HttpResponse.json({ errors: ['Custom field value not found.'] }, { status: 404 }),
+    );
+  },
+
+  deleteForbidden(): RequestHandler {
+    return http.delete(`${API_BASE}/custom-field/delete-value/:uuid`, () =>
+      HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  deleteServerError(status = 500): RequestHandler {
+    return http.delete(`${API_BASE}/custom-field/delete-value/:uuid`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  deletePerUuidRouter(map: Record<string, () => Response | Promise<Response>>): RequestHandler {
+    return http.delete(`${API_BASE}/custom-field/delete-value/:uuid`, ({ params }) => {
+      const key = String(params['uuid']);
+      const fn = map[key];
+      if (fn === undefined) {
+        return HttpResponse.json({ errors: [`No handler for uuid=${key}`] }, { status: 500 });
+      }
+      return fn();
+    });
+  },
+
+  /**
+   * `GET /task/{task_id}` returning a `TaskDetail` with the supplied
+   * `custom_fields[]` slice — used by `value clear` for the read-back step.
+   *
+   * Default shape: a task with one custom field set.
+   */
+  getTaskWithCustomFields(
+    taskId: number,
+    customFields: Array<Record<string, unknown>>,
+  ): RequestHandler {
+    return http.get(`${API_BASE}/task/${taskId}`, () =>
+      HttpResponse.json({
+        id: taskId,
+        name: `Task #${taskId}`,
+        custom_fields: customFields,
+      }),
+    );
+  },
+
+  /** `GET /task/{task_id}` 404 — read-back failure. */
+  getTaskNotFound(taskId: number): RequestHandler {
+    return http.get(`${API_BASE}/task/${taskId}`, () =>
+      HttpResponse.json({ errors: ['Task not found.'] }, { status: 404 }),
+    );
+  },
+};
+
 /**
  * Pre-configured MSW server. Start in tests with:
  *
