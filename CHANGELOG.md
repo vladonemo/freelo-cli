@@ -1,5 +1,253 @@
 # freelo-cli
 
+## 0.19.0
+
+### Minor Changes
+
+- f43aa1b: Add `freelo tasks remind set` / `tasks remind clear` (R35).
+
+  **Surface (additive — no breaking change):**
+
+  ```
+  freelo tasks remind set <id> --at <ISO> [--dry-run]
+  freelo tasks remind clear <id> [--yes] [--dry-run]
+  ```
+
+  Each leaf wraps one Freelo endpoint:
+
+  - `set` → `POST /task/{task_id}/reminder` with `{ remind_at: <UTC ISO> }`.
+    Upsert semantics on the server (a second call overwrites the prior
+    `remind_at`). Required flag.
+  - `clear` → `DELETE /task/{task_id}/reminder`. Destructive; reuses the
+    shared `confirmDestructive` gate from R13 — `--yes` bypasses, TTY without
+    `--yes` prompts, non-TTY without `--yes` fails closed with
+    `CONFIRMATION_REQUIRED` (exit 2).
+
+  **`--at` validation:**
+
+  - Permissive RFC 3339 / ISO 8601 acceptance (full UTC, tz-offsets, bare
+    date, milliseconds). Canonicalized to second-precision UTC
+    `YYYY-MM-DDTHH:MM:SSZ` before sending.
+  - Rejects timestamps more than 60 s in the past (clock-skew clamp) — a
+    past reminder is meaningless. The 60 s tolerance accommodates NTP drift
+    and integration-replay handoff lag.
+  - Sibling helper to R19.5's `parseIsoTimestampFlag` (which clamps the
+    _future_ direction for backdating); both share the
+    `ISO_TIMESTAMP_FUTURE_SKEW_MS` constant.
+
+  **Output schemas (new):**
+
+  - `freelo.tasks.remind.set/v1` — `{ task_id, task_name?, remind_at, would? }`.
+  - `freelo.tasks.remind.clear/v1` — `{ task_id, already_in_target_state, would? }`.
+
+  **Idempotency note for `clear`:** the server returns 200 even when no
+  reminder existed (yaml :2125), so the wire cannot distinguish "had a
+  reminder" from "had no reminder". Live 200 always emits
+  `already_in_target_state: false`; a defensive 404 (forward-compat path) is
+  re-classified as `already_in_target_state: true`.
+
+  Single-id v1; batch (`--ids` / `--stdin`) deferred to a future R35.5 if
+  demand emerges. Spec: `docs/specs/0049-r35-tasks-remind.md`.
+
+- bbe77a6: feat(commands): tasks share / unshare — public share link for a task (R36)
+
+  Two new subcommands:
+
+  - `freelo tasks share <id>` — get (or create) a public, unauthenticated URL
+    that lets anyone holding the link view the task read-only. Idempotent on
+    the wire — first call mints the URL, subsequent calls return the same
+    one. Output schema: `freelo.tasks.share/v1`.
+  - `freelo tasks unshare <id>` — revoke the public link. Destructive; reuses
+    the shared confirmation gate (`--yes` / TTY prompt; non-TTY without
+    `--yes` fails closed with `CONFIRMATION_REQUIRED` exit 2). Idempotent:
+    a defensive 404 (no-link-existed) is re-classified as
+    `already_in_target_state: true`. Output schema:
+    `freelo.tasks.unshare/v1`.
+
+  Both leaves support `--dry-run`. Single-id v1 (no batch).
+
+  New envelope schemas: `freelo.tasks.share/v1`, `freelo.tasks.unshare/v1`.
+
+  Wire endpoints: `GET /public-link/task/{id}`, `DELETE /public-link/task/{id}`
+  (per the OpenAPI spec — note the GET verb on share, which Freelo treats as
+  a "GET that creates").
+
+- cfcbd5c: Add `freelo tasks estimate set` / `tasks estimate clear` (R37).
+
+  **Surface (additive — no breaking change):**
+
+  ```
+  freelo tasks estimate set   <id> --minutes <n> [--user <id>] [--dry-run]
+  freelo tasks estimate clear <id>                [--user <id>] [--yes] [--dry-run]
+  ```
+
+  Each leaf wraps one of four Freelo endpoints, with the `--user <id>` flag
+  acting as a path toggle between team-wide and per-user estimates:
+
+  - `set` (without `--user`) →
+    `POST /task/{task_id}/total-time-estimate` with `{ minutes: <n> }`.
+  - `set --user <id>` →
+    `POST /task/{task_id}/users-time-estimates/{user_id}` with `{ minutes: <n> }`.
+  - `clear` (without `--user`) →
+    `DELETE /task/{task_id}/total-time-estimate`.
+  - `clear --user <id>` →
+    `DELETE /task/{task_id}/users-time-estimates/{user_id}`.
+
+  `set` is non-destructive — the server upserts on every call (yaml :2267,
+  :2324). `--minutes` is required; positive integer (>= 1).
+
+  `clear` is destructive; reuses the shared `confirmDestructive` gate from
+  R13 / R35 / R36 — `--yes` bypasses, TTY without `--yes` prompts, non-TTY
+  without `--yes` fails closed with `CONFIRMATION_REQUIRED` (exit 2). The
+  prompt copy is scope-aware: `"Clear total time estimate on task #<id>?"`
+  or `"Clear time estimate for user #<user> on task #<id>?"`.
+
+  Per-user estimates are independent of the total: setting a per-user value
+  does NOT update the total (yaml :2325). The CLI does not aggregate.
+
+  **Output schemas (new):**
+
+  - `freelo.tasks.estimate.set/v1` —
+    `{ task_id, user_id (null|int), minutes, scope ('total'|'user'), would? }`.
+  - `freelo.tasks.estimate.clear/v1` —
+    `{ task_id, user_id (null|int), scope, already_in_target_state, would? }`.
+
+  The `scope` field is a discriminator derived from `--user` presence so
+  agents can branch without parsing the wire path.
+
+  **Idempotency note for `clear`:** the server returns 200 even when no
+  estimate existed (yaml :2299, :2362), so the wire cannot distinguish "had
+  an estimate" from "had no estimate". Live 200 always emits
+  `already_in_target_state: false`; a defensive 404 (forward-compat path)
+  is re-classified as `already_in_target_state: true`. Mirrors R13 / R35 /
+  R36 precedent.
+
+  Single-id v1; batch (`--ids` / `--stdin`) deferred to a future R37.5 if
+  demand emerges. Spec: `docs/specs/0051-r37-tasks-estimate.md`.
+
+- e3a914a: Add `freelo tasks project add` / `remove` and `freelo tasks relations` / `find-relations` (R38).
+
+  **Surface (additive — no breaking change):**
+
+  ```
+  freelo tasks project add    <id> --tasklist <id>... [--dry-run]
+  freelo tasks project remove <id> --project  <id>   [--yes] [--dry-run]
+  freelo tasks relations      <id>
+  freelo tasks find-relations --task <id>...
+  ```
+
+  Four new leaves across two distinct surfaces:
+
+  **Multi-project membership (UVVP — `tasks project add` / `remove`).** Promotes a
+  single-project task into a cross-team task by creating a child task in another
+  project, or rolls back an accidental cross-team assignment.
+
+  - `add` → `POST /task/{id}/projects` with body `{ tasklist_id: <int> }`. Note:
+    the body takes `tasklist_id`, **not** `project_id` — Freelo derives the project
+    from the tasklist server-side. The CLI flag is named `--tasklist <id>` to match
+    the wire reality (the roadmap text said `--project <id>...`, but the OpenAPI
+    is authoritative; mirrors R36 share-verb precedent). `--tasklist` is
+    repeatable; each value fans out to one POST. Duplicates are silently
+    deduplicated. Non-destructive.
+  - `remove` → `DELETE /task/{id}/projects/{project_id}`. Single-id only;
+    destructive, reuses the shared `confirmDestructive` gate from R13 / R35 / R36
+    / R37. **Removing the task's _primary_ project requires `freelo tasks delete <id>`
+    instead** — Freelo returns `403 AclException` otherwise; the CLI surfaces this
+    with a `hintNext`.
+
+  **Task relations (`tasks relations` / `find-relations`).** Read-only typed
+  cross-references between tasks (`blocked_by`, `blocks`, `related_to`,
+  `duplicate_of`).
+
+  - `relations <id>` → `GET /task/{id}/relations`. Single task; empty array on no
+    relations is a valid 200.
+  - `find-relations --task <id>...` → `POST /tasks/relations` with body
+    `{ task_ids: [<int>, ...] }`. Bulk; 1–100 ids per call (CLI enforces the cap
+    client-side as `ValidationError`). **Inaccessible tasks are silently omitted**
+    from the response by Freelo — agents diff `data.task_ids` against
+    `data.tasks[*].task_id` to detect this.
+
+  > Despite the verb being `POST`, **`find-relations` is read-only** — the
+  > OpenAPI documents no endpoint to create or delete relations. Use the Freelo
+  > web UI to manage relations; use the CLI to query them.
+
+  **Output schemas (new):**
+
+  - `freelo.tasks.project.add/v1` —
+    `{ task_id, tasklist_ids: int[], assignments?: { tasklist_id, child_task_id, child_task_uuid }[], would? }`.
+  - `freelo.tasks.project.remove/v1` —
+    `{ task_id, project_id, already_in_target_state, would? }`.
+  - `freelo.tasks.relations/v1` —
+    `{ task_id, relations: TaskRelation[] }` (read-only — no `would`).
+  - `freelo.tasks.find-relations/v1` —
+    `{ task_ids: int[], tasks: { task_id, relations }[] }` (read-only — no `would`).
+
+  **Idempotency note for `project remove`:** A 404 response is **the documented
+  "task not in this project" signal** (yaml :1985) — re-classified as
+  `already_in_target_state: true`. A 403 response is **not** re-classified — it
+  is the documented "primary-project removal attempt" signal (yaml :1984) and
+  surfaces as `FreeloApiError` exit 4 with a `hintNext` pointing at `tasks delete`.
+
+  **`add` does not surface `already_in_target_state`** — wire ambiguity (mirrors
+  R37 `set` / R23 `labels attach` precedent). On a mid-fan-out failure, the
+  envelope's `assignments` array is truncated to the entries completed before the
+  failure.
+
+  **`relations` and `find-relations` do not support `--dry-run`** — read-only
+  operations have no side effect to skip; a dry-run envelope on a pure GET is a
+  no-op surprise.
+
+  Single-id v1 across all four leaves (with repeatable `--tasklist` / `--task`
+  flags where applicable). Batch via `--ids` / `--stdin` is not supported in this
+  slice. Spec: `docs/specs/0052-r38-tasks-multiproject-relations.md`.
+
+- 61a4449: Add `freelo tasks create-from-template` (R39 — closes Wave 6).
+
+  **Surface (additive — no breaking change):**
+
+  ```
+  freelo tasks create-from-template <template_id> --source-task <id>
+                                                   [--target-project <id>]
+                                                   [--target-tasklist <id>]
+                                                   [--date-start <YYYY-MM-DD>]
+                                                   [--worker <id>]...
+                                                   [--dry-run]
+  ```
+
+  Copies a single task out of a project template into a target tasklist (or a
+  freshly-created project, when `--target-project` is omitted). Sibling of
+  `freelo tasklists create-from-template` (R34) — same flag family, different
+  endpoint.
+
+  **Endpoint:** `POST /task/create-from-template/{template_id}` (`docs/api/freelo-api.yaml:2187-2253`).
+
+  **Wire body:**
+
+  - `task_id` (required) — id of the **source task INSIDE the template**, mapped from the CLI flag `--source-task`. The roadmap's `--tasklist <id>` flag was a typo; the OpenAPI requires `task_id`. Mirrors the R34 reconciliation against a similarly-loose roadmap line.
+  - `target_project_id`, `target_tasklist_id`, `preset_date_from`, `users_ids` are optional, mirror the spec-0047 flag mapping (`--target-project`, `--target-tasklist`, `--date-start`, `--worker`).
+
+  **The roadmap's `--name` flag was dropped** — the OpenAPI documents no rename-on-copy field; we do not invent fields (`CLAUDE.md` hard rule).
+
+  **Output schema (new):** `freelo.tasks.create-from-template/v1` —
+  `{ template_id, task?: { id, name, tasklist: { id, name } }, would? }`.
+  Exactly one of `task` / `would` is set per envelope.
+
+  **Hint mapping for 4xx:**
+
+  - 400 mentioning `task_id` → "Source task id must reference a task INSIDE the template..."
+  - 400 mentioning `users_ids` → "Worker ids must be members of the template..."
+  - 400 mentioning `target_project_id` / `target_tasklist_id` → respective hints.
+  - 403 → permission hint.
+  - 404 → "Template not found. Run `freelo projects list --scope templates`..."
+
+  Non-destructive (creates a task — no destructive effects). `--dry-run`
+  supported per the agent-safe-writes contract; no `--yes` required.
+
+  Single-id v1. Batch (`--ids` / `--stdin`) is not supported. Spec:
+  `docs/specs/0053-r39-tasks-create-from-template.md`.
+
+  This slice **closes Wave 6**: R35–R39 are now all shipped.
+
 ## 0.18.0
 
 ### Minor Changes
