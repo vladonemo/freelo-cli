@@ -603,21 +603,25 @@ freelo tasklists create-from-template <template_id> --project <id> --name <str>
 
 ---
 
-## Wave 6 — Advanced task surface
+## Wave 6 — Advanced task surface ✅ shipped
 
-### R35 — `freelo tasks remind`
+> **Status (2026-05-10):** Wave 6 fully shipped in `0.19.0` (PRs #92, #94, #95, #96, #97). All five slices land R35–R39; the `tasks` parent now exposes `remind`, `share`/`unshare`, `estimate`, `project add`/`remove`, `relations`, `find-relations`, and `create-from-template`.
+
+### R35 — `freelo tasks remind` ✅ shipped
 
 **Endpoints:** `POST /task/{task_id}/reminder`, `DELETE /task/{task_id}/reminder`.
 **CLI:** `freelo tasks remind set <id> --at <ISO>` / `freelo tasks remind clear <id>`.
 **Depends on:** R10.
+**Shipped via:** PR #92 (spec 0049) — released in `0.19.0`.
 
-### R36 — `freelo tasks share` (public link)
+### R36 — `freelo tasks share` (public link) ✅ shipped
 
-**Endpoints:** `POST /public-link/task/{task_id}`, `DELETE /public-link/task/{task_id}`.
+**Endpoints:** `GET /public-link/task/{task_id}` (creates the link — OpenAPI verb wins over the `POST` listed earlier; see decision in run `2026-05-09-1905-tasks-share/decisions/01-roadmap-vs-yaml-verb.md`), `DELETE /public-link/task/{task_id}`.
 **CLI:** `freelo tasks share <id>` (prints URL) / `freelo tasks unshare <id>`.
 **Depends on:** R10.
+**Shipped via:** PR #94 (spec 0050) — released in `0.19.0`.
 
-### R37 — `freelo tasks estimate`
+### R37 — `freelo tasks estimate` ✅ shipped
 
 **Endpoints:** `POST /task/{id}/total-time-estimate`, `DELETE /task/{id}/total-time-estimate`, `POST /task/{id}/users-time-estimates/{user_id}`, `DELETE /task/{id}/users-time-estimates/{user_id}`.
 **CLI:**
@@ -628,26 +632,29 @@ freelo tasks estimate clear <id> [--user <id>]
 ```
 
 **Depends on:** R10.
+**Shipped via:** PR #95 (spec 0051) — released in `0.19.0`.
 
-### R38 — `freelo tasks project add` / `project remove` / `relations`
+### R38 — `freelo tasks project add` / `project remove` / `relations` ✅ shipped
 
 **Endpoints:** `POST /task/{id}/projects`, `DELETE /task/{id}/projects/{project_id}`, `GET /task/{id}/relations`, `POST /tasks/relations`.
 **CLI:**
 
 ```
-freelo tasks project add <id> --project <id>...
+freelo tasks project add <id> --tasklist <id>...                 # OpenAPI body field is tasklist_id, not project_id
 freelo tasks project remove <id> --project <id> [--yes]
 freelo tasks relations <id>
 freelo tasks find-relations --task <id>...
 ```
 
 **Depends on:** R10.
+**Shipped via:** PR #96 (spec 0052) — released in `0.19.0`. Surfaced the post-merge calibration finding that every new `src/api/<wrapper>.ts` needs a sibling `test/api/<wrapper>.test.ts` exercising the `signal`/`requestId` opt-spread branches; rule recorded in `.claude/docs/conventions.md` §Tests.
 
-### R39 — `freelo tasks create-from-template`
+### R39 — `freelo tasks create-from-template` ✅ shipped
 
 **Endpoints:** `POST /task/create-from-template/{template_id}`.
-**CLI:** `freelo tasks create-from-template <template_id> --tasklist <id> [--name <str>]`.
+**CLI:** `freelo tasks create-from-template <template_id> --source-task <id> --target-tasklist <id> [--target-project <id>] [--date-start <YYYY-MM-DD>] [--worker <id>...]` (reconciled with the OpenAPI body shape — `--name` was dropped because the endpoint body has no such field; see spec 0053 §7 decision 1).
 **Depends on:** R09.
+**Shipped via:** PR #97 (spec 0053) — released in `0.19.0`.
 
 ---
 

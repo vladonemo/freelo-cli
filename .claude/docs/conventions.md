@@ -78,6 +78,7 @@ Code style and patterns. ESLint + Prettier catch most mechanical things; this do
 - No real HTTP — MSW for everything in `src/api/`.
 - Fixtures are realistic payloads scrubbed of PII. One fixture per scenario, not mega-fixtures.
 - **Every command test** asserts: (a) human output on simulated TTY, (b) JSON envelope shape on non-TTY, (c) structured error envelope on a forced failure.
+- **Every new `src/api/<wrapper>.ts` ships a sibling `test/api/<wrapper>.test.ts`** that exercises the conditional `signal` / `requestId` opt-spreads — pass each one explicitly and assert it threaded through to `client.request`. `exactOptionalPropertyTypes` forces the `... !== undefined ? { signal: opts.signal } : {}` shape, which counts as 2 branches per spread; command-level tests never trigger the `defined` branch and the missing coverage will silently drop `src/api/**` below the 80% gate (PR #96 calibration finding). Pattern to copy: `test/api/tasks-projects.test.ts`.
 - Coverage target: **80% lines, 90% on `src/api/` and `src/commands/`**. Don't chase 100%.
 
 ## Commits

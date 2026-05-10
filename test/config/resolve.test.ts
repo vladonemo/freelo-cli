@@ -1,4 +1,13 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// Isolate from the developer's real `conf` store on disk. `resolve.ts` calls
+// `safeReadStore()` (a wrapper around `readStore`) on every default-fallback
+// path; without this mock the suite is non-deterministic — passes on a clean
+// machine, fails on any machine that has run `freelo config use ...`.
+vi.mock('../../src/config/store.js', () => ({
+  readStore: () => undefined,
+}));
+
 import { buildPartialAppConfig, buildSourceMap } from '../../src/config/resolve.js';
 
 /**
