@@ -1,4 +1,5 @@
 import { type ApiResponse, type HttpClient } from './client.js';
+import { z } from 'zod';
 import {
   CreateCustomFieldResponseSchema,
   DeleteCustomFieldResponseSchema,
@@ -6,12 +7,16 @@ import {
   GetCustomFieldTypesResponseSchema,
   RenameCustomFieldResponseSchema,
   RestoreCustomFieldResponseSchema,
+  AddOrEditCustomFieldValueResponseSchema,
+  AddOrEditCustomFieldEnumValueResponseSchema,
   type CreateCustomFieldResponse,
   type DeleteCustomFieldResponse,
   type FindCustomFieldsByProjectResponse,
   type GetCustomFieldTypesResponse,
   type RenameCustomFieldResponse,
   type RestoreCustomFieldResponse,
+  type AddOrEditCustomFieldValueResponse,
+  type AddOrEditCustomFieldEnumValueResponse,
 } from './schemas/custom-field.js';
 
 /**
@@ -299,4 +304,157 @@ export async function restoreCustomField(
     ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
   });
   return { raw, body: raw.data };
+}
+/* ---------------------------------------------------------------------------
+ *  R42 — value set / value clear (spec 0056).
+ *
+ *  Three new wire wrappers:
+ *    POST /custom-field/add-or-edit-value          (yaml :4198-4244)  — scalar
+ *    POST /custom-field/add-or-edit-enum-value     (yaml :4246-4294)  — enum
+ *    DELETE /custom-field/delete-value/{uuid}      (yaml :4296-4324)
+ * ------------------------------------------------------------------------- */
+
+/** Path for `POST /custom-field/add-or-edit-value`. Constant. */
+export function addOrEditCustomFieldValuePath(): string {
+  return '/custom-field/add-or-edit-value';
+}
+
+/** Path for `POST /custom-field/add-or-edit-enum-value`. Constant. */
+export function addOrEditCustomFieldEnumValuePath(): string {
+  return '/custom-field/add-or-edit-enum-value';
+}
+
+/** Path for `DELETE /custom-field/delete-value/{uuid}`. */
+export function deleteCustomFieldValuePath(valueUuid: string): string {
+  return `/custom-field/delete-value/${valueUuid}`;
+}
+
+export type AddOrEditCustomFieldValueOpts = {
+  taskId: number;
+  customFieldUuid: string;
+  value: string;
+  signal?: AbortSignal;
+  requestId?: string;
+};
+
+export type AddOrEditCustomFieldValueResult = {
+  raw: ApiResponse<AddOrEditCustomFieldValueResponse>;
+  body: AddOrEditCustomFieldValueResponse;
+};
+
+export type AddOrEditCustomFieldEnumValueResult = {
+  raw: ApiResponse<AddOrEditCustomFieldEnumValueResponse>;
+  body: AddOrEditCustomFieldEnumValueResponse;
+};
+
+/**
+ * `POST /custom-field/add-or-edit-value` — scalar (text / number) upsert.
+ *
+ * Body shape per yaml :4222-4234 — snake_case `custom_field_uuid`. The
+ * server matches by `(task_id, custom_field_uuid)`; the resulting record's
+ * uuid is server-generated on create and preserved on update (yaml :4211).
+ *
+ * On success returns `{ custom_field_value: <CustomFieldValue> }`.
+ *
+ * Spec 0055 §2.2.
+ */
+export async function addOrEditCustomFieldValue(
+  client: HttpClient,
+  opts: AddOrEditCustomFieldValueOpts,
+): Promise<AddOrEditCustomFieldValueResult> {
+  const body = {
+    custom_field_uuid: opts.customFieldUuid,
+    task_id: opts.taskId,
+    value: opts.value,
+  };
+  const raw = await client.request({
+    method: 'POST',
+    path: addOrEditCustomFieldValuePath(),
+    body,
+    schema: AddOrEditCustomFieldValueResponseSchema,
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+  return { raw, body: raw.data };
+}
+
+/**
+ * `POST /custom-field/add-or-edit-enum-value` — enum upsert.
+ *
+ * Body shape per yaml :4270-4283 — **camelCase** `customFieldUuid` (sic).
+ * `value` is the **uuid of an enum option** fetched from
+ * `/custom-field-enum/get-for-custom-field/{uuid}` (R43, future), NOT the
+ * display string.
+ *
+ * On success returns `{ customFieldEnum: <CustomFieldValue> }` — note the
+ * camelCase wrapper key too.
+ *
+ * Spec 0055 §2.2.
+ */
+export async function addOrEditCustomFieldEnumValue(
+  client: HttpClient,
+  opts: AddOrEditCustomFieldValueOpts,
+): Promise<AddOrEditCustomFieldEnumValueResult> {
+  const body = {
+    customFieldUuid: opts.customFieldUuid,
+    task_id: opts.taskId,
+    value: opts.value,
+  };
+  const raw = await client.request({
+    method: 'POST',
+    path: addOrEditCustomFieldEnumValuePath(),
+    body,
+    schema: AddOrEditCustomFieldEnumValueResponseSchema,
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+  return { raw, body: raw.data };
+}
+
+export type DeleteCustomFieldValueOpts = {
+  signal?: AbortSignal;
+  requestId?: string;
+};
+
+export type DeleteCustomFieldValueResult = {
+  raw: ApiResponse<unknown>;
+};
+
+/**
+ * Tolerant success envelope for the DELETE response (`{ result: "success" }`
+ * per yaml :4318-4324, `SuccessResponse`). `.passthrough()` keeps unknown
+ * fields ride-through. Mirrors `tasks-delete.ts` byte-for-byte modulo the
+ * comment.
+ */
+const DeleteValueResponseSchema = z
+  .object({
+    result: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+/**
+ * `DELETE /custom-field/delete-value/{uuid}` — clear.
+ *
+ * The `uuid` is the **value-uuid** (the uuid of the persisted record), NOT
+ * the field-uuid. Callers that have a `(task_id, field_uuid)` resolve via
+ * `GET /task/{task_id}` first (see `value clear` command).
+ *
+ * 404 is mapped to idempotent skip by the command layer; this wrapper does
+ * not special-case it — `FreeloApiError` bubbles.
+ *
+ * Spec 0055 §2.2.
+ */
+export async function deleteCustomFieldValue(
+  client: HttpClient,
+  valueUuid: string,
+  opts: DeleteCustomFieldValueOpts = {},
+): Promise<DeleteCustomFieldValueResult> {
+  const raw = await client.request({
+    method: 'DELETE',
+    path: deleteCustomFieldValuePath(valueUuid),
+    schema: DeleteValueResponseSchema,
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+  return { raw };
 }

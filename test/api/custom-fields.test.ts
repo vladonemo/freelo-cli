@@ -22,6 +22,12 @@ import {
   renameCustomFieldPath,
   restoreCustomField,
   restoreCustomFieldPath,
+  addOrEditCustomFieldValue,
+  addOrEditCustomFieldValuePath,
+  addOrEditCustomFieldEnumValue,
+  addOrEditCustomFieldEnumValuePath,
+  deleteCustomFieldValue,
+  deleteCustomFieldValuePath,
 } from '../../src/api/custom-fields.js';
 import type { HttpClient } from '../../src/api/client.js';
 
@@ -346,5 +352,183 @@ describe('restoreCustomField', () => {
     const client = fakeClient({ custom_field: sampleCustomField });
     const result = await restoreCustomField(client, FIELD_UUID);
     expect(result.body.custom_field).toEqual(sampleCustomField);
+  });
+});
+/* ---------------------------------------------------------------------------
+ *  R42 — value set / value clear (spec 0055).
+ * ------------------------------------------------------------------------- */
+
+describe('custom-fields value path helpers', () => {
+  it('addOrEditCustomFieldValuePath is the constant /custom-field/add-or-edit-value', () => {
+    expect(addOrEditCustomFieldValuePath()).toBe('/custom-field/add-or-edit-value');
+  });
+
+  it('addOrEditCustomFieldEnumValuePath is the constant /custom-field/add-or-edit-enum-value', () => {
+    expect(addOrEditCustomFieldEnumValuePath()).toBe('/custom-field/add-or-edit-enum-value');
+  });
+
+  it('deleteCustomFieldValuePath embeds the value uuid', () => {
+    expect(deleteCustomFieldValuePath('abc-123')).toBe('/custom-field/delete-value/abc-123');
+  });
+});
+
+describe('addOrEditCustomFieldValue', () => {
+  const sampleResp = {
+    custom_field_value: {
+      uuid: 'cfv-uuid',
+      value: 'hi',
+      task_id: 7,
+      custom_field_uuid: 'cf-uuid',
+    },
+  };
+
+  it('POSTs the scalar upsert path with snake_case body', async () => {
+    const client = fakeClient(sampleResp);
+    await addOrEditCustomFieldValue(client, {
+      taskId: 7,
+      customFieldUuid: 'cf-uuid',
+      value: 'hi',
+    });
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0]!['method']).toBe('POST');
+    expect(client.calls[0]!['path']).toBe('/custom-field/add-or-edit-value');
+    expect(client.calls[0]!['body']).toEqual({
+      custom_field_uuid: 'cf-uuid',
+      task_id: 7,
+      value: 'hi',
+    });
+  });
+
+  it('does not include signal / requestId in opts when absent', async () => {
+    const client = fakeClient(sampleResp);
+    await addOrEditCustomFieldValue(client, {
+      taskId: 7,
+      customFieldUuid: 'cf-uuid',
+      value: 'hi',
+    });
+    expect(client.calls[0]).not.toHaveProperty('signal');
+    expect(client.calls[0]).not.toHaveProperty('requestId');
+  });
+
+  it('threads signal / requestId opts when provided', async () => {
+    const client = fakeClient(sampleResp);
+    const ac = new AbortController();
+    await addOrEditCustomFieldValue(client, {
+      taskId: 7,
+      customFieldUuid: 'cf-uuid',
+      value: 'hi',
+      signal: ac.signal,
+      requestId: 'req-cf-set',
+    });
+    expect(client.calls[0]!['signal']).toBe(ac.signal);
+    expect(client.calls[0]!['requestId']).toBe('req-cf-set');
+  });
+
+  it('returns parsed body and raw response', async () => {
+    const client = fakeClient(sampleResp);
+    const result = await addOrEditCustomFieldValue(client, {
+      taskId: 7,
+      customFieldUuid: 'cf-uuid',
+      value: 'hi',
+    });
+    expect(result.body.custom_field_value?.uuid).toBe('cfv-uuid');
+    expect(result.raw.requestId).toBe('req-fake');
+  });
+});
+
+describe('addOrEditCustomFieldEnumValue', () => {
+  const sampleResp = {
+    customFieldEnum: {
+      uuid: 'cfe-uuid',
+      value: 'enum-opt-uuid',
+      task_id: 7,
+      custom_field_uuid: 'cf-uuid',
+    },
+  };
+
+  it('POSTs the enum upsert path with camelCase customFieldUuid body key', async () => {
+    const client = fakeClient(sampleResp);
+    await addOrEditCustomFieldEnumValue(client, {
+      taskId: 7,
+      customFieldUuid: 'cf-uuid',
+      value: 'enum-opt-uuid',
+    });
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0]!['method']).toBe('POST');
+    expect(client.calls[0]!['path']).toBe('/custom-field/add-or-edit-enum-value');
+    expect(client.calls[0]!['body']).toEqual({
+      customFieldUuid: 'cf-uuid',
+      task_id: 7,
+      value: 'enum-opt-uuid',
+    });
+  });
+
+  it('does not include signal / requestId in opts when absent', async () => {
+    const client = fakeClient(sampleResp);
+    await addOrEditCustomFieldEnumValue(client, {
+      taskId: 7,
+      customFieldUuid: 'cf-uuid',
+      value: 'enum-opt-uuid',
+    });
+    expect(client.calls[0]).not.toHaveProperty('signal');
+    expect(client.calls[0]).not.toHaveProperty('requestId');
+  });
+
+  it('threads signal / requestId opts when provided', async () => {
+    const client = fakeClient(sampleResp);
+    const ac = new AbortController();
+    await addOrEditCustomFieldEnumValue(client, {
+      taskId: 7,
+      customFieldUuid: 'cf-uuid',
+      value: 'enum-opt-uuid',
+      signal: ac.signal,
+      requestId: 'req-cf-enum',
+    });
+    expect(client.calls[0]!['signal']).toBe(ac.signal);
+    expect(client.calls[0]!['requestId']).toBe('req-cf-enum');
+  });
+
+  it('returns parsed body with the camelCase customFieldEnum wrapper', async () => {
+    const client = fakeClient(sampleResp);
+    const result = await addOrEditCustomFieldEnumValue(client, {
+      taskId: 7,
+      customFieldUuid: 'cf-uuid',
+      value: 'enum-opt-uuid',
+    });
+    expect(result.body.customFieldEnum?.uuid).toBe('cfe-uuid');
+  });
+});
+
+describe('deleteCustomFieldValue', () => {
+  it('DELETEs the value path', async () => {
+    const client = fakeClient({ result: 'success' });
+    await deleteCustomFieldValue(client, 'cfv-uuid');
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0]!['method']).toBe('DELETE');
+    expect(client.calls[0]!['path']).toBe('/custom-field/delete-value/cfv-uuid');
+  });
+
+  it('does not include signal / requestId in opts when absent', async () => {
+    const client = fakeClient({ result: 'success' });
+    await deleteCustomFieldValue(client, 'cfv-uuid');
+    expect(client.calls[0]).not.toHaveProperty('signal');
+    expect(client.calls[0]).not.toHaveProperty('requestId');
+  });
+
+  it('threads signal / requestId opts when provided', async () => {
+    const client = fakeClient({ result: 'success' });
+    const ac = new AbortController();
+    await deleteCustomFieldValue(client, 'cfv-uuid', {
+      signal: ac.signal,
+      requestId: 'req-cf-clear',
+    });
+    expect(client.calls[0]!['signal']).toBe(ac.signal);
+    expect(client.calls[0]!['requestId']).toBe('req-cf-clear');
+  });
+
+  it('returns the raw response wrapper', async () => {
+    const client = fakeClient({ result: 'success' });
+    const result = await deleteCustomFieldValue(client, 'cfv-uuid');
+    expect(result.raw.requestId).toBe('req-fake');
   });
 });
