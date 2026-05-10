@@ -9,6 +9,10 @@ import {
   RestoreCustomFieldResponseSchema,
   AddOrEditCustomFieldValueResponseSchema,
   AddOrEditCustomFieldEnumValueResponseSchema,
+  GetCustomFieldEnumResponseSchema,
+  CreateCustomFieldEnumResponseSchema,
+  ChangeCustomFieldEnumResponseSchema,
+  DeleteCustomFieldEnumResponseSchema,
   type CreateCustomFieldResponse,
   type DeleteCustomFieldResponse,
   type FindCustomFieldsByProjectResponse,
@@ -17,6 +21,10 @@ import {
   type RestoreCustomFieldResponse,
   type AddOrEditCustomFieldValueResponse,
   type AddOrEditCustomFieldEnumValueResponse,
+  type GetCustomFieldEnumResponse,
+  type CreateCustomFieldEnumResponse,
+  type ChangeCustomFieldEnumResponse,
+  type DeleteCustomFieldEnumResponse,
 } from './schemas/custom-field.js';
 
 /**
@@ -457,4 +465,202 @@ export async function deleteCustomFieldValue(
     ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
   });
   return { raw };
+}
+
+/* ---------------------------------------------------------------------------
+ *  R43 — enum option list/add/rename/delete (spec 0057).
+ *
+ *  Five new endpoints:
+ *    GET    /custom-field-enum/get-for-custom-field/{uuid}  (yaml :4326-4359)
+ *    POST   /custom-field-enum/create/{uuid}                (yaml :4361-4414)
+ *    POST   /custom-field-enum/change/{uuid}                (yaml :4416-4464)
+ *    DELETE /custom-field-enum/delete/{uuid}                (yaml :4466-4495)
+ *    DELETE /custom-field-enum/force-delete/{uuid}          (yaml :4497-4527)
+ *
+ *  Verb for `change` is POST per OpenAPI (not PATCH as the roadmap hinted).
+ *  The two delete endpoints share the same response shape; they differ only
+ *  in path + behaviour (safe vs cascading). One wrapper switches on `force`.
+ * ------------------------------------------------------------------------- */
+
+/** Path for `GET /custom-field-enum/get-for-custom-field/{custom_field_uuid}`. */
+export function getCustomFieldEnumPath(fieldUuid: string): string {
+  return `/custom-field-enum/get-for-custom-field/${fieldUuid}`;
+}
+
+/** Path for `POST /custom-field-enum/create/{custom_field_uuid}`. */
+export function createCustomFieldEnumPath(fieldUuid: string): string {
+  return `/custom-field-enum/create/${fieldUuid}`;
+}
+
+/** Path for `POST /custom-field-enum/change/{custom_field_enum_uuid}`. */
+export function changeCustomFieldEnumPath(enumUuid: string): string {
+  return `/custom-field-enum/change/${enumUuid}`;
+}
+
+/**
+ * Path for `DELETE /custom-field-enum/{,force-}delete/{custom_field_enum_uuid}`.
+ *
+ * Switches on `force`:
+ *   - `force === false` → `/custom-field-enum/delete/{uuid}`         (safe)
+ *   - `force === true`  → `/custom-field-enum/force-delete/{uuid}`   (cascading)
+ */
+export function deleteCustomFieldEnumPath(enumUuid: string, force: boolean): string {
+  if (force) return `/custom-field-enum/force-delete/${enumUuid}`;
+  return `/custom-field-enum/delete/${enumUuid}`;
+}
+
+export type GetCustomFieldEnumResult = {
+  raw: ApiResponse<GetCustomFieldEnumResponse>;
+  body: GetCustomFieldEnumResponse;
+};
+
+/**
+ * `GET /custom-field-enum/get-for-custom-field/{uuid}` — list enum options
+ * defined on an enum-typed custom field.
+ *
+ * 200 → `{ custom_field_enum: CustomFieldEnumOption[] }`. Empty array is a
+ * valid 200 (no options yet, or all soft-deleted).
+ */
+export async function getCustomFieldEnum(
+  client: HttpClient,
+  fieldUuid: string,
+  opts: CustomFieldsOpts = {},
+): Promise<GetCustomFieldEnumResult> {
+  const raw = await client.request({
+    method: 'GET',
+    path: getCustomFieldEnumPath(fieldUuid),
+    schema: GetCustomFieldEnumResponseSchema,
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+  return { raw, body: raw.data };
+}
+
+/* ---------------------------------------------------------------------------
+ *  R43 — `POST /custom-field-enum/create/{custom_field_uuid}`
+ *
+ *  Required body: `{ value }`. Optional body: `{ uuid }` (server generates
+ *  if omitted; honored if supplied — yaml :4374). The CLI does not expose
+ *  the optional uuid in this slice (reserved for a future minor bump).
+ * ------------------------------------------------------------------------- */
+
+export type CreateCustomFieldEnumBody = {
+  value: string;
+  /** Optional caller-supplied uuid. Not exposed on the CLI surface in R43. */
+  uuid?: string;
+};
+
+export type CreateCustomFieldEnumOpts = CustomFieldsOpts & {
+  body: CreateCustomFieldEnumBody;
+};
+
+export type CreateCustomFieldEnumResult = {
+  raw: ApiResponse<CreateCustomFieldEnumResponse>;
+  body: CreateCustomFieldEnumResponse;
+};
+
+/**
+ * `POST /custom-field-enum/create/{custom_field_uuid}` — add an enum option
+ * to an enum-typed custom field.
+ *
+ * 200 → `{ custom_field_enum: CustomFieldEnumOption }`. ACL: project commander.
+ * 400 if the target field is not enum-typed (yaml :4375).
+ */
+export async function createCustomFieldEnum(
+  client: HttpClient,
+  fieldUuid: string,
+  opts: CreateCustomFieldEnumOpts,
+): Promise<CreateCustomFieldEnumResult> {
+  const raw = await client.request({
+    method: 'POST',
+    path: createCustomFieldEnumPath(fieldUuid),
+    body: opts.body,
+    schema: CreateCustomFieldEnumResponseSchema,
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+  return { raw, body: raw.data };
+}
+
+/* ---------------------------------------------------------------------------
+ *  R43 — `POST /custom-field-enum/change/{custom_field_enum_uuid}`
+ *
+ *  Verb is POST per OpenAPI (yaml :4417). Body: `{ value }` only — the uuid
+ *  is preserved (yaml :4422), so existing task values that reference this
+ *  option continue to work.
+ * ------------------------------------------------------------------------- */
+
+export type ChangeCustomFieldEnumBody = {
+  value: string;
+};
+
+export type ChangeCustomFieldEnumOpts = CustomFieldsOpts & {
+  body: ChangeCustomFieldEnumBody;
+};
+
+export type ChangeCustomFieldEnumResult = {
+  raw: ApiResponse<ChangeCustomFieldEnumResponse>;
+  body: ChangeCustomFieldEnumResponse;
+};
+
+/**
+ * `POST /custom-field-enum/change/{uuid}` — rename an enum option's display
+ * value. The uuid is preserved (yaml :4422). Not idempotent — rename of
+ * deleted option is a real failure (404 → bubbles).
+ */
+export async function changeCustomFieldEnum(
+  client: HttpClient,
+  enumUuid: string,
+  opts: ChangeCustomFieldEnumOpts,
+): Promise<ChangeCustomFieldEnumResult> {
+  const raw = await client.request({
+    method: 'POST',
+    path: changeCustomFieldEnumPath(enumUuid),
+    body: opts.body,
+    schema: ChangeCustomFieldEnumResponseSchema,
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+  return { raw, body: raw.data };
+}
+
+/* ---------------------------------------------------------------------------
+ *  R43 — `DELETE /custom-field-enum/{,force-}delete/{uuid}`
+ *
+ *  Single wrapper switches on `force`:
+ *    - false → safe endpoint (refuses if the option is in use, yaml :4479)
+ *    - true  → cascading endpoint (clears referencing task values, yaml :4510)
+ *
+ *  Both share the same response shape (`SuccessResponse`). 404 → idempotent
+ *  skip at the leaf-command layer (single-arm).
+ * ------------------------------------------------------------------------- */
+
+export type DeleteCustomFieldEnumOpts = CustomFieldsOpts & {
+  force: boolean;
+};
+
+export type DeleteCustomFieldEnumResult = {
+  raw: ApiResponse<DeleteCustomFieldEnumResponse>;
+  body: DeleteCustomFieldEnumResponse;
+};
+
+/**
+ * `DELETE /custom-field-enum/{,force-}delete/{uuid}` — delete an enum option.
+ *
+ * Caller picks the variant via `opts.force`. The leaf command catches
+ * `FreeloApiError` and applies the single-arm 404 idempotency heuristic.
+ */
+export async function deleteCustomFieldEnum(
+  client: HttpClient,
+  enumUuid: string,
+  opts: DeleteCustomFieldEnumOpts,
+): Promise<DeleteCustomFieldEnumResult> {
+  const raw = await client.request({
+    method: 'DELETE',
+    path: deleteCustomFieldEnumPath(enumUuid, opts.force),
+    schema: DeleteCustomFieldEnumResponseSchema,
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+  return { raw, body: raw.data };
 }

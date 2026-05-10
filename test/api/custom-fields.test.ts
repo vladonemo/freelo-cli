@@ -28,6 +28,14 @@ import {
   addOrEditCustomFieldEnumValuePath,
   deleteCustomFieldValue,
   deleteCustomFieldValuePath,
+  getCustomFieldEnum,
+  getCustomFieldEnumPath,
+  createCustomFieldEnum,
+  createCustomFieldEnumPath,
+  changeCustomFieldEnum,
+  changeCustomFieldEnumPath,
+  deleteCustomFieldEnum,
+  deleteCustomFieldEnumPath,
 } from '../../src/api/custom-fields.js';
 import type { HttpClient } from '../../src/api/client.js';
 
@@ -529,6 +537,211 @@ describe('deleteCustomFieldValue', () => {
   it('returns the raw response wrapper', async () => {
     const client = fakeClient({ result: 'success' });
     const result = await deleteCustomFieldValue(client, 'cfv-uuid');
+    expect(result.raw.requestId).toBe('req-fake');
+  });
+});
+
+/* ===========================================================================
+ *  R43 — enum option list/add/rename/delete (spec 0057).
+ *
+ *  Each wrapper threads the conditional `signal` / `requestId` opt-spread;
+ *  per Calibration §4 the absent / present branches must be exercised here
+ *  (command-level tests never hit the absent branch on every wrapper).
+ * ========================================================================= */
+
+const ENUM_FIELD_UUID = 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+const ENUM_OPTION_UUID = 'bbbb2222-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+
+describe('R43 path helpers', () => {
+  it('getCustomFieldEnumPath formats /custom-field-enum/get-for-custom-field/<uuid>', () => {
+    expect(getCustomFieldEnumPath(ENUM_FIELD_UUID)).toBe(
+      `/custom-field-enum/get-for-custom-field/${ENUM_FIELD_UUID}`,
+    );
+  });
+
+  it('createCustomFieldEnumPath formats /custom-field-enum/create/<uuid>', () => {
+    expect(createCustomFieldEnumPath(ENUM_FIELD_UUID)).toBe(
+      `/custom-field-enum/create/${ENUM_FIELD_UUID}`,
+    );
+  });
+
+  it('changeCustomFieldEnumPath formats /custom-field-enum/change/<uuid>', () => {
+    expect(changeCustomFieldEnumPath(ENUM_OPTION_UUID)).toBe(
+      `/custom-field-enum/change/${ENUM_OPTION_UUID}`,
+    );
+  });
+
+  it('deleteCustomFieldEnumPath(force=false) formats safe-delete path', () => {
+    expect(deleteCustomFieldEnumPath(ENUM_OPTION_UUID, false)).toBe(
+      `/custom-field-enum/delete/${ENUM_OPTION_UUID}`,
+    );
+  });
+
+  it('deleteCustomFieldEnumPath(force=true) formats force-delete path', () => {
+    expect(deleteCustomFieldEnumPath(ENUM_OPTION_UUID, true)).toBe(
+      `/custom-field-enum/force-delete/${ENUM_OPTION_UUID}`,
+    );
+  });
+});
+
+describe('getCustomFieldEnum', () => {
+  it('GETs /custom-field-enum/get-for-custom-field/<uuid>', async () => {
+    const client = fakeClient({ custom_field_enum: [] });
+    await getCustomFieldEnum(client, ENUM_FIELD_UUID);
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0]!['method']).toBe('GET');
+    expect(client.calls[0]!['path']).toBe(getCustomFieldEnumPath(ENUM_FIELD_UUID));
+  });
+
+  it('does not include signal / requestId in opts when absent', async () => {
+    const client = fakeClient({ custom_field_enum: [] });
+    await getCustomFieldEnum(client, ENUM_FIELD_UUID);
+    expect(client.calls[0]).not.toHaveProperty('signal');
+    expect(client.calls[0]).not.toHaveProperty('requestId');
+  });
+
+  it('threads signal / requestId opts when provided', async () => {
+    const client = fakeClient({ custom_field_enum: [] });
+    const ac = new AbortController();
+    await getCustomFieldEnum(client, ENUM_FIELD_UUID, {
+      signal: ac.signal,
+      requestId: 'req-enum-list',
+    });
+    expect(client.calls[0]!['signal']).toBe(ac.signal);
+    expect(client.calls[0]!['requestId']).toBe('req-enum-list');
+  });
+
+  it('returns parsed body and raw response', async () => {
+    const opts = [{ uuid: 'opt-1', value: 'A' }];
+    const client = fakeClient({ custom_field_enum: opts });
+    const result = await getCustomFieldEnum(client, ENUM_FIELD_UUID);
+    expect(result.body.custom_field_enum).toEqual(opts);
+    expect(result.raw.data.custom_field_enum).toEqual(opts);
+  });
+});
+
+describe('createCustomFieldEnum', () => {
+  const sampleResp = {
+    custom_field_enum: { uuid: 'opt-new', value: 'New' },
+  };
+
+  it('POSTs /custom-field-enum/create/<uuid> with the body', async () => {
+    const client = fakeClient(sampleResp);
+    await createCustomFieldEnum(client, ENUM_FIELD_UUID, { body: { value: 'New' } });
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0]!['method']).toBe('POST');
+    expect(client.calls[0]!['path']).toBe(createCustomFieldEnumPath(ENUM_FIELD_UUID));
+    expect(client.calls[0]!['body']).toEqual({ value: 'New' });
+  });
+
+  it('does not include signal / requestId in opts when absent', async () => {
+    const client = fakeClient(sampleResp);
+    await createCustomFieldEnum(client, ENUM_FIELD_UUID, { body: { value: 'X' } });
+    expect(client.calls[0]).not.toHaveProperty('signal');
+    expect(client.calls[0]).not.toHaveProperty('requestId');
+  });
+
+  it('threads signal / requestId opts when provided', async () => {
+    const client = fakeClient(sampleResp);
+    const ac = new AbortController();
+    await createCustomFieldEnum(client, ENUM_FIELD_UUID, {
+      body: { value: 'X' },
+      signal: ac.signal,
+      requestId: 'req-enum-add',
+    });
+    expect(client.calls[0]!['signal']).toBe(ac.signal);
+    expect(client.calls[0]!['requestId']).toBe('req-enum-add');
+  });
+
+  it('returns parsed body with the option', async () => {
+    const client = fakeClient(sampleResp);
+    const result = await createCustomFieldEnum(client, ENUM_FIELD_UUID, {
+      body: { value: 'New' },
+    });
+    expect(result.body.custom_field_enum.uuid).toBe('opt-new');
+    expect(result.body.custom_field_enum.value).toBe('New');
+  });
+});
+
+describe('changeCustomFieldEnum', () => {
+  const sampleResp = {
+    custom_field_enum: { uuid: ENUM_OPTION_UUID, value: 'Renamed' },
+  };
+
+  it('POSTs /custom-field-enum/change/<uuid> with the body', async () => {
+    const client = fakeClient(sampleResp);
+    await changeCustomFieldEnum(client, ENUM_OPTION_UUID, { body: { value: 'Renamed' } });
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0]!['method']).toBe('POST');
+    expect(client.calls[0]!['path']).toBe(changeCustomFieldEnumPath(ENUM_OPTION_UUID));
+    expect(client.calls[0]!['body']).toEqual({ value: 'Renamed' });
+  });
+
+  it('does not include signal / requestId in opts when absent', async () => {
+    const client = fakeClient(sampleResp);
+    await changeCustomFieldEnum(client, ENUM_OPTION_UUID, { body: { value: 'X' } });
+    expect(client.calls[0]).not.toHaveProperty('signal');
+    expect(client.calls[0]).not.toHaveProperty('requestId');
+  });
+
+  it('threads signal / requestId opts when provided', async () => {
+    const client = fakeClient(sampleResp);
+    const ac = new AbortController();
+    await changeCustomFieldEnum(client, ENUM_OPTION_UUID, {
+      body: { value: 'X' },
+      signal: ac.signal,
+      requestId: 'req-enum-rename',
+    });
+    expect(client.calls[0]!['signal']).toBe(ac.signal);
+    expect(client.calls[0]!['requestId']).toBe('req-enum-rename');
+  });
+
+  it('returns parsed body with the renamed option', async () => {
+    const client = fakeClient(sampleResp);
+    const result = await changeCustomFieldEnum(client, ENUM_OPTION_UUID, {
+      body: { value: 'Renamed' },
+    });
+    expect(result.body.custom_field_enum.value).toBe('Renamed');
+  });
+});
+
+describe('deleteCustomFieldEnum', () => {
+  it('DELETEs the safe path when force=false', async () => {
+    const client = fakeClient({ result: 'success' });
+    await deleteCustomFieldEnum(client, ENUM_OPTION_UUID, { force: false });
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0]!['method']).toBe('DELETE');
+    expect(client.calls[0]!['path']).toBe(`/custom-field-enum/delete/${ENUM_OPTION_UUID}`);
+  });
+
+  it('DELETEs the force path when force=true', async () => {
+    const client = fakeClient({ result: 'success' });
+    await deleteCustomFieldEnum(client, ENUM_OPTION_UUID, { force: true });
+    expect(client.calls[0]!['path']).toBe(`/custom-field-enum/force-delete/${ENUM_OPTION_UUID}`);
+  });
+
+  it('does not include signal / requestId in opts when absent', async () => {
+    const client = fakeClient({ result: 'success' });
+    await deleteCustomFieldEnum(client, ENUM_OPTION_UUID, { force: false });
+    expect(client.calls[0]).not.toHaveProperty('signal');
+    expect(client.calls[0]).not.toHaveProperty('requestId');
+  });
+
+  it('threads signal / requestId opts when provided', async () => {
+    const client = fakeClient({ result: 'success' });
+    const ac = new AbortController();
+    await deleteCustomFieldEnum(client, ENUM_OPTION_UUID, {
+      force: true,
+      signal: ac.signal,
+      requestId: 'req-enum-delete',
+    });
+    expect(client.calls[0]!['signal']).toBe(ac.signal);
+    expect(client.calls[0]!['requestId']).toBe('req-enum-delete');
+  });
+
+  it('returns parsed body', async () => {
+    const client = fakeClient({ result: 'success' });
+    const result = await deleteCustomFieldEnum(client, ENUM_OPTION_UUID, { force: false });
     expect(result.raw.requestId).toBe('req-fake');
   });
 });

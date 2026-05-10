@@ -333,6 +333,134 @@ export type CustomFieldsDeleteData = {
   line_index?: number;
 };
 
+/* ---------------------------------------------------------------------------
+ *  R43 — enum option list/add/rename/delete (spec 0057).
+ *
+ *  Five new endpoints (two for delete — safe + force):
+ *    GET    /custom-field-enum/get-for-custom-field/{uuid}  (yaml :4326-4359)
+ *    POST   /custom-field-enum/create/{uuid}                (yaml :4361-4414)
+ *    POST   /custom-field-enum/change/{uuid}                (yaml :4416-4464)
+ *    DELETE /custom-field-enum/delete/{uuid}                (yaml :4466-4495)
+ *    DELETE /custom-field-enum/force-delete/{uuid}          (yaml :4497-4527)
+ *
+ *  The rename verb is **POST** per OpenAPI — the roadmap's `PATCH` is wrong
+ *  (decision 1, same as R41 spec 0055 decision 01).
+ * ------------------------------------------------------------------------- */
+
+/**
+ * One enum option row (yaml `#/components/schemas/CustomFieldEnumOption`).
+ * Both fields are required-on-the-wire — a row without a uuid is unaddressable
+ * and a row without a value is unrenderable. `.passthrough()` keeps unknown
+ * future fields.
+ */
+export const CustomFieldEnumOptionSchema = z
+  .object({
+    uuid: z.string(),
+    value: z.string(),
+  })
+  .passthrough();
+export type CustomFieldEnumOption = z.infer<typeof CustomFieldEnumOptionSchema>;
+
+/** `GET /custom-field-enum/get-for-custom-field/{uuid}` response (yaml :4353-4359). */
+export const GetCustomFieldEnumResponseSchema = z
+  .object({
+    custom_field_enum: z.array(CustomFieldEnumOptionSchema),
+  })
+  .passthrough();
+export type GetCustomFieldEnumResponse = z.infer<typeof GetCustomFieldEnumResponseSchema>;
+
+/** `POST /custom-field-enum/create/{uuid}` response (yaml :4400-4414). */
+export const CreateCustomFieldEnumResponseSchema = z
+  .object({ custom_field_enum: CustomFieldEnumOptionSchema })
+  .passthrough();
+export type CreateCustomFieldEnumResponse = z.infer<typeof CreateCustomFieldEnumResponseSchema>;
+
+/** `POST /custom-field-enum/change/{uuid}` response (yaml :4450-4464). */
+export const ChangeCustomFieldEnumResponseSchema = z
+  .object({ custom_field_enum: CustomFieldEnumOptionSchema })
+  .passthrough();
+export type ChangeCustomFieldEnumResponse = z.infer<typeof ChangeCustomFieldEnumResponseSchema>;
+
+/**
+ * `DELETE /custom-field-enum/{,force-}delete/{uuid}` response (yaml :4490-4495 /
+ * :4521-4527 — both `$ref: '#/components/schemas/SuccessResponse'`).
+ *
+ * Same shape as R41's `DeleteCustomFieldResponseSchema` (`{ result: 'success' }`);
+ * we declare a dedicated alias rather than re-exporting so the import graph
+ * reads cleanly per resource.
+ */
+export const DeleteCustomFieldEnumResponseSchema = z
+  .object({ result: z.string().nullable().optional() })
+  .passthrough();
+export type DeleteCustomFieldEnumResponse = z.infer<typeof DeleteCustomFieldEnumResponseSchema>;
+
+/* ---------------------------------------------------------------------------
+ *  R43 — envelope `data` types (consumed by `src/commands/custom-fields/enum/{list,add,rename,delete}.ts`).
+ * ------------------------------------------------------------------------- */
+
+/**
+ * `freelo.custom-fields.enum-list/v1` envelope `data`. Read-only.
+ *
+ * - `field_uuid` — echo of `--field <uuid>` for self-correlation. Always present.
+ * - `options`    — server-returned array. May be empty `[]`.
+ */
+export type CustomFieldsEnumListData = {
+  field_uuid: string;
+  options: CustomFieldEnumOption[];
+};
+
+/**
+ * `freelo.custom-fields.enum-add/v1` envelope `data`.
+ *
+ * - `field_uuid` — echo of `--field`. Always present.
+ * - `option`     — server-returned full option (uuid + value). Present on live
+ *                  success; absent on dry-run.
+ * - `would`      — present on dry-run; absent on live success.
+ */
+export type CustomFieldsEnumAddData = {
+  field_uuid: string;
+  option?: CustomFieldEnumOption;
+  would?: Would;
+};
+
+/**
+ * `freelo.custom-fields.enum-rename/v1` envelope `data`.
+ *
+ * - `uuid`            — echo of positional `<enum_uuid>`. Always present.
+ * - `applied_changes` — `{ value: <new-display> }`. Future fields would extend
+ *                       this object; backwards compatible per the public-contract
+ *                       policy.
+ * - `would`           — present on dry-run; absent on live success.
+ */
+export type CustomFieldsEnumRenameData = {
+  uuid: string;
+  applied_changes: { value?: string };
+  would?: Would;
+};
+
+/**
+ * `freelo.custom-fields.enum-delete/v1` envelope `data`.
+ *
+ * - `uuid`                     — echo of positional. Always present.
+ * - `force`                    — true iff `--force` was passed (i.e. the cascading
+ *                                endpoint was hit). Public so consumers know
+ *                                which wire endpoint executed.
+ * - `previous_state`           — reserved (always `null` v1; mirrors R13/R23/R41).
+ * - `current_state`            — constant `'deleted'`.
+ * - `already_in_target_state`  — true iff 404 idempotent skip.
+ * - `would`                    — present on dry-run.
+ * - `line_index`               — present in `--stdin` batch mode.
+ */
+export type CustomFieldsEnumDeleteData = {
+  uuid: string;
+  force: boolean;
+  previous_state: null;
+  current_state: 'deleted';
+  already_in_target_state: boolean;
+  would?: Would;
+  line_index?: number;
+};
+
 /**
  * `freelo.custom-fields.restore/v1` envelope `data`.
  *
