@@ -9,10 +9,19 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import {
+  buildCreateCustomFieldBody,
+  createCustomField,
+  createCustomFieldPath,
+  deleteCustomField,
+  deleteCustomFieldPath,
   findCustomFieldsByProject,
   findCustomFieldsByProjectPath,
   getCustomFieldTypes,
   getCustomFieldTypesPath,
+  renameCustomField,
+  renameCustomFieldPath,
+  restoreCustomField,
+  restoreCustomFieldPath,
 } from '../../src/api/custom-fields.js';
 import type { HttpClient } from '../../src/api/client.js';
 
@@ -131,3 +140,211 @@ function fakeClient(data: unknown): HttpClient & {
     calls: Array<Record<string, unknown>>;
   };
 }
+
+/* ===========================================================================
+ *  R41 — CRUD wire wrappers (spec 0055).
+ *
+ *  Each wrapper uses the conditional `signal` / `requestId` opt-spread.
+ *  `exactOptionalPropertyTypes` means each spread is two branches; we
+ *  assert both per wrapper. Calibration §4 mandates this — command-level
+ *  tests never hit the present-branch.
+ * ========================================================================= */
+
+const FIELD_UUID = '11111111-1111-1111-1111-111111111111';
+const TYPE_UUID = '2f7bfe3a-c950-470e-b910-95b4caf5dc4f';
+
+const sampleCustomField = {
+  uuid: FIELD_UUID,
+  name: 'Severity',
+  custom_fields_types_uuid: TYPE_UUID,
+  project_id: 100,
+  author_id: 5,
+  date_add: '2026-05-10T00:00:00Z',
+  priority: 1,
+};
+
+describe('R41 path helpers', () => {
+  it('createCustomFieldPath formats /custom-field/create/<projectId>', () => {
+    expect(createCustomFieldPath(100)).toBe('/custom-field/create/100');
+  });
+
+  it('renameCustomFieldPath formats /custom-field/rename/<uuid>', () => {
+    expect(renameCustomFieldPath(FIELD_UUID)).toBe(`/custom-field/rename/${FIELD_UUID}`);
+  });
+
+  it('deleteCustomFieldPath formats /custom-field/delete/<uuid>', () => {
+    expect(deleteCustomFieldPath(FIELD_UUID)).toBe(`/custom-field/delete/${FIELD_UUID}`);
+  });
+
+  it('restoreCustomFieldPath formats /custom-field/restore/<uuid>', () => {
+    expect(restoreCustomFieldPath(FIELD_UUID)).toBe(`/custom-field/restore/${FIELD_UUID}`);
+  });
+});
+
+describe('buildCreateCustomFieldBody', () => {
+  it('emits required name + type, omits uuid when not supplied', () => {
+    const body = buildCreateCustomFieldBody({ name: 'Severity', typeUuid: TYPE_UUID });
+    expect(body).toEqual({ name: 'Severity', type: TYPE_UUID });
+    expect(body).not.toHaveProperty('uuid');
+  });
+
+  it('threads through optional uuid when supplied', () => {
+    const body = buildCreateCustomFieldBody({
+      name: 'Severity',
+      typeUuid: TYPE_UUID,
+      uuid: FIELD_UUID,
+    });
+    expect(body).toEqual({ name: 'Severity', type: TYPE_UUID, uuid: FIELD_UUID });
+  });
+});
+
+describe('createCustomField', () => {
+  it('POSTs /custom-field/create/<projectId> with the body', async () => {
+    const client = fakeClient({ custom_field: sampleCustomField });
+    await createCustomField(client, 100, {
+      body: { name: 'Severity', type: TYPE_UUID },
+    });
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0]!['method']).toBe('POST');
+    expect(client.calls[0]!['path']).toBe('/custom-field/create/100');
+    expect(client.calls[0]!['body']).toEqual({ name: 'Severity', type: TYPE_UUID });
+  });
+
+  it('does not include signal / requestId in opts when absent', async () => {
+    const client = fakeClient({ custom_field: sampleCustomField });
+    await createCustomField(client, 100, { body: { name: 'X', type: TYPE_UUID } });
+    expect(client.calls[0]).not.toHaveProperty('signal');
+    expect(client.calls[0]).not.toHaveProperty('requestId');
+  });
+
+  it('threads through opts.signal when provided', async () => {
+    const client = fakeClient({ custom_field: sampleCustomField });
+    const ac = new AbortController();
+    await createCustomField(client, 100, {
+      body: { name: 'X', type: TYPE_UUID },
+      signal: ac.signal,
+    });
+    expect(client.calls[0]!['signal']).toBe(ac.signal);
+  });
+
+  it('threads through opts.requestId when provided', async () => {
+    const client = fakeClient({ custom_field: sampleCustomField });
+    await createCustomField(client, 100, {
+      body: { name: 'X', type: TYPE_UUID },
+      requestId: 'req-cf-create',
+    });
+    expect(client.calls[0]!['requestId']).toBe('req-cf-create');
+  });
+
+  it('returns parsed body and raw response', async () => {
+    const client = fakeClient({ custom_field: sampleCustomField });
+    const result = await createCustomField(client, 100, {
+      body: { name: 'Severity', type: TYPE_UUID },
+    });
+    expect(result.body.custom_field).toEqual(sampleCustomField);
+    expect(result.raw.data.custom_field).toEqual(sampleCustomField);
+  });
+});
+
+describe('renameCustomField', () => {
+  it('POSTs /custom-field/rename/<uuid> with { name }', async () => {
+    const client = fakeClient({ custom_field: { ...sampleCustomField, name: 'Renamed' } });
+    await renameCustomField(client, FIELD_UUID, { body: { name: 'Renamed' } });
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0]!['method']).toBe('POST');
+    expect(client.calls[0]!['path']).toBe(`/custom-field/rename/${FIELD_UUID}`);
+    expect(client.calls[0]!['body']).toEqual({ name: 'Renamed' });
+  });
+
+  it('does not include signal / requestId in opts when absent', async () => {
+    const client = fakeClient({ custom_field: sampleCustomField });
+    await renameCustomField(client, FIELD_UUID, { body: { name: 'X' } });
+    expect(client.calls[0]).not.toHaveProperty('signal');
+    expect(client.calls[0]).not.toHaveProperty('requestId');
+  });
+
+  it('threads through opts.signal when provided', async () => {
+    const client = fakeClient({ custom_field: sampleCustomField });
+    const ac = new AbortController();
+    await renameCustomField(client, FIELD_UUID, {
+      body: { name: 'X' },
+      signal: ac.signal,
+    });
+    expect(client.calls[0]!['signal']).toBe(ac.signal);
+  });
+
+  it('threads through opts.requestId when provided', async () => {
+    const client = fakeClient({ custom_field: sampleCustomField });
+    await renameCustomField(client, FIELD_UUID, {
+      body: { name: 'X' },
+      requestId: 'req-cf-rename',
+    });
+    expect(client.calls[0]!['requestId']).toBe('req-cf-rename');
+  });
+});
+
+describe('deleteCustomField', () => {
+  it('DELETEs /custom-field/delete/<uuid>', async () => {
+    const client = fakeClient({ result: 'success' });
+    await deleteCustomField(client, FIELD_UUID);
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0]!['method']).toBe('DELETE');
+    expect(client.calls[0]!['path']).toBe(`/custom-field/delete/${FIELD_UUID}`);
+  });
+
+  it('does not include signal / requestId in opts when absent', async () => {
+    const client = fakeClient({ result: 'success' });
+    await deleteCustomField(client, FIELD_UUID);
+    expect(client.calls[0]).not.toHaveProperty('signal');
+    expect(client.calls[0]).not.toHaveProperty('requestId');
+  });
+
+  it('threads through opts.signal when provided', async () => {
+    const client = fakeClient({ result: 'success' });
+    const ac = new AbortController();
+    await deleteCustomField(client, FIELD_UUID, { signal: ac.signal });
+    expect(client.calls[0]!['signal']).toBe(ac.signal);
+  });
+
+  it('threads through opts.requestId when provided', async () => {
+    const client = fakeClient({ result: 'success' });
+    await deleteCustomField(client, FIELD_UUID, { requestId: 'req-cf-delete' });
+    expect(client.calls[0]!['requestId']).toBe('req-cf-delete');
+  });
+});
+
+describe('restoreCustomField', () => {
+  it('POSTs /custom-field/restore/<uuid>', async () => {
+    const client = fakeClient({ custom_field: sampleCustomField });
+    await restoreCustomField(client, FIELD_UUID);
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0]!['method']).toBe('POST');
+    expect(client.calls[0]!['path']).toBe(`/custom-field/restore/${FIELD_UUID}`);
+  });
+
+  it('does not include signal / requestId in opts when absent', async () => {
+    const client = fakeClient({ custom_field: sampleCustomField });
+    await restoreCustomField(client, FIELD_UUID);
+    expect(client.calls[0]).not.toHaveProperty('signal');
+    expect(client.calls[0]).not.toHaveProperty('requestId');
+  });
+
+  it('threads through opts.signal when provided', async () => {
+    const client = fakeClient({ custom_field: sampleCustomField });
+    const ac = new AbortController();
+    await restoreCustomField(client, FIELD_UUID, { signal: ac.signal });
+    expect(client.calls[0]!['signal']).toBe(ac.signal);
+  });
+
+  it('threads through opts.requestId when provided', async () => {
+    const client = fakeClient({ custom_field: sampleCustomField });
+    await restoreCustomField(client, FIELD_UUID, { requestId: 'req-cf-restore' });
+    expect(client.calls[0]!['requestId']).toBe('req-cf-restore');
+  });
+
+  it('returns parsed body with custom_field', async () => {
+    const client = fakeClient({ custom_field: sampleCustomField });
+    const result = await restoreCustomField(client, FIELD_UUID);
+    expect(result.body.custom_field).toEqual(sampleCustomField);
+  });
+});
