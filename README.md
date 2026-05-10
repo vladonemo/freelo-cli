@@ -89,11 +89,24 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 - `freelo labels list` — List the caller's available project labels (their private labels plus public labels from accessible projects). No filters in v1 — `--project` is deferred until the API surfaces an attachments map.
 - `freelo labels rename <id>` — Rename, recolor, or toggle private/public on an existing project label. At least one change flag is required.
 
+### notes
+
+- `freelo notes create [input]` — Create a project-level note. Content is optional — name-only notes are valid. Content can come from --content, --from-file, --editor, or stdin (-).
+- `freelo notes delete [id...]` — Soft-delete one or more notes. Destructive — requires --yes (non-TTY) or interactive confirmation (TTY). 404 treated as idempotent (already-deleted). On live success, the envelope includes the deleted note's last state (Freelo API quirk — yaml :4669).
+- `freelo notes edit <id> [input]` — Overwrite a note's title and/or content. At least one of --name / --content / --from-file / --editor / - is required. Endpoint is POST /note/{id} (yaml :4625 — POST for historical reasons, NOT PATCH).
+- `freelo notes show <id>` — Show a single note by id, including its full content, files, and comments.
+
 ### notifications
 
 - `freelo notifications list` — List notifications addressed to the calling user (paginated). Filter by --unread / --project / --type. Server-side ACL-filtered.
 - `freelo notifications read [id...]` — Mark notifications as read. Server-side idempotent: re-marking an already-read notification is a safe 200. Supports positional <id>... / --ids / --stdin / --all-unread.
 - `freelo notifications unread [id...]` — Mark notifications as unread (re-surface). Server-side idempotent: re-marking is safe. Supports positional <id>... / --ids / --stdin.
+
+### pins
+
+- `freelo pins add` — Pin a URL to a project. Internal-resource URLs (tasks, documents, files, project-links) are fetch-or-create idempotent server-side — duplicates return the existing pin. External URLs always create a new pin.
+- `freelo pins list` — List all pinned items on a project (links, tasks, documents, files, project-links, directories). ACL-filtered server-side. Flat array — no pagination.
+- `freelo pins remove [id...]` — Remove one or more pinned items from their projects. The underlying target (task/document/file/link) is NOT affected. Destructive — requires --yes (non-TTY) or interactive confirmation (TTY). 404 treated as idempotent (already-removed).
 
 ### projects
 

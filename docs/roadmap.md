@@ -700,18 +700,22 @@ freelo custom-fields enum delete <enum_uuid> [--force] [--yes]
 
 **Depends on:** R41.
 
-### R44 — `freelo notes` + `freelo pins`
+### R44 — `freelo notes` + `freelo pins` ✅
 
-**Outcome:** Two related small surfaces, bundled because each is tiny.
-**Endpoints:** `GET/POST /project/{id}/note`, `GET/PATCH/DELETE /note/{id}`; `GET /project/{id}/pinned-items`, `POST /project/{id}/pinned-items`, `DELETE /pinned-item/{id}`.
-**CLI:**
+**Outcome:** Two related small surfaces, bundled because each is tiny. Closes Wave 7.
+**Endpoints:** `POST /project/{id}/note`, `GET/POST/DELETE /note/{id}`; `GET/POST /project/{id}/pinned-items`, `DELETE /pinned-item/{id}`.
+**CLI shipped:**
 
 ```
-freelo notes list --project <id>        # …create / show / edit / delete
-freelo pins list --project <id>         # …add <url> / remove <id>
+freelo notes create / show / edit / delete   (4 commands — see spec 0058 §7 decisions 1, 2)
+freelo pins  list   / add  / remove          (3 commands)
 ```
 
+**Notable scope decision (spec 0058 decision 1):** `notes list` is **not** included — Freelo's documented OpenAPI has no project-scoped notes/documents listing endpoint. The gap is documented in spec 0058 §5 as a non-goal; reserved for R45+ when an endpoint becomes available. The verb for `notes edit` is **POST**, not PATCH (spec 0058 decision 2 — OpenAPI is canonical, same precedent as R23, R41, R43).
 **Depends on:** R04, R13.
+**Shipped via:** spec 0058 (run `2026-05-10-r44-notes-pins`).
+
+**Wave 7 status:** fully shipped after R44 merges (R40 → R41 → R42 → R43 → R44).
 
 ---
 
