@@ -4844,6 +4844,125 @@ export const tasksCreateFromTemplateHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo custom-fields types` (R40, spec 0054).
+ *
+ * Wire: `GET /custom-field/get-types`. No path params.
+ * Response: `{ custom_field_types: [{ uuid, name }, …] }`.
+ */
+export const customFieldsTypesHandlers = {
+  /** 200 with the supplied type catalog (defaults to the three documented types). */
+  ok(types?: Array<Record<string, unknown>>): RequestHandler {
+    const body = {
+      custom_field_types: types ?? [
+        { uuid: '2f7bfe3a-c950-470e-b910-95b4caf5dc4f', name: 'text' },
+        { uuid: 'b1e56fa9-a97a-429b-8ab4-82bebe58933a', name: 'number' },
+        { uuid: 'f9729a8f-d340-40e4-b2c0-dc46c37e18ce', name: 'enum' },
+      ],
+    };
+    return http.get(`${API_BASE}/custom-field/get-types`, () => HttpResponse.json(body));
+  },
+
+  /** 200 with empty `custom_field_types: []`. */
+  okEmpty(): RequestHandler {
+    return http.get(`${API_BASE}/custom-field/get-types`, () =>
+      HttpResponse.json({ custom_field_types: [] }),
+    );
+  },
+
+  unauthorized(): RequestHandler {
+    return http.get(`${API_BASE}/custom-field/get-types`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  rateLimited(): RequestHandler {
+    return http.get(`${API_BASE}/custom-field/get-types`, () =>
+      HttpResponse.json({ errors: ['Too many requests.'] }, { status: 429 }),
+    );
+  },
+
+  serverError(status = 500): RequestHandler {
+    return http.get(`${API_BASE}/custom-field/get-types`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  networkError(): RequestHandler {
+    return http.get(`${API_BASE}/custom-field/get-types`, () => HttpResponse.error());
+  },
+};
+
+/**
+ * MSW handlers for `freelo custom-fields list` (R40, spec 0054).
+ *
+ * Wire: `GET /custom-field/find-by-project/{project_id}`.
+ * Response: `{ custom_fields: CustomField[], is_commander: boolean }`.
+ */
+export const customFieldsListHandlers = {
+  /** 200 with the supplied custom_fields array + is_commander flag. */
+  ok(
+    projectId: number,
+    customFields: Array<Record<string, unknown>>,
+    isCommander = true,
+  ): RequestHandler {
+    return http.get(`${API_BASE}/custom-field/find-by-project/${projectId}`, () =>
+      HttpResponse.json({ custom_fields: customFields, is_commander: isCommander }),
+    );
+  },
+
+  /** 200 with empty `custom_fields: []` and `is_commander: false`. */
+  okEmpty(projectId: number): RequestHandler {
+    return http.get(`${API_BASE}/custom-field/find-by-project/${projectId}`, () =>
+      HttpResponse.json({ custom_fields: [], is_commander: false }),
+    );
+  },
+
+  /** 400 — server-side validation. The message can be set so tests can hit
+   *  the `project_id`-mention branch of `rewriteApiHint`. */
+  badRequest(projectId: number, message = 'Invalid request body.'): RequestHandler {
+    return http.get(`${API_BASE}/custom-field/find-by-project/${projectId}`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  unauthorized(projectId: number): RequestHandler {
+    return http.get(`${API_BASE}/custom-field/find-by-project/${projectId}`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  forbidden(projectId: number): RequestHandler {
+    return http.get(`${API_BASE}/custom-field/find-by-project/${projectId}`, () =>
+      HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  notFound(projectId: number): RequestHandler {
+    return http.get(`${API_BASE}/custom-field/find-by-project/${projectId}`, () =>
+      HttpResponse.json({ errors: ['Project not found.'] }, { status: 404 }),
+    );
+  },
+
+  rateLimited(projectId: number): RequestHandler {
+    return http.get(`${API_BASE}/custom-field/find-by-project/${projectId}`, () =>
+      HttpResponse.json({ errors: ['Too many requests.'] }, { status: 429 }),
+    );
+  },
+
+  serverError(projectId: number, status = 500): RequestHandler {
+    return http.get(`${API_BASE}/custom-field/find-by-project/${projectId}`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  networkError(projectId: number): RequestHandler {
+    return http.get(`${API_BASE}/custom-field/find-by-project/${projectId}`, () =>
+      HttpResponse.error(),
+    );
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
