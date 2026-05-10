@@ -58,7 +58,11 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 
 ### custom-fields
 
+- `freelo custom-fields create` — Create a custom-field definition on a project. Caller must be a project commander. The --type uuid comes from `freelo custom-fields types`.
+- `freelo custom-fields delete [uuid...]` — Soft-delete one or more custom-field definitions. Existing task values are preserved server-side and hidden until restore. Destructive — requires --yes (non-TTY) or interactive confirmation (TTY). 404 treated as idempotent (already-deleted).
 - `freelo custom-fields list` — List all custom-field definitions configured on a project, plus the caller's commander status (true = can call create / rename / delete / restore on this project). Soft-deleted fields are excluded by Freelo. Read-only.
+- `freelo custom-fields rename <uuid>` — Rename a custom-field definition. Only `name` is mutable via this endpoint; uuid + type are immutable. Caller must be a project commander of the field's project.
+- `freelo custom-fields restore [uuid...]` — Restore one or more soft-deleted custom-field definitions. Non-destructive — no --yes flag. 404 treated as idempotent (already-active or never-deleted).
 - `freelo custom-fields types` — List the catalog of custom-field type definitions (text, number, enum). Each type uuid is the value to pass as `type` when creating a custom field on a project (R41 — future slice). Read-only.
 
 ### files

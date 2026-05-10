@@ -665,12 +665,14 @@ freelo tasks find-relations --task <id>...
 **Endpoints:** `GET /custom-field/get-types`, `GET /custom-field/find-by-project/{project_id}`.
 **CLI:** `freelo custom-fields types` / `freelo custom-fields list --project <id>`.
 **Depends on:** R04.
+**Shipped via:** spec 0054 (PR #99).
 
 ### R41 — `freelo custom-fields create` / `rename` / `delete` / `restore`
 
-**Endpoints:** `POST /custom-field/create/{project_id}`, `PATCH /custom-field/rename/{uuid}`, `DELETE /custom-field/delete/{uuid}`, `POST /custom-field/restore/{uuid}`.
+**Endpoints:** `POST /custom-field/create/{project_id}`, `POST /custom-field/rename/{uuid}` (verb is **POST**, not PATCH — OpenAPI :4097-4136 is authoritative; same precedent as R23 spec 0035 decision 01), `DELETE /custom-field/delete/{uuid}`, `POST /custom-field/restore/{uuid}`.
 **CLI:** four small commands.
 **Depends on:** R40, R13.
+**Shipped via:** spec 0055 (run `2026-05-10-r41-custom-fields-crud`).
 
 ### R42 — `freelo custom-fields value set` / `value clear`
 

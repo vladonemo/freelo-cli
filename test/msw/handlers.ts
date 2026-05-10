@@ -4963,6 +4963,338 @@ export const customFieldsListHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo custom-fields create / rename / delete / restore`
+ * (R41, spec 0055).
+ *
+ * Wires:
+ *   - `POST   /custom-field/create/{project_id}`
+ *   - `POST   /custom-field/rename/{uuid}`
+ *   - `DELETE /custom-field/delete/{uuid}`
+ *   - `POST   /custom-field/restore/{uuid}`
+ *
+ * Mirrors the `projectLabelsHandlers` shape one-for-one. `delete` and
+ * `restore` expose a `notFound` arm specifically for the idempotency
+ * test matrix.
+ */
+export const customFieldsCrudHandlers = {
+  /* ---------------------------------------------------------------------
+   *  POST /custom-field/create/{project_id}
+   * ------------------------------------------------------------------- */
+
+  createOk(projectId: number, customField?: Record<string, unknown>): RequestHandler {
+    const body = {
+      custom_field: customField ?? {
+        uuid: '11111111-1111-1111-1111-111111111111',
+        name: 'Severity',
+        custom_fields_types_uuid: '2f7bfe3a-c950-470e-b910-95b4caf5dc4f',
+        project_id: projectId,
+        author_id: 5,
+        date_add: '2026-05-10T00:00:00Z',
+        priority: 1,
+      },
+    };
+    return http.post(`${API_BASE}/custom-field/create/${projectId}`, () => HttpResponse.json(body));
+  },
+
+  createOkWhenBody(
+    projectId: number,
+    predicate: (body: unknown, request: Request) => boolean,
+    response?: Record<string, unknown>,
+  ): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/create/${projectId}`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json(
+        response ?? {
+          custom_field: {
+            uuid: '11111111-1111-1111-1111-111111111111',
+            name: 'Severity',
+            custom_fields_types_uuid: '2f7bfe3a-c950-470e-b910-95b4caf5dc4f',
+            project_id: projectId,
+            author_id: 5,
+            date_add: '2026-05-10T00:00:00Z',
+            priority: 1,
+          },
+        },
+      );
+    });
+  },
+
+  createBadRequest(projectId: number, message = 'Invalid request body.'): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/create/${projectId}`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  createUnauthorized(projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/create/${projectId}`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  createForbidden(projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/create/${projectId}`, () =>
+      HttpResponse.json({ errors: ['UserIsNotProjectCommander'] }, { status: 403 }),
+    );
+  },
+
+  createPlanExceeded(projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/create/${projectId}`, () =>
+      HttpResponse.json({ errors: ['PlanExceededException'] }, { status: 402 }),
+    );
+  },
+
+  createNotFound(projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/create/${projectId}`, () =>
+      HttpResponse.json({ errors: ['Project not found.'] }, { status: 404 }),
+    );
+  },
+
+  createServerError(projectId: number, status = 500): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/create/${projectId}`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  createRateLimited(projectId: number): RequestHandler {
+    return http.post(
+      `${API_BASE}/custom-field/create/${projectId}`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  createNetworkError(projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/create/${projectId}`, () => HttpResponse.error());
+  },
+
+  /* ---------------------------------------------------------------------
+   *  POST /custom-field/rename/{uuid}
+   * ------------------------------------------------------------------- */
+
+  renameOk(customField?: Record<string, unknown>): RequestHandler {
+    const body = {
+      custom_field: customField ?? {
+        uuid: '11111111-1111-1111-1111-111111111111',
+        name: 'New Name',
+        custom_fields_types_uuid: '2f7bfe3a-c950-470e-b910-95b4caf5dc4f',
+        project_id: 100,
+        author_id: 5,
+        date_add: '2026-05-10T00:00:00Z',
+        priority: 1,
+      },
+    };
+    return http.post(`${API_BASE}/custom-field/rename/:uuid`, () => HttpResponse.json(body));
+  },
+
+  renameOkWhenBody(predicate: (body: unknown, request: Request) => boolean): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/rename/:uuid`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json({
+        custom_field: {
+          uuid: '11111111-1111-1111-1111-111111111111',
+          name: 'New Name',
+          custom_fields_types_uuid: '2f7bfe3a-c950-470e-b910-95b4caf5dc4f',
+          project_id: 100,
+          author_id: 5,
+          date_add: '2026-05-10T00:00:00Z',
+          priority: 1,
+        },
+      });
+    });
+  },
+
+  renameBadRequest(message = 'Invalid request body.'): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/rename/:uuid`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  renameUnauthorized(): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/rename/:uuid`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  renameForbidden(): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/rename/:uuid`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  renameNotFound(): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/rename/:uuid`, () =>
+      HttpResponse.json({ errors: ['Custom field not found.'] }, { status: 404 }),
+    );
+  },
+
+  renameServerError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/rename/:uuid`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  renameRateLimited(): RequestHandler {
+    return http.post(
+      `${API_BASE}/custom-field/rename/:uuid`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /* ---------------------------------------------------------------------
+   *  DELETE /custom-field/delete/{uuid}  (idempotent 404)
+   * ------------------------------------------------------------------- */
+
+  deleteOk(): RequestHandler {
+    return http.delete(`${API_BASE}/custom-field/delete/:uuid`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /** Idempotency arm — 404 → CLI re-classifies as already_in_target_state: true. */
+  deleteNotFound(): RequestHandler {
+    return http.delete(`${API_BASE}/custom-field/delete/:uuid`, () =>
+      HttpResponse.json({ errors: ['Not found.'] }, { status: 404 }),
+    );
+  },
+
+  deleteForbidden(): RequestHandler {
+    return http.delete(`${API_BASE}/custom-field/delete/:uuid`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  deleteUnauthorized(): RequestHandler {
+    return http.delete(`${API_BASE}/custom-field/delete/:uuid`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  deleteServerError(status = 500): RequestHandler {
+    return http.delete(`${API_BASE}/custom-field/delete/:uuid`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  deleteRateLimited(): RequestHandler {
+    return http.delete(
+      `${API_BASE}/custom-field/delete/:uuid`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** Per-uuid router for delete — different responses per uuid. */
+  deletePerUuidRouter(routes: Record<string, () => Response | HttpResponse>): RequestHandler {
+    return http.delete(`${API_BASE}/custom-field/delete/:uuid`, ({ params }) => {
+      const u = String(params['uuid']);
+      const route = routes[u];
+      if (route) return route();
+      return HttpResponse.json({ result: 'success' });
+    });
+  },
+
+  /* ---------------------------------------------------------------------
+   *  POST /custom-field/restore/{uuid}  (idempotent 404)
+   * ------------------------------------------------------------------- */
+
+  restoreOk(customField?: Record<string, unknown>): RequestHandler {
+    const body = {
+      custom_field: customField ?? {
+        uuid: '11111111-1111-1111-1111-111111111111',
+        name: 'Severity',
+        custom_fields_types_uuid: '2f7bfe3a-c950-470e-b910-95b4caf5dc4f',
+        project_id: 100,
+        author_id: 5,
+        date_add: '2026-05-10T00:00:00Z',
+        priority: 1,
+      },
+    };
+    return http.post(`${API_BASE}/custom-field/restore/:uuid`, () => HttpResponse.json(body));
+  },
+
+  /** Idempotency arm — 404 → CLI re-classifies as already_in_target_state: true. */
+  restoreNotFound(): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/restore/:uuid`, () =>
+      HttpResponse.json(
+        { errors: ['Custom field not found or not soft-deleted.'] },
+        { status: 404 },
+      ),
+    );
+  },
+
+  restoreForbidden(): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/restore/:uuid`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  restoreUnauthorized(): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/restore/:uuid`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  restoreServerError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/restore/:uuid`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  restoreRateLimited(): RequestHandler {
+    return http.post(
+      `${API_BASE}/custom-field/restore/:uuid`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** Per-uuid router for restore — different responses per uuid. */
+  restorePerUuidRouter(routes: Record<string, () => Response | HttpResponse>): RequestHandler {
+    return http.post(`${API_BASE}/custom-field/restore/:uuid`, ({ params }) => {
+      const u = String(params['uuid']);
+      const route = routes[u];
+      if (route) return route();
+      return HttpResponse.json({
+        custom_field: {
+          uuid: u,
+          name: 'Severity',
+          custom_fields_types_uuid: '2f7bfe3a-c950-470e-b910-95b4caf5dc4f',
+          project_id: 100,
+          author_id: 5,
+          date_add: '2026-05-10T00:00:00Z',
+          priority: 1,
+        },
+      });
+    });
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));

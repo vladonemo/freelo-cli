@@ -1,15 +1,21 @@
 import { z } from 'zod';
+import { type Would } from '../../lib/dry-run.js';
 
 /**
- * Zod schemas + envelope `data` types for R40 `freelo custom-fields types`
- * / `freelo custom-fields list` (spec 0054). Both endpoints are read-only:
+ * Zod schemas + envelope `data` types for the `custom-fields` family.
  *
+ * R40 (spec 0054) — read-only:
  *   - `GET /custom-field/get-types`                    (yaml :4012-4042)
  *   - `GET /custom-field/find-by-project/{project_id}` (yaml :4529-4561)
  *
+ * R41 (spec 0055) — CRUD on a per-project basis:
+ *   - `POST   /custom-field/create/{project_id}`       (yaml :4043-4095)
+ *   - `POST   /custom-field/rename/{uuid}`             (yaml :4097-4136)  — POST not PATCH; OpenAPI is authoritative.
+ *   - `DELETE /custom-field/delete/{uuid}`             (yaml :4138-4166)
+ *   - `POST   /custom-field/restore/{uuid}`            (yaml :4168-4196)
+ *
  * The OpenAPI does NOT document any endpoint that lets the caller mutate
- * the type catalog; types are server-curated. Custom-field definitions
- * (per project) are mutated via R41 endpoints — separate slice.
+ * the type catalog; types are server-curated.
  */
 
 /**
@@ -97,4 +103,115 @@ export type CustomFieldsListData = {
   project_id: number;
   custom_fields: CustomField[];
   is_commander: boolean;
+};
+
+/* ---------------------------------------------------------------------------
+ *  R41 — wire response schemas (spec 0055).
+ *
+ *  All four endpoints in this slice return JSON. `create` / `rename` /
+ *  `restore` wrap a `CustomField` under `custom_field`. `delete` returns the
+ *  generic `SuccessResponse` shape (`{ result: 'success' }`). Each schema
+ *  uses `.passthrough()` to forward unknown future fields without stripping.
+ * ------------------------------------------------------------------------- */
+
+/** `POST /custom-field/create/{project_id}` response (yaml :4086-4095). */
+export const CreateCustomFieldResponseSchema = z
+  .object({ custom_field: CustomFieldSchema })
+  .passthrough();
+export type CreateCustomFieldResponse = z.infer<typeof CreateCustomFieldResponseSchema>;
+
+/** `POST /custom-field/rename/{uuid}` response (yaml :4127-4136). */
+export const RenameCustomFieldResponseSchema = z
+  .object({ custom_field: CustomFieldSchema })
+  .passthrough();
+export type RenameCustomFieldResponse = z.infer<typeof RenameCustomFieldResponseSchema>;
+
+/**
+ * `DELETE /custom-field/delete/{uuid}` response (yaml :4160-4166). Generic
+ * Freelo `SuccessResponse` (`{ result: 'success' }`); we accept any string
+ * (or null/absent) for `result` and tolerate other fields.
+ */
+export const DeleteCustomFieldResponseSchema = z
+  .object({ result: z.string().nullable().optional() })
+  .passthrough();
+export type DeleteCustomFieldResponse = z.infer<typeof DeleteCustomFieldResponseSchema>;
+
+/** `POST /custom-field/restore/{uuid}` response (yaml :4187-4196). */
+export const RestoreCustomFieldResponseSchema = z
+  .object({ custom_field: CustomFieldSchema })
+  .passthrough();
+export type RestoreCustomFieldResponse = z.infer<typeof RestoreCustomFieldResponseSchema>;
+
+/* ---------------------------------------------------------------------------
+ *  R41 — envelope `data` types (consumed by `src/commands/custom-fields/{create,rename,delete,restore}.ts`).
+ * ------------------------------------------------------------------------- */
+
+/**
+ * `freelo.custom-fields.create/v1` envelope `data`.
+ *
+ * - `project_id`   — echo of `--project <id>`. Always present.
+ * - `custom_field` — server-returned full definition. Present on live
+ *                    success; absent on `dry_run`.
+ * - `would`        — present on `dry_run`; absent on live success.
+ */
+export type CustomFieldsCreateData = {
+  project_id: number;
+  custom_field?: CustomField;
+  would?: Would;
+};
+
+/**
+ * `freelo.custom-fields.rename/v1` envelope `data`.
+ *
+ * - `uuid`            — echo of positional `<uuid>`. Always present.
+ * - `applied_changes` — `{ name: <new-name> }` for now. Future fields
+ *                       (priority, etc.) would extend this object — backwards
+ *                       compatible per the public-contract policy.
+ * - `would`           — present on `dry_run`; absent on live success.
+ */
+export type CustomFieldsRenameData = {
+  uuid: string;
+  applied_changes: { name?: string };
+  would?: Would;
+};
+
+/**
+ * `freelo.custom-fields.delete/v1` envelope `data`.
+ *
+ * - `previous_state`           — reserved (always `null` v1; mirrors R13/R23).
+ * - `current_state`            — constant `'deleted'`.
+ * - `already_in_target_state`  — true iff 404 idempotent skip.
+ * - `would`                    — present on `dry_run`.
+ * - `line_index`               — present in `--stdin` batch mode.
+ */
+export type CustomFieldsDeleteData = {
+  uuid: string;
+  previous_state: null;
+  current_state: 'deleted';
+  already_in_target_state: boolean;
+  would?: Would;
+  line_index?: number;
+};
+
+/**
+ * `freelo.custom-fields.restore/v1` envelope `data`.
+ *
+ * - `previous_state`           — reserved (always `null` v1).
+ * - `current_state`            — constant `'active'`.
+ * - `already_in_target_state`  — true iff 404 idempotent skip.
+ * - `custom_field`             — server-returned full definition. Present on
+ *                                live success; absent on `dry_run` AND on the
+ *                                404-skip path (no follow-up GET — defeats the
+ *                                idempotent skip).
+ * - `would`                    — present on `dry_run`.
+ * - `line_index`               — present in `--stdin` batch mode.
+ */
+export type CustomFieldsRestoreData = {
+  uuid: string;
+  previous_state: null;
+  current_state: 'active';
+  already_in_target_state: boolean;
+  custom_field?: CustomField;
+  would?: Would;
+  line_index?: number;
 };
