@@ -56,6 +56,11 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 - `freelo config unset <key>` — Remove a configuration key from the user conf store. Read-only keys cannot be unset via 'config'; use 'freelo auth logout' for credentials.
 - `freelo config use <profile>` — Switch the active profile. The profile must already exist (created via 'freelo auth login'). No network call is made — use auth whoami to verify credentials afterward.
 
+### custom-fields
+
+- `freelo custom-fields list` — List all custom-field definitions configured on a project, plus the caller's commander status (true = can call create / rename / delete / restore on this project). Soft-deleted fields are excluded by Freelo. Read-only.
+- `freelo custom-fields types` — List the catalog of custom-field type definitions (text, number, enum). Each type uuid is the value to pass as `type` when creating a custom field on a project (R41 — future slice). Read-only.
+
 ### files
 
 - `freelo files download <uuid>` — Download a file by UUID. Streams the binary body to a local path (atomic write) or to stdout. Refuses to overwrite an existing destination unless --force is set.
