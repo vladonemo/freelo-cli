@@ -5786,6 +5786,496 @@ export const customFieldsEnumHandlers = {
 };
 
 /**
+ * MSW handler factories for the R44 (`notes`) endpoint family (spec 0058).
+ *
+ * Endpoints:
+ *   - `POST   /project/{project_id}/note`  (create)
+ *   - `GET    /note/{note_id}`             (show)
+ *   - `POST   /note/{note_id}`             (edit — verb is POST per yaml :4625)
+ *   - `DELETE /note/{note_id}`             (delete — quirk: returns Note body)
+ */
+export const notesHandlers = {
+  /* ---------------------------------------------------------------------
+   *  POST /project/{project_id}/note (create)
+   * ------------------------------------------------------------------- */
+
+  createOk(projectId: number, note?: Record<string, unknown>): RequestHandler {
+    const body = note ?? {
+      id: 1234,
+      name: 'Meeting minutes',
+      content: 'Body',
+      date_add: '2026-05-10T00:00:00Z',
+      date_edited_at: '2026-05-10T00:00:00Z',
+      author: { id: 5, fullname: 'Jane Doe' },
+      project: { id: projectId, name: 'Project X' },
+    };
+    return http.post(`${API_BASE}/project/${projectId}/note`, () => HttpResponse.json(body));
+  },
+
+  createOkWhenBody(
+    projectId: number,
+    predicate: (body: unknown, request: Request) => boolean,
+    response?: Record<string, unknown>,
+  ): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/note`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json(
+        response ?? {
+          id: 1234,
+          name: 'From-predicate',
+          content: 'Body',
+          date_add: '2026-05-10T00:00:00Z',
+          date_edited_at: '2026-05-10T00:00:00Z',
+        },
+      );
+    });
+  },
+
+  createBadRequest(projectId: number, message = 'Invalid request body.'): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/note`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  createUnauthorized(projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/note`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  createForbidden(projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/note`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  createNotFound(projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/note`, () =>
+      HttpResponse.json({ errors: ['Project not found.'] }, { status: 404 }),
+    );
+  },
+
+  createServerError(projectId: number, status = 500): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/note`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  createRateLimited(projectId: number): RequestHandler {
+    return http.post(
+      `${API_BASE}/project/${projectId}/note`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  createNetworkError(projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/note`, () => HttpResponse.error());
+  },
+
+  /* ---------------------------------------------------------------------
+   *  GET /note/{note_id} (show)
+   * ------------------------------------------------------------------- */
+
+  showOk(note?: Record<string, unknown>): RequestHandler {
+    const body = note ?? {
+      id: 1234,
+      name: 'Meeting minutes',
+      content: 'Detailed body',
+      date_add: '2026-05-10T00:00:00Z',
+      date_edited_at: '2026-05-10T00:00:00Z',
+      author: { id: 5, fullname: 'Jane Doe' },
+      project: { id: 100, name: 'Project X' },
+    };
+    return http.get(`${API_BASE}/note/:noteId`, () => HttpResponse.json(body));
+  },
+
+  showUnauthorized(): RequestHandler {
+    return http.get(`${API_BASE}/note/:noteId`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  showForbidden(): RequestHandler {
+    return http.get(`${API_BASE}/note/:noteId`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  showNotFound(): RequestHandler {
+    return http.get(`${API_BASE}/note/:noteId`, () =>
+      HttpResponse.json({ errors: ['Note not found.'] }, { status: 404 }),
+    );
+  },
+
+  showServerError(status = 500): RequestHandler {
+    return http.get(`${API_BASE}/note/:noteId`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  showRateLimited(): RequestHandler {
+    return http.get(
+      `${API_BASE}/note/:noteId`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  showNetworkError(): RequestHandler {
+    return http.get(`${API_BASE}/note/:noteId`, () => HttpResponse.error());
+  },
+
+  /* ---------------------------------------------------------------------
+   *  POST /note/{note_id} (edit)
+   * ------------------------------------------------------------------- */
+
+  editOk(note?: Record<string, unknown>): RequestHandler {
+    const body = note ?? {
+      id: 1234,
+      name: 'Edited title',
+      content: 'Edited body',
+      date_add: '2026-05-10T00:00:00Z',
+      date_edited_at: '2026-05-10T01:00:00Z',
+    };
+    return http.post(`${API_BASE}/note/:noteId`, () => HttpResponse.json(body));
+  },
+
+  editOkWhenBody(
+    predicate: (body: unknown, request: Request) => boolean,
+    response?: Record<string, unknown>,
+  ): RequestHandler {
+    return http.post(`${API_BASE}/note/:noteId`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json(
+        response ?? {
+          id: 1234,
+          name: 'Edited title',
+          content: 'Edited body',
+          date_add: '2026-05-10T00:00:00Z',
+          date_edited_at: '2026-05-10T01:00:00Z',
+        },
+      );
+    });
+  },
+
+  editBadRequest(message = 'Invalid edit body.'): RequestHandler {
+    return http.post(`${API_BASE}/note/:noteId`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  editForbidden(): RequestHandler {
+    return http.post(`${API_BASE}/note/:noteId`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  editNotFound(): RequestHandler {
+    return http.post(`${API_BASE}/note/:noteId`, () =>
+      HttpResponse.json({ errors: ['Note not found.'] }, { status: 404 }),
+    );
+  },
+
+  editServerError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/note/:noteId`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  editRateLimited(): RequestHandler {
+    return http.post(
+      `${API_BASE}/note/:noteId`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  editNetworkError(): RequestHandler {
+    return http.post(`${API_BASE}/note/:noteId`, () => HttpResponse.error());
+  },
+
+  /* ---------------------------------------------------------------------
+   *  DELETE /note/{note_id} (quirk: returns Note body, not SuccessResponse)
+   * ------------------------------------------------------------------- */
+
+  deleteOk(note?: Record<string, unknown>): RequestHandler {
+    const body = note ?? {
+      id: 1234,
+      name: 'Meeting minutes',
+      content: 'Body before delete',
+      date_add: '2026-05-10T00:00:00Z',
+      date_edited_at: '2026-05-10T01:00:00Z',
+    };
+    return http.delete(`${API_BASE}/note/:noteId`, () => HttpResponse.json(body));
+  },
+
+  deleteForbidden(): RequestHandler {
+    return http.delete(`${API_BASE}/note/:noteId`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  deleteNotFound(): RequestHandler {
+    return http.delete(`${API_BASE}/note/:noteId`, () =>
+      HttpResponse.json({ errors: ['Note not found.'] }, { status: 404 }),
+    );
+  },
+
+  deleteUnauthorized(): RequestHandler {
+    return http.delete(`${API_BASE}/note/:noteId`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  deleteServerError(status = 500): RequestHandler {
+    return http.delete(`${API_BASE}/note/:noteId`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  deleteRateLimited(): RequestHandler {
+    return http.delete(
+      `${API_BASE}/note/:noteId`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  deleteNetworkError(): RequestHandler {
+    return http.delete(`${API_BASE}/note/:noteId`, () => HttpResponse.error());
+  },
+
+  /**
+   * Per-id status dispatcher for the multi-id batch test (one mid-stream
+   * 500 alongside other 200s). Mirrors the pattern used by
+   * `customFieldsCrudHandlers.deleteByIdMatrix`.
+   */
+  deleteByIdMatrix(matrix: Record<number, 200 | 401 | 403 | 404 | 500>): RequestHandler {
+    return http.delete(`${API_BASE}/note/:noteId`, ({ params }) => {
+      const idRaw = (params as Record<string, string>)['noteId'];
+      const idNum = Number(idRaw);
+      const status = matrix[idNum];
+      if (status === undefined || status === 200) {
+        return HttpResponse.json({ id: idNum, name: `Note ${idNum}`, content: 'x' });
+      }
+      return HttpResponse.json({ errors: [`Status ${status} for note ${idNum}`] }, { status });
+    });
+  },
+};
+
+/**
+ * MSW handler factories for the R44 (`pins`) endpoint family (spec 0058).
+ *
+ * Endpoints:
+ *   - `GET    /project/{project_id}/pinned-items`  (list)
+ *   - `POST   /project/{project_id}/pinned-items`  (add)
+ *   - `DELETE /pinned-item/{pinned_item_id}`       (remove)
+ */
+export const pinsHandlers = {
+  /* ---------------------------------------------------------------------
+   *  GET /project/{project_id}/pinned-items (list)
+   * ------------------------------------------------------------------- */
+
+  listOk(projectId: number, items?: Array<Record<string, unknown>>): RequestHandler {
+    const body = items ?? [
+      { id: 1, link: 'https://example.com/spec', title: 'Spec doc' },
+      { id: 2, link: 'https://example.com/wiki', title: 'Wiki' },
+    ];
+    return http.get(`${API_BASE}/project/${projectId}/pinned-items`, () => HttpResponse.json(body));
+  },
+
+  listEmpty(projectId: number): RequestHandler {
+    return http.get(`${API_BASE}/project/${projectId}/pinned-items`, () => HttpResponse.json([]));
+  },
+
+  listUnauthorized(projectId: number): RequestHandler {
+    return http.get(`${API_BASE}/project/${projectId}/pinned-items`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  listForbidden(projectId: number): RequestHandler {
+    return http.get(`${API_BASE}/project/${projectId}/pinned-items`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  listNotFound(projectId: number): RequestHandler {
+    return http.get(`${API_BASE}/project/${projectId}/pinned-items`, () =>
+      HttpResponse.json({ errors: ['Project not found.'] }, { status: 404 }),
+    );
+  },
+
+  listServerError(projectId: number, status = 500): RequestHandler {
+    return http.get(`${API_BASE}/project/${projectId}/pinned-items`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  listRateLimited(projectId: number): RequestHandler {
+    return http.get(
+      `${API_BASE}/project/${projectId}/pinned-items`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /* ---------------------------------------------------------------------
+   *  POST /project/{project_id}/pinned-items (add)
+   * ------------------------------------------------------------------- */
+
+  addOk(projectId: number, pin?: Record<string, unknown>): RequestHandler {
+    const body = pin ?? { id: 99, link: 'https://example.com/spec', title: 'Spec doc' };
+    return http.post(`${API_BASE}/project/${projectId}/pinned-items`, () =>
+      HttpResponse.json(body),
+    );
+  },
+
+  addOkWhenBody(
+    projectId: number,
+    predicate: (body: unknown, request: Request) => boolean,
+    response?: Record<string, unknown>,
+  ): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/pinned-items`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json(
+        response ?? { id: 99, link: 'https://example.com/spec', title: 'Spec doc' },
+      );
+    });
+  },
+
+  addBadRequest(projectId: number, message = 'Invalid pin body.'): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/pinned-items`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  addForbidden(projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/pinned-items`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  addNotFound(projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/pinned-items`, () =>
+      HttpResponse.json({ errors: ['Project not found.'] }, { status: 404 }),
+    );
+  },
+
+  addServerError(projectId: number, status = 500): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/pinned-items`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  addRateLimited(projectId: number): RequestHandler {
+    return http.post(
+      `${API_BASE}/project/${projectId}/pinned-items`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  addNetworkError(projectId: number): RequestHandler {
+    return http.post(`${API_BASE}/project/${projectId}/pinned-items`, () => HttpResponse.error());
+  },
+
+  /* ---------------------------------------------------------------------
+   *  DELETE /pinned-item/{pinned_item_id} (remove)
+   * ------------------------------------------------------------------- */
+
+  removeOk(): RequestHandler {
+    return http.delete(`${API_BASE}/pinned-item/:pinId`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  removeUnauthorized(): RequestHandler {
+    return http.delete(`${API_BASE}/pinned-item/:pinId`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  removeForbidden(): RequestHandler {
+    return http.delete(`${API_BASE}/pinned-item/:pinId`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  removeNotFound(): RequestHandler {
+    return http.delete(`${API_BASE}/pinned-item/:pinId`, () =>
+      HttpResponse.json({ errors: ['Pinned item not found.'] }, { status: 404 }),
+    );
+  },
+
+  removeServerError(status = 500): RequestHandler {
+    return http.delete(`${API_BASE}/pinned-item/:pinId`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  removeRateLimited(): RequestHandler {
+    return http.delete(
+      `${API_BASE}/pinned-item/:pinId`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  removeByIdMatrix(matrix: Record<number, 200 | 401 | 403 | 404 | 500>): RequestHandler {
+    return http.delete(`${API_BASE}/pinned-item/:pinId`, ({ params }) => {
+      const idRaw = (params as Record<string, string>)['pinId'];
+      const idNum = Number(idRaw);
+      const status = matrix[idNum];
+      if (status === undefined || status === 200) {
+        return HttpResponse.json({ result: 'success' });
+      }
+      return HttpResponse.json({ errors: [`Status ${status} for pin ${idNum}`] }, { status });
+    });
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
