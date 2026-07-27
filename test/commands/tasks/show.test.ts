@@ -790,3 +790,32 @@ describe('freelo tasks show — subtasks-call error paths', () => {
     expect(env.error.http_status).toBe(500);
   });
 });
+
+// ---------------------------------------------------------------------------
+//  Regression — issue #105 / spec 0059: comments[].files[] without `id`
+//
+//  `TaskDetailSchema` backs `tasks show` as well as `tasks edit` / `tasks move`,
+//  so the same wire shape that broke the edit lookup broke `show` too.
+//  Fixture is synthetic (spec 0059 §9).
+// ---------------------------------------------------------------------------
+
+describe('freelo tasks show — comments[].files[] without `id` (issue #105)', () => {
+  it('renders a task whose comment attachment carries no `id` — exit 0', async () => {
+    const detail = await loadFixture<Record<string, unknown>>(
+      'show-task-9020-comment-file-no-id.json',
+    );
+    server.use(tasksShowHandlers.detailOk(9020, detail));
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, ['tasks', 'show', '9020', '--output', 'json']);
+
+    expect(exitCode).toBe(0);
+    const env = parseFirstJson(stdout) as {
+      data: { task: { comments: Array<{ files: Array<Record<string, unknown>> }> } };
+    };
+    const files = env.data.task.comments[0]!.files;
+    expect(files[0]).toMatchObject({ uuid: 'file-uuid-aaaa-0001' });
+    expect('id' in files[0]!).toBe(false);
+    expect(files[1]).toMatchObject({ id: 66001 });
+  });
+});

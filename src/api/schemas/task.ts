@@ -263,10 +263,31 @@ const CurrencySchema = z.object({
   currency: z.enum(['CZK', 'EUR', 'USD']),
 });
 
+/**
+ * File attachment embedded in a comment — `TaskDetail.comments[].files[]` (:289)
+ * and `TaskComment.files[]` (:422).
+ *
+ * **No field is required** (spec 0059, issue #105). Freelo's embedded file DTO
+ * carries no numeric `id`; when this schema demanded one, every task whose first
+ * comment had an attachment failed `GET /task/{id}` outright:
+ *
+ *     Unexpected response shape from GET /task/18579501:
+ *     [{ code: "invalid_type", expected: "number", received: "undefined",
+ *        path: ["comments", 0, "files", 0, "id"], message: "Required" }]
+ *
+ * `uuid` is relaxed with it (decision 3): the two sibling file-ref schemas written
+ * later — `FileFullRefSchema` (`comment.ts:62-66`) and `NoteFileRefSchema`
+ * (`note.ts:38-42`) — both model this position with `uuid` optional and no `id`,
+ * and the module convention at :10-12 says non-universal fields are
+ * `.nullable().optional()`. This schema was the outlier.
+ *
+ * Fields still validate *when present*; `.passthrough()` carries the rest through
+ * to the envelope.
+ */
 const FileBasicSchema = z
   .object({
-    id: z.number().int(),
-    uuid: z.string(),
+    id: z.number().int().nullable().optional(),
+    uuid: z.string().nullable().optional(),
     filename: z.string().nullable().optional(),
     size: z.number().int().nullable().optional(),
   })
