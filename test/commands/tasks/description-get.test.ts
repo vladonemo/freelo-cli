@@ -437,3 +437,43 @@ describe('freelo tasks description get — introspect', () => {
     expect(entry?.destructive).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+//  Regression — issue #105 / spec 0059: files[] without `id`
+//
+//  `TaskCommentSchema.files[]` (task.ts:422) shares `FileBasicSchema` with
+//  `TaskDetail.comments[].files[]`, so this endpoint carried the same defect
+//  independently of `TaskDetailSchema`. Body is synthetic (spec 0059 §9) and
+//  inlined to match this file's `FILLED_DESCRIPTION` convention.
+// ---------------------------------------------------------------------------
+
+const DESCRIPTION_FILE_NO_ID = {
+  id: 55502,
+  content: 'placeholder description content',
+  date_add: '2026-01-15T09:05:00Z',
+  files: [{ uuid: 'file-uuid-cccc-0003', filename: 'placeholder-spec.pdf', size: 10240 }],
+};
+
+describe('freelo tasks description get — files[] without `id` (issue #105)', () => {
+  it('accepts a description attachment carrying no `id` — exit 0', async () => {
+    server.use(tasksShowHandlers.descriptionOk(9012, DESCRIPTION_FILE_NO_ID));
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'tasks',
+      'description',
+      'get',
+      '9012',
+      '--output',
+      'json',
+    ]);
+
+    expect(exitCode).toBe(0);
+    const env = parseFirstJson(stdout) as {
+      data: { description: { files: Array<Record<string, unknown>> } };
+    };
+    const files = env.data.description.files;
+    expect(files[0]).toMatchObject({ uuid: 'file-uuid-cccc-0003' });
+    expect('id' in files[0]!).toBe(false);
+  });
+});

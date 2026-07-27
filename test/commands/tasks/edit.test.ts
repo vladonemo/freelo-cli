@@ -1011,6 +1011,94 @@ describe('freelo tasks edit — refresh-GET failure (decision 11)', () => {
 });
 
 // ---------------------------------------------------------------------------
+//  Regression — issue #105 / spec 0059: comments[].files[] without `id`
+//
+//  The live repro failed on the *lookup* GET (edit.ts:331), before any write:
+//
+//    Unexpected response shape from GET /task/18579501:
+//    [{ code: "invalid_type", expected: "number", received: "undefined",
+//       path: ["comments", 0, "files", 0, "id"], message: "Required" }]
+//
+//  Fixture is synthetic (spec 0059 §9) — the real captured body carried live
+//  client data. Only the JSON types and the load-bearing key set survive.
+// ---------------------------------------------------------------------------
+
+describe('freelo tasks edit — comments[].files[] without `id` (issue #105)', () => {
+  it('lookup GET returning a file with no `id` no longer aborts the edit — exit 0', async () => {
+    const detail = await loadFixture<Record<string, unknown>>(
+      'show-task-9020-comment-file-no-id.json',
+    );
+    let postCalled = false;
+    server.use(
+      tasksShowHandlers.detailOk(9020, detail),
+      http.post(`https://api.freelo.io/v1/task/9020`, () => {
+        postCalled = true;
+        return HttpResponse.json(detail);
+      }),
+    );
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'tasks',
+      'edit',
+      '9020',
+      '--name',
+      'Renamed',
+      '--output',
+      'json',
+    ]);
+
+    expect(exitCode).toBe(0);
+    // The write actually fired — before the fix we aborted on the lookup.
+    expect(postCalled).toBe(true);
+    const env = parseFirstJson(stdout) as {
+      data: {
+        task: { comments: Array<{ files: Array<Record<string, unknown>> }> } | null;
+        applied_changes: { edit: Record<string, unknown> };
+      };
+    };
+    expect(env.data.applied_changes.edit).toEqual({ name: 'Renamed' });
+
+    // The file round-trips: `uuid` survives, `id` is simply absent (not
+    // invented, not nulled into the payload).
+    const files = env.data.task!.comments[0]!.files;
+    expect(files[0]).toMatchObject({ uuid: 'file-uuid-aaaa-0001' });
+    expect('id' in files[0]!).toBe(false);
+    // Sibling entry proves a present `id` still validates and passes through.
+    expect(files[1]).toMatchObject({ id: 66001, uuid: 'file-uuid-bbbb-0002' });
+  });
+
+  it('still exits 4 when a genuinely required key is missing (relaxation is scoped)', async () => {
+    // `comments[].id` remains required — the fix widened files[], not comments[].
+    const detail = await loadFixture<Record<string, unknown>>(
+      'show-task-9020-comment-file-no-id.json',
+    );
+    const comments = detail['comments'] as Array<Record<string, unknown>>;
+    const broken = {
+      ...detail,
+      comments: [{ ...comments[0], id: undefined }],
+    };
+    server.use(tasksShowHandlers.detailOk(9020, broken));
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stderr, exitCode } = await runCli(run, [
+      'tasks',
+      'edit',
+      '9020',
+      '--name',
+      'Renamed',
+      '--output',
+      'json',
+    ]);
+
+    expect(exitCode).toBe(4);
+    const env = parseFirstJson(stderr) as { error: { code: string; message: string } };
+    expect(env.error.code).toBe('VALIDATION_ERROR');
+    expect(env.error.message).toMatch(/comments/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 //  Introspect — R10 leaf is registered with the right meta
 // ---------------------------------------------------------------------------
 
