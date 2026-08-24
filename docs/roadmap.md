@@ -1,5 +1,7 @@
 # Freelo CLI — Incremental delivery roadmap
 
+> **See also:** `docs/roadmap-migration-2026-08.md` — a delta roadmap for endpoints the API gained after this doc's original wave-based slicing was drafted (task checklist items, tasklist edit, comment/file delete, task-label tooling). Check there before assuming a gap listed below (e.g. R18.5) is still open.
+>
 > Source of truth: `docs/api/freelo-api.yaml` (108 operations, 17 resource tags).
 > This doc slices that surface into requirements a contributor can pick up one at a time. Each requirement is a **vertical slice**: args → authenticated HTTP → zod-validated response → enveloped renderer → exit code. No requirement leaves the user with a half-wired subsystem.
 >
@@ -334,7 +336,7 @@ Goal after this wave: the CLI replaces the Freelo web UI for 80% of individual-c
 
 ### R18.5 — `freelo comments delete` (queued)
 
-**Status:** **Blocked** on Freelo API confirmation.
+**Status:** **Unblocked as of the 2026-08-24 API refresh** — `DELETE /comment/{comment_id}` is now documented (15-minute deletion window, author-only ACL). Re-specced as `docs/roadmap-migration-2026-08.md` M01; that slice supersedes the "target CLI shape" below with load-bearing behavior notes from the live spec. Previously: Blocked on Freelo API confirmation.
 **Endpoints:** **Not in `docs/api/freelo-api.yaml` as of 2026-04-28.** The Comments tag declares exactly three operations (R16 list, R17 add, R18 edit); no `delete:` key on `/comment/{comment_id}`, no other comment-delete operationId.
 **First action:** invoke `freelo-api-specialist` to probe a live test account and confirm the real shape (could be `DELETE /comment/{id}`, `POST /comment/{id}/delete`, soft-delete via edit with a delete-flag, or genuinely unsupported in v1). Until that probe lands, **no command shipped**.
 **CLI (target shape, post-confirmation):** `freelo comments delete <id>... [--yes] [--dry-run]` / `--ids` / `--stdin`. Reuses `src/lib/confirm.ts` (R13) and `src/lib/idempotency.ts` (R11) — destructive op, `already_in_target_state` on a re-delete.

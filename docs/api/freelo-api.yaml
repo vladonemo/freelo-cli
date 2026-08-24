@@ -22,8 +22,13 @@ info:
     You can find the API key in [settings](https://app.freelo.io/profil/nastaveni).
     
     ## Rate Limiting
-    The API enforces per-user rate limits that may change over time as our infrastructure capacity grows.
-    Do not hardcode rate limits on the client side. Instead, handle `429 Too Many Requests` responses by backing off and retrying after a delay.
+    The API enforces per-user rate limits. Because these limits may change over time, clients should read them from the response headers rather than hardcoding values.
+
+    At a minimum, clients must honor the `Retry-After` header, which alone is sufficient for correct use of the API. When a client exceeds the limit, the API responds with `429 Too Many Requests` and a `Retry-After: <seconds>` header indicating the number of seconds to wait before the next request is accepted. Clients should wait at least that long before retrying and apply exponential backoff if 429 responses persist.
+
+    The IETF `RateLimit` headers (structured fields) are informational and do not constitute a service level agreement. The server may reject a request even when remaining quota is advertised, and clients should not depend on these headers being available indefinitely. `Retry-After` and exponential backoff should therefore be treated as the authoritative fallback. When present, the headers may be used to pace requests and reduce the likelihood of 429 responses:
+    - `RateLimit-Policy: "default";q=60;w=20` — the active policy, permitting `q` requests per `w` seconds.
+    - `RateLimit: "default";r=42;t=5` — the current state, with `r` requests remaining and `t` seconds until the full quota is restored.
     
     ## Currencies Format
     All currency amounts must be strings with exactly 2 decimal places multiplied by 100.
@@ -40,6 +45,20 @@ info:
     
     ## Ordering
     Use `order_by` and `order` (asc/desc) parameters where supported.
+
+    ## Timestamp Format
+    All response and request fields with `format: date-time` are returned and accepted as
+    **naive ISO8601 strings without a timezone designator** — for example `2026-04-24T11:12:38`.
+    Values represent **Europe/Prague local time** (CET / CEST, observing DST). This is **not
+    RFC3339-compliant**, so strict parsers (e.g. Go's `time.Parse(time.RFC3339, ...)`) will fail.
+
+    Recommended client handling:
+
+    1. Parse with a permissive layout (Go: `"2006-01-02T15:04:05"`, Python: `datetime.fromisoformat`).
+    2. Attach the `Europe/Prague` location explicitly (e.g. Go: `time.LoadLocation("Europe/Prague")`).
+    3. Convert to UTC or the desired zone afterwards.
+
+    Send request `date-time` values in the same naive format and timezone.
 
   version: "1.0.0"
   contact:
@@ -122,8 +141,26 @@ paths:
                         type: integer
                         description: ID of the authenticated user
                         example: 12345
+                      email:
+                        type: string
+                        format: email
+                        description: Email address of the authenticated user
+                        example: jane.doe@example.com
+                      fullname:
+                        type: string
+                        description: Full name of the authenticated user (first name + last name, or email if name is empty).
+                        example: Jane Doe
+                      mention_key:
+                        type: string
+                        description: |
+                          Normalized form of the authenticated user's `fullname` (whitespace stripped, diacritics removed) used in comments as the visible text after `@` inside a mention span. Build a mention with:
+                          `<span data-freelo-mention="1" data-freelo-user-id="{id}">@{mention_key}</span>`
+                        example: JaneDoe
                     required:
                       - id
+                      - email
+                      - fullname
+                      - mention_key
                 required:
                   - result
                   - user
@@ -247,7 +284,7 @@ paths:
         - Narrow search by state (active / archived / template) combined with tag and owner filters
 
         **Behavior notes:**
-        - Pagination is **required** for large accounts — use `p` parameter; page size is fixed server-side.
+        - Pagination is **required** for large accounts — use `p` (or its alias `page`); page size is fixed server-side.
         - `states_ids[]` accepts any combination of `1=active`, `2=archived`, `3=template`. When omitted, the server applies a default (typically active only) — always pass it explicitly if you need archived/templates.
         - `tags[]` matches any of the specified tags; pass the literal string `"without"` to get projects **without** any tag (this is a magic value, not a real tag name).
         - `users_ids[]` filters by project **owner** only, not by workers.
@@ -299,6 +336,7 @@ paths:
             type: string
             format: date
         - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageAliasParam'
       responses:
         '200':
           description: Successful response
@@ -336,6 +374,7 @@ paths:
       operationId: getInvitedProjects
       parameters:
         - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageAliasParam'
       responses:
         '200':
           description: Successful response
@@ -374,6 +413,7 @@ paths:
       operationId: getArchivedProjects
       parameters:
         - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageAliasParam'
       responses:
         '200':
           description: Successful response
@@ -446,6 +486,7 @@ paths:
             type: string
             format: date
         - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageAliasParam'
       responses:
         '200':
           description: Successful response
@@ -509,6 +550,7 @@ paths:
             enum: [asc, desc]
             default: desc
         - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageAliasParam'
       responses:
         '200':
           description: Successful response
@@ -600,6 +642,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/ProjectIdParam'
         - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageAliasParam'
       responses:
         '200':
           description: Successful response
@@ -616,7 +659,7 @@ paths:
                           workers:
                             type: array
                             items:
-                              $ref: '#/components/schemas/UserBasic'
+                              $ref: '#/components/schemas/UserWithEmail'
 
   /project/{project_id}/archive:
     post:
@@ -843,7 +886,7 @@ paths:
         - Showing the caller which labels already exist so they don't create a duplicate
 
         **Behavior notes:**
-        - Response field is `label` (singular) — it is an array. The tag's `tag` entity property is exposed as `name` in API shape (the TagNameKeyReplacer maps it).
+        - Response field is `labels` — an array. The tag's `tag` entity property is exposed as `name` in API shape (the TagNameKeyReplacer maps it).
       operationId: findAvailableProjectLabels
       responses:
         '200':
@@ -853,7 +896,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  label:
+                  labels:
                     type: array
                     items:
                       $ref: '#/components/schemas/ProjectLabel'
@@ -1169,6 +1212,13 @@ paths:
                 budget:
                   type: string
                   description: Currency amount (2 decimal places, no separator)
+                priority:
+                  type: integer
+                  minimum: 1
+                  description: |
+                    Position (order) of the tasklist within the project, 1 = first. Tasklists currently at this position or below shift down by 1 to make room. Values past the end of the list are clamped to `last + 1`. Omit to append at the end.
+
+                    Note: despite the name, this is positional ordering — not to be confused with task `priority_enum` (low/medium/high importance).
       responses:
         '200':
           description: Tasklist created
@@ -1177,13 +1227,88 @@ paths:
               schema:
                 $ref: '#/components/schemas/TasklistWithBudget'
 
+  /tasklist/{tasklist_id}/edit:
+    post:
+      tags:
+        - Tasklists
+      summary: Edit tasklist
+      description: |
+        Updates one or more fields of an existing tasklist. Every field is optional — only the keys present in the request body are applied.
+
+        **Use cases:**
+        - Renaming a tasklist, adjusting its budget / time fund
+        - Reordering tasklists within a project (`priority` field)
+        - Managing followers (`tracking_users_ids`) and the default worker
+
+        **Behavior notes:**
+        - `budget`: send `null` or `0` to clear it.
+        - `time_budget_minutes`: send `null` to clear; values must be >= 0.
+        - `priority`: new position (order) of the tasklist within the project, 1 = first. Other tasklists in the moved-over range shift by ±1 to fill the gap. Values past the end are clamped to the last position. Despite the name, this is positional ordering — not task importance (`priority_enum`).
+
+          **Best-effort semantics:** the priority renumber runs outside the transaction that commits `name`, `budget`, `time_budget_minutes`, `tracking_users_ids` and `worker_id`. A failure of the priority renumber does NOT roll back the other fields. The response contains a `priorityApplied` flag — if `false`, the rest of the edit succeeded but the priority change did not; the client may retry the priority update separately.
+        - `tracking_users_ids`: send `[]` to clear all followers. IDs of users without access to the tasklist are silently filtered out. Combine with `should_change_existing_tasks: true` to also propagate the change to every existing task.
+        - `worker_id`: send `null` to clear the default worker.
+      operationId: editTasklist
+      parameters:
+        - name: tasklist_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                budget:
+                  type: string
+                  nullable: true
+                  description: Integer amount in minor currency units, encoded as a string (e.g. "100000" for 1000.00). `null` or `"0"` clears the budget. Decimal strings ("100.50") are rejected with HTTP 400.
+                time_budget_minutes:
+                  type: integer
+                  nullable: true
+                  minimum: 0
+                priority:
+                  type: integer
+                  minimum: 1
+                tracking_users_ids:
+                  type: array
+                  items:
+                    type: integer
+                should_change_existing_tasks:
+                  type: boolean
+                  default: false
+                worker_id:
+                  type: integer
+                  nullable: true
+                  minimum: 1
+      responses:
+        '200':
+          description: Tasklist updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - priorityApplied
+                properties:
+                  priorityApplied:
+                    type: boolean
+                    description: |
+                      `true` when the priority renumber finished (or was not requested). `false` when other fields committed but the priority renumber failed (the client may retry the priority field alone).
+
   /all-tasklists:
     get:
       tags:
         - Tasklists
       summary: Get all tasklists (across projects)
       description: |
-        Paginated list of tasklists visible to the caller, across all accessible projects. Can be filtered to a subset of projects via `projects_ids[]`.
+        Paginated list of tasklists visible to the caller, across all accessible projects. Can be filtered to a subset of projects via `projects_ids[]` and to a subset of states via `states[]`.
 
         **Use cases:**
         - Cross-project reporting (e.g. "all tasklists touching client X")
@@ -1192,6 +1317,7 @@ paths:
 
         **Behavior notes:**
         - ACL is applied — tasklists the caller can't see are filtered out, even if `projects_ids[]` includes their project.
+        - `states[]` restricts the returned tasklist states. When omitted (or containing no valid value) both `active` and `finished` are returned, preserving the original behavior.
         - Default order: `date_add asc`.
       operationId: getAllTasklists
       parameters:
@@ -1201,6 +1327,14 @@ paths:
             type: array
             items:
               type: integer
+        - name: states[]
+          in: query
+          description: Restrict to tasklists in the given states. Defaults to both when omitted.
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [active, finished]
         - name: order_by
           in: query
           schema:
@@ -1214,6 +1348,7 @@ paths:
             enum: [asc, desc]
             default: asc
         - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageAliasParam'
       responses:
         '200':
           description: Successful response
@@ -1259,7 +1394,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/UserBasic'
+                  $ref: '#/components/schemas/UserWithEmail'
 
   /tasklist/{tasklist_id}:
     get:
@@ -1267,15 +1402,17 @@ paths:
         - Tasklists
       summary: Get tasklist detail
       description: |
-        Returns metadata for a single tasklist — name, budget, parent project reference, and the latest `date_edited` / `date_add` audit timestamps.
+        Returns metadata for a single tasklist — name, budget, parent project reference, the default worker (`worker_id`), and the latest `date_edited` / `date_add` audit timestamps.
 
         **Use cases:**
         - Opening a tasklist detail view
         - Re-fetching metadata after an edit to confirm the state
         - Reading budget for reporting purposes
+        - Reading the default worker set via `POST /tasklist/{tasklist_id}/edit` (`worker_id`)
 
         **Behavior notes:**
         - Performs both a tasklist fetch (ACL-checked) and a project fetch (ACL-checked). If the caller has no access to either, returns 404.
+        - `worker_id` is `null` when no default worker is set, or when the configured default worker is no longer among the tasklist's assignable workers (project membership / tasklist ACL).
       operationId: getTasklist
       parameters:
         - $ref: '#/components/parameters/TasklistIdParam'
@@ -1380,26 +1517,20 @@ paths:
         - $ref: '#/components/parameters/TasklistIdParam'
         - name: order_by
           in: query
-          description: |
-            Sort key. `priority` here means the **tasklist's manual / drag-and-drop board order** — the
-            order tasks appear in on the Freelo web board — and **not** the L/M/H `priority_enum` field
-            that `POST /task/{task_id}` accepts. The two are unrelated despite the shared name.
-
-            Verified live 2026-08-24 against a dedicated test account (freelo-cli issue #108, spec 0060):
-            omitting `order_by` and passing `order_by=priority` returned byte-identical order; dragging a
-            task to the top of the board in the web UI moved it to index 0 in both responses;
-            `order_by=date_add` returned a distinct order. The documented `default: priority` below is
-            therefore accurate as of that date.
-
-            Note that no response field exposes this ordering — `TaskSummary` carries no position/priority
-            key — so board order can only be *requested*, never reconstructed client-side.
           schema:
             type: string
-            enum: [priority, name, date_add, date_edited_at]
+            enum: [priority, name, date_add, date_edited_at, due_date]
             default: priority
+          description: >-
+            `priority` is the tasklist's manual/drag-and-drop board order —
+            NOT the `l`/`m`/`h` task-priority field that shares the name
+            (live-verified 2026-08-24 via a drag-reorder round-trip against a
+            test account; see freelo-cli issue #108 and
+            `docs/decisions/2026-08-24-1759-fix-tasklist-task-order-5-yaml-annotate-not-correct.md`).
+            When `due_date`, tasks without a due date are always last;
+            all-day tasks sort at the start of their day (00:00).
         - name: order
           in: query
-          description: Sort direction applied to `order_by`.
           schema:
             type: string
             enum: [asc, desc]
@@ -1461,17 +1592,25 @@ paths:
         - Cross-project views (e.g. "all open tasks with label blocker")
 
         **Behavior notes (non-obvious):**
-        - `search_query` is a fulltext match on the task name through Elasticsearch — it prefilters the task set before other filters are applied; supplying only `search_query` without any `projects_ids[]` restricts across all visible projects.
+        - `search_query` is a fulltext match on the **task name only** (via Elasticsearch) — it does **not** search task descriptions, comments or attached files. A term that appears only in a description/comment will not match here; use `POST /search` for full-content search.
+        - `search_query` matches **top-level tasks only** — smart subtasks and checklist items (task-checks) are excluded from the results. Use `POST /search` with `entity_type: "subtask"` / `"taskcheck"` to reach those.
+        - `search_query` prefilters the task set before other filters are applied; supplying only `search_query` without any `projects_ids[]` restricts across all visible projects.
         - `with_label` is a single-value legacy alias for `with_labels[]` — when both are sent, `with_label` is merged into the array (no preemption). `with_label` is deprecated; prefer `with_labels[]`.
         - `state_id` filters by task state — omit to get tasks in all states the caller can see (typically active + finished; depends on ACL).
         - `no_due_date=true` returns only tasks without a due date; combining with `due_date_range` is effectively contradictory and the range is ignored.
         - `finished_overdue=true` filters for tasks finished **after** their due date — a reporting lens for delivery SLAs.
         - `worker_id` filters by assignee only (not by tracking users).
+        - `my_priorities=1` returns only tasks the authenticated user has added to their priorities.
+        - `priority_enum` filters by task priority level — `l` (low), `m` (medium) or `h` (high); omit to return tasks of any priority.
       operationId: getAllTasks
       parameters:
         - name: search_query
           in: query
-          description: Fulltext search query for the task name
+          description: >-
+            Fulltext search query matched against the **task name only** (not
+            descriptions, comments or files) and restricted to **top-level
+            tasks** (subtasks and checklist items are excluded). For
+            full-content or subtask/checklist search use `POST /search`.
           schema:
             type: string
         - name: state_id
@@ -1497,8 +1636,12 @@ paths:
           in: query
           schema:
             type: string
-            enum: [priority, name, date_add, date_edited_at]
+            enum: [priority, name, date_add, date_edited_at, due_date]
             default: date_add
+          description: >-
+            When `due_date`, tasks without a due date are always last;
+            all-day tasks sort at the start of their day (00:00). Results are
+            tie-broken by task id for stable pagination.
         - name: order
           in: query
           schema:
@@ -1525,10 +1668,14 @@ paths:
             type: string
         - name: no_due_date
           in: query
-          description: Only tasks with no due date
+          description: >-
+            Only tasks with no due date. Pass `1` to enable, `0` to disable —
+            string values like `true`/`false` are not accepted and silently
+            fall back to the default.
           schema:
-            type: boolean
-            default: false
+            type: integer
+            enum: [0, 1]
+            default: 0
         - name: due_date_range[date_from]
           in: query
           description: Filter tasks with due date on or after this date
@@ -1543,10 +1690,14 @@ paths:
             format: date
         - name: finished_overdue
           in: query
-          description: Only tasks finished after due date
+          description: >-
+            Only tasks finished after due date. Pass `1` to enable, `0` to
+            disable — string values like `true`/`false` are not accepted and
+            silently fall back to the default.
           schema:
-            type: boolean
-            default: false
+            type: integer
+            enum: [0, 1]
+            default: 0
         - name: finished_date_range[date_from]
           in: query
           description: Filter tasks finished on or after this date
@@ -1564,7 +1715,27 @@ paths:
           description: Filter by worker ID
           schema:
             type: integer
+        - name: my_priorities
+          in: query
+          description: >-
+            Only tasks in the authenticated user's priorities ("my
+            priorities"). Pass `1` to enable, `0` to disable — string values
+            like `true`/`false` are not accepted and silently fall back to the
+            default.
+          schema:
+            type: integer
+            enum: [0, 1]
+            default: 0
+        - name: priority_enum
+          in: query
+          description: >-
+            Filter by task priority level: `l` (low), `m` (medium) or `h`
+            (high). Omit to return tasks of any priority.
+          schema:
+            type: string
+            enum: [l, m, h]
         - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageAliasParam'
       responses:
         '200':
           description: Successful response
@@ -1607,6 +1778,7 @@ paths:
           schema:
             type: string
         - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageAliasParam'
       responses:
         '200':
           description: Successful response
@@ -1633,7 +1805,18 @@ paths:
       description: |
         Returns relations for a list of tasks. Each item in the response contains the task ID
         and its relations (types: `blocked_by`, `blocks`, `related_to`, `duplicate_of`).
-        Tasks the caller cannot access are silently omitted from the response.
+
+        Tasks the caller cannot access (missing project ACL, insufficient plan, or the ID being
+        a multi-project child) are silently omitted from the response — the endpoint never
+        reports per-task 403/404. This mirrors the single-task GET which returns 404 for the
+        same cases.
+
+        Plan-gated types: `related_to` and `duplicate_of` require team features;
+        `blocked_by` / `blocks` additionally require business features. On lower plans the
+        corresponding items are simply missing from the per-task relation list.
+
+        Duplicate task_ids are deduplicated internally; the response contains at most one
+        entry per task.
       operationId: findTaskRelationsBulk
       requestBody:
         required: true
@@ -1691,9 +1874,23 @@ paths:
         - Spent minutes (`minutes`) and `cost.amount` are only included when the caller is **not** a project commander (commanders see account-wide billing elsewhere).
         - Labels include labels inherited from a multi-project parent.
         - `copied_from_task` references the origin task if the task was created from a template or as a multi-project copy.
+        - Inline `comments` can be sorted and limited via `comments_order` / `comments_limit`. Comments are first sorted by `date_add` in the requested direction, then the first `comments_limit` are kept — so `comments_order=desc&comments_limit=10` returns the 10 newest comments. When both params are omitted the full comment list is returned in `date_add asc` order (unchanged behavior).
       operationId: getTask
       parameters:
         - $ref: '#/components/parameters/TaskIdParam'
+        - name: comments_order
+          in: query
+          description: Sort direction for inline comments by date_add. Defaults to asc (oldest first).
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc
+        - name: comments_limit
+          in: query
+          description: Max number of inline comments to return after ordering. Omit for all comments; 0 returns none.
+          schema:
+            type: integer
+            minimum: 0
       responses:
         '200':
           description: Successful response
@@ -1708,12 +1905,13 @@ paths:
       description: |
         Partially updates a task. Only the fields listed below are editable through this endpoint — any other key in the body is **silently ignored** (the facade uses `array_intersect_key` against a fixed whitelist).
 
-        **Editable fields:** `name`, `worker`, `due_date`, `due_date_end`, `labels`, `priority_enum`, `tracking_users_ids`, `add_tracking_users_ids`, `remove_tracking_users_ids`.
+        **Editable fields:** `name`, `description`, `worker`, `due_date`, `due_date_end`, `labels`, `priority_enum`, `tracking_users_ids`, `add_tracking_users_ids`, `remove_tracking_users_ids`.
 
         **Use cases:**
         - Reassigning a task
         - Changing priority / due date
         - Renaming or relabeling from an integration
+        - Rewriting the task body without a second call to `POST /task/{task_id}/description`
         - Adjusting tracking users (add / remove / replace)
 
         **Behavior notes (non-obvious):**
@@ -1724,6 +1922,7 @@ paths:
           - `remove_tracking_users_ids` **removes** the given IDs from the current set.
           Mixing `tracking_users_ids` (replace) with add/remove in one call is accepted but the final state is determined by the facade's order of operations — keep it to one shape per call to be deterministic.
         - **Labels must reference existing labels or be fully-formed new label DTOs** — the behavior matches the task-labels add-to-task semantics.
+        - **`description` overwrites the whole description** (upsert, no append, no history) — identical semantics to `POST /task/{task_id}/description`. Omitting the key leaves the current description untouched; the task edit and the description update run in a single transaction.
         - The endpoint responds with the task's full detail (same shape as `GET /task/{id}`).
         - Note the HTTP method: `POST` is used for edits here (historical REST shape), not `PUT`/`PATCH`.
       operationId: editTask
@@ -1738,12 +1937,33 @@ paths:
               properties:
                 name:
                   type: string
+                description:
+                  type: object
+                  description:
+                    Task description as an object, identical to the
+                    POST /task/{task_id}/description request body. Files are
+                    downloaded from download_url, attached to the description,
+                    and the description file set is reconciled (files no longer
+                    present are archived).
+                  required:
+                    - content
+                  properties:
+                    content:
+                      type: string
+                    files:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/FileUpload'
                 due_date:
                   type: string
                   format: date-time
+                  description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+                  example: '2026-04-24T11:12:38'
                 due_date_end:
                   type: string
                   format: date-time
+                  description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+                  example: '2026-04-24T11:12:38'
                 worker:
                   type: integer
                 priority_enum:
@@ -1751,6 +1971,10 @@ paths:
                   enum: [l, m, h]
                   nullable: true
                   description: Allowed options are l, m, h. Set to null to remove priority.
+                labels:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/TaskLabelAddInput'
                 tracking_users_ids:
                   type: array
                   nullable: true
@@ -1767,6 +1991,14 @@ paths:
                   description: Remove tracking users by user ID.
                   items:
                     type: integer
+                notify_author:
+                  type: boolean
+                  default: false
+                  description: >-
+                    When true, the authenticated caller (the action author) is kept in the
+                    notification recipients even though they triggered the action. Useful for
+                    automations acting under your own token. Only takes effect if you are
+                    otherwise a subscriber/worker/tracking user of the target.
       responses:
         '200':
           description: Task updated
@@ -1818,6 +2050,21 @@ paths:
       operationId: activateTask
       parameters:
         - $ref: '#/components/parameters/TaskIdParam'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notify_author:
+                  type: boolean
+                  default: false
+                  description: >-
+                    When true, the authenticated caller (the action author) is kept in the
+                    notification recipients even though they triggered the action. Useful for
+                    automations acting under your own token. Only takes effect if you are
+                    otherwise a subscriber/worker/tracking user of the target.
       responses:
         '200':
           description: Successful response
@@ -1845,6 +2092,127 @@ paths:
       operationId: finishTask
       parameters:
         - $ref: '#/components/parameters/TaskIdParam'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notify_author:
+                  type: boolean
+                  default: false
+                  description: >-
+                    When true, the authenticated caller (the action author) is kept in the
+                    notification recipients even though they triggered the action. Useful for
+                    automations acting under your own token. Only takes effect if you are
+                    otherwise a subscriber/worker/tracking user of the target.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /taskcheck/{taskcheck_id}:
+    post:
+      tags:
+        - Tasks
+      summary: Edit a simple checklist item
+      description: |
+        Updates a simple checklist item (a `tasks_checks` row with no smart-task counterpart). Only `name` and `worker` are editable; sending `priority_enum`, `priority`, `due_date` or `due_date_end` returns 400. A smart taskcheck id (one whose checklist item has its own `tasks.id`) returns 404 — use `POST /task/{task_id}` for those.
+      operationId: editTaskcheck
+      parameters:
+        - $ref: '#/components/parameters/TaskcheckIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                worker:
+                  type: integer
+                  nullable: true
+                  description: User id of the worker to assign. Pass `null` to clear.
+                notify_author:
+                  type: boolean
+                  default: false
+                  description: >-
+                    When true, the authenticated caller (the action author) is kept in the
+                    notification recipients even though they triggered the action. Useful for
+                    automations acting under your own token. Only takes effect if you are
+                    otherwise a subscriber/worker/tracking user of the target.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+    delete:
+      tags:
+        - Tasks
+      summary: Delete a simple checklist item
+      description: |
+        Soft-deletes a simple checklist item (a `tasks_checks` row with no smart-task counterpart). A smart taskcheck id returns 404 — use `DELETE /task/{task_id}` for those.
+      operationId: deleteTaskcheck
+      parameters:
+        - $ref: '#/components/parameters/TaskcheckIdParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /taskcheck/{taskcheck_id}/finish:
+    post:
+      tags:
+        - Tasks
+      summary: Mark a simple checklist item as finished
+      description: |
+        Moves a simple checklist item to the **finished** state. A smart taskcheck id returns 404 — use `POST /task/{task_id}/finish` for those.
+      operationId: finishTaskcheck
+      parameters:
+        - $ref: '#/components/parameters/TaskcheckIdParam'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notify_author:
+                  type: boolean
+                  default: false
+                  description: >-
+                    When true, the authenticated caller (the action author) is kept in the
+                    notification recipients even though they triggered the action. Useful for
+                    automations acting under your own token. Only takes effect if you are
+                    otherwise a subscriber/worker/tracking user of the target.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /taskcheck/{taskcheck_id}/activate:
+    post:
+      tags:
+        - Tasks
+      summary: Reopen a finished simple checklist item
+      description: |
+        Moves a simple checklist item from the **finished** state back to **active**. A smart taskcheck id returns 404 — use `POST /task/{task_id}/activate` for those.
+      operationId: activateTaskcheck
+      parameters:
+        - $ref: '#/components/parameters/TaskcheckIdParam'
       responses:
         '200':
           description: Successful response
@@ -1918,7 +2286,7 @@ paths:
 
         **Behavior notes:**
         - Target project is **derived from the `tasklist_id`** — you pass the tasklist, not the project. The target tasklist must belong to a project the caller has access to, otherwise 403.
-        - Subsequent content (comments, worker) operations on the parent and child task may diverge depending on the multi-project architecture (see project docs `docs/feature/multi-project-tasks.md`).
+        - The parent and child are separate task entities: comments, workers and other content are not automatically mirrored between them, so subsequent operations on one do not necessarily affect the other.
       operationId: assignTaskToProject
       parameters:
         - $ref: '#/components/parameters/TaskIdParam'
@@ -1962,6 +2330,12 @@ paths:
       description: |
         Returns all relations for a task (types: `blocked_by`, `blocks`, `related_to`, `duplicate_of`).
         Relations to tasks the caller cannot access are filtered out.
+
+        Relation type visibility depends on the project owner's plan: `related_to` and `duplicate_of`
+        require team features; `blocked_by` and `blocks` additionally require business features.
+        On lower plans the corresponding buckets are returned empty.
+
+        Multi-project child task IDs are not queryable here — a direct child ID returns 404.
       operationId: getTaskRelations
       parameters:
         - $ref: '#/components/parameters/TaskIdParam'
@@ -1977,10 +2351,12 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/TaskRelation'
-        '403':
-          description: Forbidden
         '404':
-          description: Task not found
+          description: |
+            Returned when the task does not exist, when the caller has no access to the task
+            or its project, when the project owner's plan has no team features, or when the
+            requested ID is a multi-project child. No separate 403 is emitted — access is
+            indistinguishable from not-found by design.
 
   /task/{task_id}/projects/{project_id}:
     delete:
@@ -2109,6 +2485,8 @@ paths:
                 remind_at:
                   type: string
                   format: date-time
+                  description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+                  example: '2026-04-24T11:12:38'
       responses:
         '200':
           description: Reminder created
@@ -2120,6 +2498,8 @@ paths:
                   remind_at:
                     type: string
                     format: date-time
+                    description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+                    example: '2026-04-24T11:12:38'
                   task:
                     type: object
                     properties:
@@ -2410,6 +2790,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/TaskIdParam'
         - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageAliasParam'
       responses:
         '200':
           description: Successful response
@@ -2457,6 +2838,63 @@ paths:
                 $ref: '#/components/schemas/Subtask'
 
   # ==================== TASK LABELS ====================
+  /task-labels/find-available:
+    get:
+      tags:
+        - Task Labels
+      summary: Get task labels usable by caller
+      description: |
+        Returns all task labels usable by the authenticated user — labels attached to tasks across the caller's owned and invited projects in `ACTIVE`, `ARCHIVED`, or `TEMPLATE` state.
+
+        **Use cases:**
+        - Populating a label picker before calling `/task-labels/add-to-task/{task_id}`
+        - Showing the caller which task labels already exist so they don't create a duplicate via the name+color fetch-or-create modes
+
+        **Behavior notes:**
+        - Sorted by `name` ascending.
+        - Pass the optional `project_id` query parameter to restrict the result to labels used in that single project. The project must be one the caller owns or is invited to; otherwise `{ "labels": [] }` is returned.
+        - If the caller has no accessible projects, returns `{ "labels": [] }`.
+      operationId: findAvailableTaskLabels
+      parameters:
+        - name: project_id
+          in: query
+          required: false
+          description: Restrict results to labels used in this project (must be accessible to the caller).
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  labels:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TaskLabel'
+
+  /task-label-colors:
+    get:
+      tags:
+        - Task Labels
+      summary: List the accepted task-label colors
+      description: Returns the fixed palette of colors accepted when creating or assigning task labels.
+      operationId: getTaskLabelColors
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  colors:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TaskLabelColor'
+
   /task-labels:
     post:
       tags:
@@ -2470,7 +2908,7 @@ paths:
         - Importing labels from another system
 
         **Behavior notes (non-obvious):**
-        - This is a **fetch-or-create** — labels with an existing matching name are **re-used**, not duplicated. The endpoint only creates those that don't already exist.
+        - This is a **fetch-or-create** — a label whose **name AND color** already exist among the caller's own labels is **re-used**, not duplicated (matching is case-sensitive). The endpoint only creates those that don't already exist. This holds even if the client sends a fresh `uuid` each call.
         - The label is scoped to the caller's account and available across their accessible projects via the "task-labels-used" relation.
         - If the caller has **no projects at all**, the "used" relation is silently skipped (no `NoProjectsException` bubbles up to the caller).
         - The response does not explicitly report which labels were new vs. reused — query `/project-labels/find-available` or the task detail to verify.
@@ -2495,6 +2933,52 @@ paths:
         '200':
           description: Labels created
 
+  /task-labels/merge:
+    post:
+      tags:
+        - Task Labels
+      summary: Merge task labels into a single target label
+      description: |
+        Merges one or more source labels into a target label in a single server-side operation. Every task that carried a source label ends up carrying the target label instead; the source labels are detached from those tasks.
+
+        Use this instead of iterating over tasks and re-adding a label client-side — one call performs the whole merge-and-replace across all the caller's accessible tasks.
+
+        **Ownership & scope:**
+        - Both the target (`to_uuid`) and every source label (`from_uuids`) must be owned by the caller; otherwise the endpoint responds `404` (labels the caller does not own are treated as non-existent).
+        - The replacement is applied only to tasks in projects where the caller is a commander.
+
+        **Behavior notes (non-obvious):**
+        - The target label's name and color are taken from the existing `to_uuid` label — the client does not send them.
+        - Source labels are detached from tasks but their definitions are not deleted by this call.
+      operationId: mergeTaskLabels
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - from_uuids
+                - to_uuid
+              properties:
+                from_uuids:
+                  type: array
+                  description: UUIDs of the labels to merge away (must be owned by the caller).
+                  items:
+                    type: string
+                    format: uuid
+                to_uuid:
+                  type: string
+                  format: uuid
+                  description: UUID of the label the source labels are merged into (must be owned by the caller).
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
   /task-labels/add-to-task/{task_id}:
     post:
       tags:
@@ -2513,6 +2997,7 @@ paths:
 
         **Behavior notes (non-obvious):**
         - Name+color matching is **case-sensitive**. `"bug"` and `"Bug"` are different labels.
+        - Reuse matches against **all** of the caller's labels — including ones the caller owns but has never used on a task — so name mode does not mint a duplicate of an existing unused label.
         - If you pass a UUID that doesn't match any existing label, `CannotCreateWithProvidedUuidException` is thrown.
         - When labels are actually added (vs. already present), a `task_labels_change` event is emitted (→ webhooks, audit log).
         - Calling with an empty array short-circuits — no event, no ACL check, 200 response.
@@ -2593,7 +3078,7 @@ paths:
         - Comments
       summary: Add a comment to a task
       description: |
-        Posts a new comment on the given task. Text is passed as `content` (HTML / plain text); attachments are passed as `files` (referencing previously uploaded file UUIDs).
+        Posts a new comment on the given task. Text is passed as `content` (HTML / plain text). A previously uploaded file (see `POST /file/upload`) can be attached in two independent ways — see **Attaching files** below.
 
         **Use cases:**
         - Logging progress or questions on a task
@@ -2604,6 +3089,19 @@ paths:
         - **If the task has no comments yet, this call creates the task's description instead of a regular comment** (the `ICommentIsDescriptionFiller` auto-flips `is_description=true` on the first comment). From the second comment onward this endpoint behaves like a normal comment.
         - Subsequent calls are always regular comments; the description is managed separately via `/task/{id}/description`.
         - Fires notifications to the task's tracking users and a `comment_created` event.
+
+        **Attaching files (two ways — pick one per file):**
+        1. **As an attachment** — list the file in the `files` array (`{ "uuid": "…" }`). The file is attached to the comment but not placed at a specific position in the text.
+        2. **Inline in the body** — embed an anchor with `data-freelo-uuid` in `content`:
+           `<a data-freelo-uuid="{file_uuid}" href="https://app.freelo.io/file/{file_uuid}">caption</a>`
+           The server extracts the UUID from `content`, attaches the file automatically (so you do **not** also add it to `files`), and keeps the anchor in the stored `content` — so a later `GET` shows the file inside the comment body. The anchor must be an `<a>` element (not a `<div>`); the text between the tags becomes the file caption.
+
+           ⚠️ Do not reference the same file UUID in both `content` and `files` — it would be attached twice.
+
+        **Mentioning users:**
+        Embed a mention in `content` as an HTML span:
+        `<span data-freelo-mention="1" data-freelo-user-id="{id}">@{mention_key}</span>`
+        where `{id}` is the user's id and `{mention_key}` is the visible text after `@` (the normalized `fullname` — whitespace stripped, diacritics removed). Get both from the user's `UserBasic` object (e.g. `GET /users/me`). The mentioned user is notified.
       operationId: createComment
       parameters:
         - $ref: '#/components/parameters/TaskIdParam'
@@ -2618,10 +3116,30 @@ paths:
               properties:
                 content:
                   type: string
+                  description: |
+                    Comment body (HTML / plain text).
+
+                    **Inline file attachment:** embed an anchor to attach an uploaded file inside the body:
+                    `<a data-freelo-uuid="{file_uuid}" href="https://app.freelo.io/file/{file_uuid}">caption</a>`
+                    The UUID is extracted server-side and the file is attached automatically (do not also list it in `files`). The anchor stays in the stored content, so the file is rendered inside the comment on read.
+
+                    **Mention a user:** embed a span:
+                    `<span data-freelo-mention="1" data-freelo-user-id="{id}">@{mention_key}</span>`
+                    (`id` and `mention_key` come from the user's `UserBasic` object, e.g. `GET /users/me`).
                 files:
                   type: array
+                  description: |
+                    Files to attach as plain attachments (not placed inline in the body). Alternative to embedding an anchor in `content` — use one mechanism per file, never both for the same UUID.
                   items:
                     $ref: '#/components/schemas/FileUpload'
+                notify_author:
+                  type: boolean
+                  default: false
+                  description: >-
+                    When true, the authenticated caller (the action author) is kept in the
+                    notification recipients even though they triggered the action. Useful for
+                    automations acting under your own token. Only takes effect if you are
+                    otherwise a subscriber/worker/tracking user of the target.
       responses:
         '200':
           description: Comment created
@@ -2644,6 +3162,7 @@ paths:
 
         **Behavior notes:**
         - `files` replaces the full attachment set — pass the complete list of file UUIDs you want attached, not a delta.
+        - Files can also be attached inline via a `<a data-freelo-uuid="{file_uuid}">…</a>` anchor in `content` (see `POST /task/{id}/comments`). Use one mechanism per file, never both for the same UUID.
         - ACL: only the comment's author can edit (or project owner / commander depending on role rules). Otherwise 404 `NotFoundException` is returned (not 403, to avoid leaking the existence of inaccessible comments).
         - The method used is `POST` for historical reasons, not `PUT`/`PATCH`.
       operationId: editComment
@@ -2664,10 +3183,22 @@ paths:
               properties:
                 content:
                   type: string
+                  description: |
+                    Comment body (HTML / plain text). Supports inline file anchors (`<a data-freelo-uuid="{file_uuid}">…</a>`) and user mentions — see `POST /task/{id}/comments`.
                 files:
                   type: array
+                  description: |
+                    Files to attach as plain attachments (not placed inline in the body). Replaces the full attachment set. Use one mechanism per file — do not also embed the same UUID in `content`.
                   items:
                     $ref: '#/components/schemas/FileUpload'
+                notify_author:
+                  type: boolean
+                  default: false
+                  description: >-
+                    When true, the authenticated caller (the action author) is kept in the
+                    notification recipients even though they triggered the action. Useful for
+                    automations acting under your own token. Only takes effect if you are
+                    otherwise a subscriber/worker/tracking user of the target.
       responses:
         '200':
           description: Comment updated
@@ -2675,6 +3206,30 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Comment'
+    delete:
+      tags:
+        - Comments
+      summary: Delete a comment
+      description: |
+        Deletes an existing comment.
+
+        **Behavior notes:**
+        - ACL: only the comment's author can delete. Otherwise 404 is returned (not 403, to avoid leaking the existence of inaccessible comments).
+        - **Time window:** a comment can be deleted only within **15 minutes** of being posted. After that the endpoint returns 400. (Editing a comment has no such time limit.)
+      operationId: deleteComment
+      parameters:
+        - name: comment_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Comment deleted
+        '400':
+          description: The 15-minute deletion window has expired
+        '404':
+          description: Comment not found or not owned by the caller
 
   /all-comments:
     get:
@@ -2721,6 +3276,7 @@ paths:
             enum: [asc, desc]
             default: desc
         - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageAliasParam'
       responses:
         '200':
           description: Successful response
@@ -2839,7 +3395,8 @@ paths:
         - There is no session ID — the endpoint always targets the caller's single active session.
         - Returns HTTP **409 Conflict** with `"Timetracking is not running."` if no session is active.
         - Setting `task_id=null` disassociates the session from any task (continues as general work).
-        - Elapsed minutes are preserved; only the tracked task / note change.
+        - All body fields are partial — only fields present in the payload are updated; omitted fields keep their current value.
+        - Passing `date_reported` rewrites the session's start time (e.g. to backdate a forgotten timer). Elapsed duration on `/timetracking/stop` is computed from this value to "now".
       operationId: editTimeTracking
       requestBody:
         content:
@@ -2855,6 +3412,11 @@ paths:
                   type: string
                   nullable: true
                   description: Updated note for the time tracking session.
+                date_reported:
+                  type: string
+                  format: date-time
+                  description: New start timestamp for the running session (ISO 8601, e.g. `2026-05-07T09:00:00+02:00`). Used to correct or backdate the timer's start time. The work report produced by `/timetracking/stop` will compute its duration from this value.
+                  example: '2026-05-07T09:00:00+02:00'
       responses:
         '200':
           description: Time tracking session updated
@@ -2906,7 +3468,8 @@ paths:
                   date_reported:
                     type: string
                     format: date-time
-                    description: Timestamp when the session was started (ISO 8601 / ATOM format)
+                    description: 'Timestamp when the session was started. Naive ISO8601 in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+                    example: '2026-04-24T11:12:38'
                   task:
                     nullable: true
                     description: Associated task, or null if tracking without a task
@@ -3033,11 +3596,16 @@ paths:
           in: query
           description: >-
             Include the authenticated user's work reports without an associated
-            task. Automatically filters by the authenticated user.
+            task. Automatically filters by the authenticated user. Pass `1` to
+            enable, `0` to disable — string values like `true`/`false` are not
+            accepted and silently fall back to the default.
+            Mutually exclusive with `users_ids[]`.
           schema:
-            type: boolean
-            default: false
+            type: integer
+            enum: [0, 1]
+            default: 0
         - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageAliasParam'
       responses:
         '200':
           description: Successful response
@@ -3088,7 +3656,11 @@ paths:
               properties:
                 date_reported:
                   type: string
-                  format: date
+                  description: |
+                    Start timestamp of the work session. Accepts either a full ISO 8601 datetime
+                    (`2026-05-08T08:00:00+02:00`) or a date-only string (`2026-05-08`).
+                    Datetime form records the exact start moment; date-only defaults to start of day.
+                  example: '2026-05-08T08:00:00+02:00'
                 worker_id:
                   type: integer
                 minutes:
@@ -3143,11 +3715,19 @@ paths:
                   type: string
                 date_reported:
                   type: string
-                  format: date
+                  description: |
+                    Start timestamp of the work session. Accepts either a full ISO 8601 datetime
+                    (`2026-05-08T08:00:00+02:00`) or a date-only string (`2026-05-08`).
+                    Datetime form records the exact start moment; date-only defaults to start of day.
+                  example: '2026-05-08T08:00:00+02:00'
                 note:
                   type: string
+                  nullable: true
+                  description: Note for the work report. Pass `null` to clear an existing note. Empty string is rejected.
                 task_id:
                   type: integer
+                  nullable: true
+                  description: ID of the task this work report belongs to. Pass `null` to detach the report from its current task.
       responses:
         '200':
           description: Work report updated
@@ -3219,6 +3799,7 @@ paths:
             items:
               type: integer
         - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageAliasParam'
       responses:
         '200':
           description: Successful response
@@ -3375,7 +3956,7 @@ paths:
         - Users
       summary: Get all coworkers visible to caller
       description: |
-        Paginated list of users the authenticated caller shares at least one project with — effectively their "coworkers book".
+        Paginated list of users the authenticated caller shares at least one **active** project with — effectively their current "coworkers book".
 
         **Use cases:**
         - Populating an assignee picker outside of a project context
@@ -3383,11 +3964,13 @@ paths:
         - Resolving email → user ID for offline users
 
         **Behavior notes:**
-        - Does **not** return the caller themselves.
-        - Users with whom the caller only shares archived / deleted projects may still appear; the repository filters by membership, not by state.
+        - Returns only **active sharing connections**: users who are currently workers or owners of at least one of the caller's active projects (workers' user accounts must also be in active state).
+        - Archived / deleted / template projects are **not** considered when computing the result set.
+        - Historical co-workers (people the caller used to share a project with but no longer does) are **not** returned. For a full historical view of past collaborators, use the Freelo web application.
       operationId: getAllUsers
       parameters:
         - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageAliasParam'
       responses:
         '200':
           description: Successful response
@@ -3404,7 +3987,7 @@ paths:
                           users:
                             type: array
                             items:
-                              $ref: '#/components/schemas/UserBasic'
+                              $ref: '#/components/schemas/UserWithEmail'
 
   /users/project-manager-of:
     get:
@@ -3547,9 +4130,13 @@ paths:
                       date_from:
                         type: string
                         format: date-time
+                        description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+                        example: '2026-04-24T11:12:38'
                       date_to:
                         type: string
                         format: date-time
+                        description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+                        example: '2026-04-24T11:12:38'
     post:
       tags:
         - Users
@@ -3591,9 +4178,13 @@ paths:
                     date_from:
                       type: string
                       format: date-time
+                      description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+                      example: '2026-04-24T11:12:38'
                     date_to:
                       type: string
                       format: date-time
+                      description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+                      example: '2026-04-24T11:12:38'
       responses:
         '200':
           description: Successful response
@@ -3685,24 +4276,16 @@ paths:
               type: string
         - name: only_unread
           in: query
-          # WIRE QUIRK (verified 2026-04-29 against the official Freelo MCP at
-          # https://github.com/freeloapp/mcp/blob/main/src/tools/notifications/get-notifications.ts):
-          # the live API does NOT honor `only_unread=true`. It expects the
-          # string `"1"` (or `"0"` for false). Sending `true` is silently
-          # ignored and the endpoint returns the full unfiltered list.
-          # The published OpenAPI yaml at api.freelo.io types this as boolean,
-          # but the official MCP converts the boolean to "1"/"0" before send.
-          # Treat the wire format as a string enum until Freelo fixes the
-          # server to accept canonical booleans.
-          description: |
-            Filter to unread notifications only. Wire format is the string
-            `"1"` (true) or `"0"` (false). Sending `true`/`false` does not
-            work — the server silently ignores them.
+          description: >-
+            Only return unread notifications. Pass `1` to enable, `0` to
+            disable — string values like `true`/`false` are not accepted and
+            silently fall back to the default.
           schema:
-            type: string
-            enum: ['0', '1']
-            default: '0'
+            type: integer
+            enum: [0, 1]
+            default: 0
         - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageAliasParam'
       responses:
         '200':
           description: Successful response
@@ -3737,7 +4320,8 @@ paths:
         - Idempotent — calling on an already-read notification returns 200.
         - 404 if the notification does not exist **or** does not belong to the caller.
 
-        **WIRE QUIRK (verified 2026-04-29):** The path is `/mark-read`, NOT
+        **WIRE QUIRK (first verified 2026-04-29, re-checked against the 2026-08-24
+        upstream refresh — still unresolved):** The path is `/mark-read`, NOT
         `/mark-as-read`. The published OpenAPI yaml at api.freelo.io documents
         this path with the `as-` infix, but the official Freelo MCP
         (https://github.com/freeloapp/mcp/blob/main/src/tools/notifications/mark-notification-read.ts)
@@ -3773,7 +4357,8 @@ paths:
         **Behavior notes:**
         - Idempotent; 404 if notification does not belong to caller.
 
-        **WIRE QUIRK (verified 2026-04-29):** The path is `/mark-unread`, NOT
+        **WIRE QUIRK (first verified 2026-04-29, re-checked against the 2026-08-24
+        upstream refresh — still unresolved):** The path is `/mark-unread`, NOT
         `/mark-as-unread`. Same caveat as the read endpoint above — the
         published OpenAPI yaml documents `mark-as-unread`, but the official
         Freelo MCP and live behavior use `/mark-unread`.
@@ -3853,6 +4438,7 @@ paths:
             items:
               type: integer
         - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageAliasParam'
       responses:
         '200':
           description: Successful response
@@ -3903,6 +4489,36 @@ paths:
               schema:
                 type: string
                 format: binary
+    delete:
+      tags:
+        - Files
+      summary: Delete a file or document by UUID
+      description: |
+        Deletes a single **file** or **document/note** identified by its UUID. The endpoint resolves the resource type from the UUID automatically and soft-deletes it.
+
+        **Use cases:**
+        - Removing a file or note surfaced by the listing, by UUID alone
+
+        **Behavior notes:**
+        - Soft-delete only — the resource is marked deleted, not physically removed.
+        - Returns 404 if no file or document matches the UUID, or the caller has no access to it.
+      operationId: deleteDocOrFileByUuid
+      parameters:
+        - name: file_uuid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: File or document deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '404':
+          description: No file or document found for the given UUID
 
   /file/upload:
     post:
@@ -3975,6 +4591,7 @@ paths:
             type: string
             enum: [directory, link, file, document]
         - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageAliasParam'
       responses:
         '200':
           description: Successful response
@@ -4622,13 +5239,10 @@ paths:
 
         **Behavior notes:**
         - ACL-checked via the note's project.
+        - Accepts the numeric id **or** the note `uuid` (as returned by `GET /all-docs-and-files`).
       operationId: getNote
       parameters:
-        - name: note_id
-          in: path
-          required: true
-          schema:
-            type: integer
+        - $ref: '#/components/parameters/NoteIdParam'
       responses:
         '200':
           description: Successful response
@@ -4645,13 +5259,10 @@ paths:
 
         **Behavior notes:**
         - Overwrites content — there is no history / diff tracking exposed via the API.
+        - Accepts the numeric id **or** the note `uuid` (as returned by `GET /all-docs-and-files`).
       operationId: editNote
       parameters:
-        - name: note_id
-          in: path
-          required: true
-          schema:
-            type: integer
+        - $ref: '#/components/parameters/NoteIdParam'
       requestBody:
         required: true
         content:
@@ -4665,6 +5276,14 @@ paths:
                   type: string
                 content:
                   type: string
+                notify_author:
+                  type: boolean
+                  default: false
+                  description: >-
+                    When true, the authenticated caller (the action author) is kept in the
+                    notification recipients even though they triggered the action. Useful for
+                    automations acting under your own token. Only takes effect if you are
+                    otherwise a subscriber/worker/tracking user of the target.
       responses:
         '200':
           description: Note updated
@@ -4681,13 +5300,10 @@ paths:
 
         **Behavior notes:**
         - Response returns the (now-deleted) note's state for confirmation. This is a quirk — most delete endpoints return a SuccessResponse; this one returns the Note.
+        - Accepts the numeric id **or** the note `uuid` (as returned by `GET /all-docs-and-files`).
       operationId: deleteNote
       parameters:
-        - name: note_id
-          in: path
-          required: true
-          schema:
-            type: integer
+        - $ref: '#/components/parameters/NoteIdParam'
       responses:
         '200':
           description: Note deleted
@@ -4703,21 +5319,70 @@ paths:
         - Search
       summary: Fulltext search across Freelo (Elasticsearch)
       description: |
-        Unified fulltext search powered by Elasticsearch. Supports entity-type scoping (task, subtask, project, tasklist, file, comment), structural narrowing (projects, tasklists, workers, authors), state and due-date filtering.
+        Unified fulltext search powered by Elasticsearch. Combines a required text query with a rich set of filters: entity-type scope, structural narrowing (projects / tasklists / tasks / authors / workers), state, subtask flag, due-date range and sorting.
 
-        **Use cases:**
+        ## What you can filter on
+
+        | Filter | Type | Effect |
+        | --- | --- | --- |
+        | `search_query` | string | Required fulltext query (2–200 chars after trim). Wrap a fragment in **double quotes** for an ordered exact-match phrase, e.g. `"sentry issue 123"`. |
+        | `entity_type` | string | Narrow to **one** entity category. See **Entity types** table below. |
+        | `exclude_entity_types` | array of string | Exclude one or more categories. Same value set as `entity_type`. Useful e.g. to search everything *except* comments. |
+        | `state_ids` | array of string | Restrict by lifecycle state. Defaults to `["active"]` — pass explicit values to also get archived / finished / template results. See **State IDs** table below. |
+        | `projects_ids` | array of int | Only hits inside (or attached to) these projects. |
+        | `tasklists_ids` | array of int | Only hits inside (or attached to) these tasklists. |
+        | `tasks_ids` | array of int | Only hits inside (or attached to) these tasks (e.g. comments / files of a given task). |
+        | `authors_ids` | array of int | Filter by author/creator (`entityOwner`). |
+        | `workers_ids` | array of int | Filter by assignee. Meaningful for tasks/subtasks only. |
+        | `is_subtask` | bool | When `true`, restricts to smart-subtask documents (subtasks, checklist items and comments under a subtask). Default `false`. |
+        | `due_date.date_from` / `due_date.date_to` | date (`YYYY-MM-DD`) | Restrict by due-date range. At least one of the two must be set when the `due_date` object is provided. |
+        | `sort` | object | Optional `{ order_by, order }`. Only sort field currently supported is `last_updated`; `order` is `asc` or `desc`. Omitting `sort` returns results by relevance score. |
+        | `lang` | string | Language used for the Elasticsearch analyzer / stemmer. `cs_cz` (default) or `en_us`. |
+        | `page` / `limit` | int | Pagination — `page` is zero-based; `limit` default `100`. |
+
+        ## Entity types (`entity_type` / `exclude_entity_types`)
+
+        The seven accepted input values expand to one or more underlying Elasticsearch document types.
+
+        | Input value | Matches ES document types |
+        | --- | --- |
+        | `task` | `task` (top-level tasks only — excludes smart subtasks) |
+        | `subtask` | smart subtasks (`task` with `isSmart=true`) **and** `taskcheck` (checklist items) |
+        | `taskcheck` | `taskcheck` (checklist items only) |
+        | `project` | `project` |
+        | `tasklist` | `tasklist` |
+        | `file` | `file`, `link`, `note` |
+        | `comment` | `task_comment`, `note_comment`, `file_comment`, `link_comment` |
+
+
+        ## State IDs
+
+        | Value | Meaning |
+        | --- | --- |
+        | `active` | Default — open / in-progress tasks, active projects/tasklists. |
+        | `finished` | Tasks closed via *Finish*. |
+        | `archived` | Archived projects / tasklists. |
+        | `archived_finished` / `archived_unfinished` | Sub-states of archived for finer reporting. |
+        | `template` | Project / tasklist templates only. |
+        | `not_template` | Everything except templates. |
+
+        State filtering also shapes which **parent entities** are required/forbidden — e.g. `["archived"]` forces results to belong to an archived project/tasklist; `["template"]` restricts to template projects/tasklists.
+
+        ## Use cases
+
         - Global search bar in the UI
         - Content-discovery integrations ("find comments about Sentry issue 123")
         - Reporting that starts from a text query ("find all tasks mentioning keyword X in last quarter")
+        - "Search everywhere except comments" — `exclude_entity_types: ["comment"]`
+        - "Find checklist items in this project" — `entity_type: "taskcheck"` + `projects_ids`
 
-        **Behavior notes (non-obvious):**
-        - `POST` method despite being a read — request bodies are JSON because query filters are too complex for query strings.
-        - `search_query` is **required**. Passing only filters without a text query is not supported here; use tag-specific list endpoints (like `/all-tasks`) for filter-only queries.
-        - `state_ids` defaults to `["active"]` — pass explicit states if you also want archived / finished / template results.
-        - `entity_type` narrows to a single category; omit for mixed results.
+        ## Behavior notes (non-obvious)
+
+        - `POST` method despite being a read — request body is JSON because filters are too complex for query strings.
+        - `search_query` is **required** (2–200 chars after trim). Passing only filters without a text query is not supported here — use tag-specific list endpoints (e.g. `/all-tasks`) for filter-only queries.
         - ACL-filtered — Elasticsearch returns only documents the caller can read based on project membership.
-        - `lang` influences analyzer / stemming — defaults to account language.
-        - Query length is capped; `ElasticsearchQueryLengthExceededException` → 400 with a UserVisibleErrorMessage.
+        - Query length over 200 chars → `400` with a user-visible message (`ElasticsearchQueryLengthExceededException`).
+        - Unknown `entity_type` / `exclude_entity_types` / `lang` value → `400` with a user-visible message listing accepted values.
       operationId: search
       requestBody:
         required: true
@@ -4730,37 +5395,61 @@ paths:
               properties:
                 search_query:
                   type: string
-                projects_ids:
+                  minLength: 2
+                  maxLength: 200
+                  description: |
+                    Fulltext query (2–200 chars after trimming). Double-quoted fragments are matched as ordered exact phrases; the rest as loose terms.
+                  example: "sentry issue 123"
+                entity_type:
+                  type: string
+                  enum: [task, subtask, taskcheck, project, tasklist, file, comment]
+                  description: |
+                    Narrow to a single category. See the **Entity types** table in the endpoint description for the underlying ES document types each value maps to. Omit for mixed results.
+                exclude_entity_types:
                   type: array
+                  description: Exclude one or more categories (same vocabulary as `entity_type`).
                   items:
-                    type: integer
-                tasklists_ids:
-                  type: array
-                  items:
-                    type: integer
-                tasks_ids:
-                  type: array
-                  items:
-                    type: integer
-                authors_ids:
-                  type: array
-                  items:
-                    type: integer
-                workers_ids:
-                  type: array
-                  items:
-                    type: integer
+                    type: string
+                    enum: [task, subtask, taskcheck, project, tasklist, file, comment]
                 state_ids:
                   type: array
+                  description: Lifecycle states to include. Defaults to `["active"]` if omitted or empty.
                   items:
                     type: string
                     enum: [active, archived, finished, template, not_template, archived_finished, archived_unfinished]
                   default: [active]
-                lang:
-                  type: string
-                  example: cs_cz
+                projects_ids:
+                  type: array
+                  description: Restrict to these projects (or to documents attached to them).
+                  items:
+                    type: integer
+                tasklists_ids:
+                  type: array
+                  description: Restrict to these tasklists (or to documents attached to them).
+                  items:
+                    type: integer
+                tasks_ids:
+                  type: array
+                  description: Restrict to these tasks (or to documents attached to them — e.g. comments / files of the listed tasks).
+                  items:
+                    type: integer
+                authors_ids:
+                  type: array
+                  description: Filter by author (entity owner) user IDs.
+                  items:
+                    type: integer
+                workers_ids:
+                  type: array
+                  description: Filter by assignee user IDs. Meaningful for tasks / subtasks.
+                  items:
+                    type: integer
+                is_subtask:
+                  type: boolean
+                  default: false
+                  description: When `true`, restrict to smart-subtask documents (subtasks, checklist items and their comments).
                 due_date:
                   type: object
+                  description: Due-date range. At least one of `date_from` / `date_to` must be set when this object is present.
                   properties:
                     date_from:
                       type: string
@@ -4768,15 +5457,30 @@ paths:
                     date_to:
                       type: string
                       format: date
-                entity_type:
+                sort:
+                  type: object
+                  description: Optional sort. Omit for relevance-score ordering.
+                  properties:
+                    order_by:
+                      type: string
+                      enum: [last_updated]
+                    order:
+                      type: string
+                      enum: [ASC, DESC]
+                      description: Direction — note the uppercase values (`OrderEnum::ASC` / `OrderEnum::DESC`).
+                lang:
                   type: string
-                  enum: [task, subtask, project, tasklist, file, comment]
+                  enum: [cs_cz, en_us]
+                  default: cs_cz
+                  description: Language used by the Elasticsearch analyzer / stemmer.
                 page:
                   type: integer
                   default: 0
+                  description: Zero-based page index.
                 limit:
                   type: integer
                   default: 100
+                  description: Page size.
       responses:
         '200':
           description: Search results
@@ -4806,7 +5510,15 @@ components:
     PageParam:
       name: p
       in: query
-      description: Page number (starting from 0)
+      description: Page number (starting from 0). Alias of `page` — `p` takes precedence when both are provided.
+      schema:
+        type: integer
+        default: 0
+
+    PageAliasParam:
+      name: page
+      in: query
+      description: Page number (starting from 0). Alias of `p` — `p` takes precedence when both are provided.
       schema:
         type: integer
         default: 0
@@ -4831,6 +5543,25 @@ components:
       required: true
       schema:
         type: integer
+
+    TaskcheckIdParam:
+      name: taskcheck_id
+      in: path
+      required: true
+      description: ID of the taskcheck (`tasks_checks.id`)
+      schema:
+        type: integer
+
+    NoteIdParam:
+      name: note_id
+      in: path
+      required: true
+      description: 'Numeric note ID (`documents.id`) or note UUID (`documents.uuid`) — both are accepted in the same position. `GET /all-docs-and-files` returns only the UUID for notes.'
+      schema:
+        oneOf:
+          - type: integer
+          - type: string
+            format: uuid
 
   schemas:
     SuccessResponse:
@@ -4900,6 +5631,8 @@ components:
         reported:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         minutes:
           type: integer
         cost:
@@ -4919,11 +5652,31 @@ components:
 
     UserBasic:
       type: object
+      required:
+        - id
+        - fullname
+        - mention_key
       properties:
         id:
           type: integer
         fullname:
           type: string
+        mention_key:
+          type: string
+          description: |
+            Normalized form of `fullname` (whitespace stripped, diacritics removed) used as the visible text after `@` inside a mention span. Build a mention with:
+            `<span data-freelo-mention="1" data-freelo-user-id="{id}">@{mention_key}</span>`
+
+    UserWithEmail:
+      allOf:
+        - $ref: '#/components/schemas/UserBasic'
+        - type: object
+          properties:
+            email:
+              type: string
+              format: email
+          required:
+            - email
 
     Client:
       type: object
@@ -4971,9 +5724,13 @@ components:
             date_add:
               type: string
               format: date-time
+              description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+              example: '2026-04-24T11:12:38'
             date_edited_at:
               type: string
               format: date-time
+              description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+              example: '2026-04-24T11:12:38'
             tasklists:
               type: array
               items:
@@ -4989,9 +5746,13 @@ components:
             date_add:
               type: string
               format: date-time
+              description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+              example: '2026-04-24T11:12:38'
             date_edited_at:
               type: string
               format: date-time
+              description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+              example: '2026-04-24T11:12:38'
             owner:
               $ref: '#/components/schemas/UserBasic'
             state:
@@ -5032,10 +5793,14 @@ components:
                         due_date:
                           type: string
                           format: date-time
+                          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+                          example: '2026-04-24T11:12:38'
                           nullable: true
                         due_date_end:
                           type: string
                           format: date-time
+                          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+                          example: '2026-04-24T11:12:38'
                           nullable: true
                         worker:
                           $ref: '#/components/schemas/UserBasic'
@@ -5110,9 +5875,13 @@ components:
             date_add:
               type: string
               format: date-time
+              description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+              example: '2026-04-24T11:12:38'
             date_edited_at:
               type: string
               format: date-time
+              description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+              example: '2026-04-24T11:12:38'
             state:
               $ref: '#/components/schemas/State'
             project:
@@ -5136,12 +5905,20 @@ components:
           properties:
             project_id:
               type: integer
+            worker_id:
+              type: integer
+              nullable: true
+              description: 'Default worker of the tasklist (same field as in POST /tasklist/{tasklist_id}/edit). `null` when not set or when the worker is no longer among the tasklist''s assignable workers.'
             date_add:
               type: string
               format: date-time
+              description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+              example: '2026-04-24T11:12:38'
             date_edited_at:
               type: string
               format: date-time
+              description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+              example: '2026-04-24T11:12:38'
             tasks:
               type: array
               items:
@@ -5154,10 +5931,14 @@ components:
                   due_date:
                     type: string
                     format: date-time
+                    description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+                    example: '2026-04-24T11:12:38'
                     nullable: true
                   due_date_end:
                     type: string
                     format: date-time
+                    description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+                    example: '2026-04-24T11:12:38'
                     nullable: true
                   worker:
                     $ref: '#/components/schemas/UserBasic'
@@ -5175,6 +5956,19 @@ components:
           type: string
         color:
           type: string
+
+    TaskLabelColor:
+      type: object
+      properties:
+        color:
+          type: string
+          description: Hex value to send as the label color (e.g. "#15acc0").
+        display_name:
+          type: string
+          description: Human-readable color name, for display only; not accepted as input.
+        is_default:
+          type: boolean
+          description: True for the color applied when a label is created without a color.
 
     TaskLabelAddInput:
       description: >
@@ -5267,16 +6061,24 @@ components:
         date_add:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         date_edited_at:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         due_date:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
           nullable: true
         due_date_end:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
           nullable: true
         count_comments:
           type: integer
@@ -5305,6 +6107,10 @@ components:
         - $ref: '#/components/schemas/TaskSummary'
         - type: object
           properties:
+            type:
+              type: string
+              enum: [task, subtask]
+              description: 'Task kind discriminator: `task` = top-level task, `subtask` = smart subtask (has its own task id).'
             state:
               $ref: '#/components/schemas/State'
             project:
@@ -5321,6 +6127,11 @@ components:
                   properties:
                     state:
                       $ref: '#/components/schemas/State'
+            priority_enum:
+              type: string
+              enum: [h, m, l]
+              nullable: true
+              description: "Task priority level: 'h' = high, 'm' = medium, 'l' = low."
             custom_fields:
               type: array
               items:
@@ -5334,6 +6145,8 @@ components:
             date_finished:
               type: string
               format: date-time
+              description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+              example: '2026-04-24T11:12:38'
             finished_by:
               $ref: '#/components/schemas/UserBasic'
 
@@ -5347,9 +6160,13 @@ components:
         due_date:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         due_date_end:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         worker:
           type: integer
         priority_enum:
@@ -5375,6 +6192,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SubtaskCreate'
+        notify_author:
+          type: boolean
+          default: false
+          description: >-
+            When true, the authenticated caller (the action author) is kept in the
+            notification recipients even though they triggered the action. Useful for
+            automations acting under your own token. Only takes effect if you are
+            otherwise a subscriber/worker/tracking user of the target.
 
     TaskCreated:
       type: object
@@ -5386,13 +6211,19 @@ components:
         date_add:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         due_date:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
           nullable: true
         due_date_end:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
           nullable: true
         worker:
           $ref: '#/components/schemas/UserBasic'
@@ -5428,20 +6259,30 @@ components:
         date_add:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         date_edited_at:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         due_date:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
           nullable: true
         due_date_end:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
           nullable: true
         date_finished:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
           nullable: true
         minutes:
           type: integer
@@ -5497,9 +6338,13 @@ components:
         due_date:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         due_date_end:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         worker:
           type: integer
         priority_enum:
@@ -5518,12 +6363,24 @@ components:
           type: array
           items:
             type: integer
+        notify_author:
+          type: boolean
+          default: false
+          description: >-
+            When true, the authenticated caller (the action author) is kept in the
+            notification recipients even though they triggered the action. Useful for
+            automations acting under your own token. Only takes effect if you are
+            otherwise a subscriber/worker/tracking user of the target.
 
     Subtask:
       type: object
       properties:
         id:
           type: integer
+        type:
+          type: string
+          enum: [subtask, taskcheck]
+          description: 'Subtask kind discriminator: `subtask` = smart subtask (has its own `task_id`), `taskcheck` = simple checklist item (`task_id` is null). On the public API a `taskcheck` supports read, create, edit (name/worker only), finish, activate and delete via the `/api/v1/taskcheck/{taskcheck_id}/*` endpoints.'
         task_id:
           type: integer
           nullable: true
@@ -5532,13 +6389,19 @@ components:
         date_add:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         due_date:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
           nullable: true
         due_date_end:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
           nullable: true
         count_comments:
           type: integer
@@ -5594,13 +6457,41 @@ components:
             date_add:
               type: string
               format: date-time
+              description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+              example: '2026-04-24T11:12:38'
             date_edited_at:
               type: string
               format: date-time
+              description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+              example: '2026-04-24T11:12:38'
             state:
               $ref: '#/components/schemas/State'
 
     FileUpload:
+      description: |
+        A file to attach to a comment / task description / work report. Provide **one** of two variants:
+        - **By uuid** — reference a file already uploaded via `POST /file/upload` (`{ "uuid": "…" }`).
+        - **By download_url** — give a URL that Freelo downloads the file from server-side (`{ "download_url": "…" }`).
+
+        The variant is chosen by which key is present: if `uuid` is set it is used, otherwise `download_url` is downloaded. `caption` is optional in both.
+      oneOf:
+        - $ref: '#/components/schemas/FileUploadByUuid'
+        - $ref: '#/components/schemas/FileUploadByUrl'
+
+    FileUploadByUuid:
+      type: object
+      required:
+        - uuid
+      properties:
+        uuid:
+          type: string
+          format: uuid
+          description: UUID returned by `POST /file/upload`.
+        caption:
+          type: string
+          description: Optional caption. Ignored if empty.
+
+    FileUploadByUrl:
       type: object
       required:
         - download_url
@@ -5608,8 +6499,12 @@ components:
         download_url:
           type: string
           format: uri
+          description: URL Freelo fetches the file from (server-side download).
         filename:
           type: string
+        caption:
+          type: string
+          description: Optional caption. Ignored if empty.
 
     Comment:
       type: object
@@ -5621,6 +6516,8 @@ components:
         date_add:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         files:
           type: array
           items:
@@ -5659,9 +6556,13 @@ components:
         date_add:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         date_edited_at:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         author:
           $ref: '#/components/schemas/UserBasic'
         task:
@@ -5714,9 +6615,13 @@ components:
         date_add:
           type: string
           format: date-time
+          description: 'Insertion timestamp of the work report (when the row was created in the DB). Naive ISO8601 in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         date_reported:
           type: string
-          format: date
+          format: date-time
+          description: 'Start timestamp of the work session. Naive ISO8601 in Europe/Prague timezone (no offset). End time is derived as `date_reported + minutes`. See "Timestamp Format" in API description.'
+          example: '2026-04-24T08:00:00'
         note:
           type: string
           nullable: true
@@ -5758,6 +6663,8 @@ components:
             date_edited_at:
               type: string
               format: date-time
+              description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+              example: '2026-04-24T11:12:38'
             task:
               nullable: true
               type: object
@@ -5808,6 +6715,8 @@ components:
         date_add:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         note:
           type: string
           nullable: true
@@ -5888,6 +6797,8 @@ components:
         date_action:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         author:
           $ref: '#/components/schemas/UserBasic'
         who:
@@ -5948,6 +6859,8 @@ components:
         date_action:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         type:
           type: string
         author:
@@ -6004,10 +6917,14 @@ components:
         due_date:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
           nullable: true
         due_date_end:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
           nullable: true
 
     FileItem:
@@ -6029,6 +6946,8 @@ components:
         date_add:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         order:
           type: integer
         type:
@@ -6083,6 +7002,8 @@ components:
         date_add:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         priority:
           type: integer
 
@@ -6097,9 +7018,13 @@ components:
         date_add:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         date_edited_at:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
           nullable: true
         author_id:
           type: integer
@@ -6125,9 +7050,13 @@ components:
         date_add:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         date_edited_at:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
           nullable: true
         author_id:
           type: integer
@@ -6164,6 +7093,8 @@ components:
         field_date_add:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         value_uuid:
           type: string
           format: uuid
@@ -6174,9 +7105,13 @@ components:
         value_date_add:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         value_date_edited_at:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
           nullable: true
 
     Note:
@@ -6184,14 +7119,21 @@ components:
       properties:
         id:
           type: integer
+        uuid:
+          type: string
+          format: uuid
         name:
           type: string
         date_add:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         date_edited_at:
           type: string
           format: date-time
+          description: 'Naive ISO8601 timestamp in Europe/Prague timezone (no offset). See "Timestamp Format" in API description.'
+          example: '2026-04-24T11:12:38'
         state:
           $ref: '#/components/schemas/State'
         content:
@@ -6211,35 +7153,128 @@ components:
 
     SearchResult:
       type: object
+      description: |
+        Single search hit. Fields marked **conditional** below appear only for specific `type` values:
+
+        | Conditional field | Appears when `type` is |
+        | --- | --- |
+        | `is_smart` | `task` |
+        | `task` | `task` (only if it's a smart subtask), `taskcheck`, `task_comment` |
+        | `smart_task` | `taskcheck`, `task_comment` (the smart-task ancestor, if any) |
+        | `note` | `note_comment` |
+        | `file` | `file_comment` |
+        | `link` | `link_comment` |
+
       properties:
         score:
           type: number
+          nullable: true
+          description: Elasticsearch relevance score (`null` if missing from the hit).
         id:
           type: integer
+          nullable: true
+          description: |
+            Entity ID. For `task` hits whose entity is a child of a multi-project parent, this is rewritten to the **multi-project parent's task ID** (the original child ID is not exposed here).
         uuid:
           type: string
           format: uuid
           nullable: true
         name:
           type: string
+          nullable: true
         author_id:
           type: integer
+          nullable: true
+          description: ID of the root entity's owner.
         type:
           type: string
-          enum: [task, subtask, project, tasklist, file, comment]
+          description: |
+            Underlying Elasticsearch entity type for this hit (underscore form of `ElasticsearchEntityTypeEnum`). Broader than the `entity_type` request filter.
+          enum:
+            - task
+            - taskcheck
+            - task_comment
+            - note_comment
+            - file_comment
+            - link_comment
+            - project
+            - tasklist
+            - file
+            - link
+            - note
+            - directory
+            - user
         highlight_name:
           type: array
+          description: Highlighted snippets from the entity name (HTML, with `<em>` markers).
           items:
             type: string
         highlight_content:
           type: array
+          description: Highlighted snippets from the entity content (HTML, with `<em>` markers).
           items:
             type: string
         project:
-          $ref: '#/components/schemas/ProjectBasic'
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/ProjectBasic'
         tasklist:
-          $ref: '#/components/schemas/TasklistBasic'
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/TasklistBasic'
         state:
           type: integer
+          description: Numeric state ID of the root entity (active / archived / finished / template).
         is_smart:
           type: boolean
+          description: |
+            **Conditional** — present only for `type=task`. `true` when the task is a smart subtask, `false` for a regular top-level task.
+        task:
+          type: object
+          description: |
+            **Conditional** — parent task of the hit. Present for `type` of `taskcheck`, `task_comment`, and for `task` hits that are smart subtasks (in which case it carries the parent task).
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+        smart_task:
+          type: object
+          nullable: true
+          description: |
+            **Conditional** — smart-task ancestor (if any) for `type` of `taskcheck` or `task_comment`. `null` when the hit is not under a smart task.
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+        note:
+          type: object
+          description: '**Conditional** — present only for `type=note_comment`.'
+          properties:
+            id:
+              type: integer
+              nullable: true
+            name:
+              type: string
+              nullable: true
+        file:
+          type: object
+          description: '**Conditional** — present only for `type=file_comment`.'
+          properties:
+            uuid:
+              type: string
+              nullable: true
+            name:
+              type: string
+              nullable: true
+        link:
+          type: object
+          description: '**Conditional** — present only for `type=link_comment`.'
+          properties:
+            uuid:
+              type: string
+              nullable: true
+            name:
+              type: string
+              nullable: true
