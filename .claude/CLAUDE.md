@@ -105,3 +105,4 @@ Each phase has one or more specialized agents in `.claude/agents/` and a matchin
 - `.claude/agents/` — specialized agents (incl. `orchestrator` and `triage` for autonomous runs)
 - `.claude/commands/` — slash commands (incl. `/auto` and `/resume`)
 - `.claude/skills/` — reusable skills
+- **[`.claude/memory.local/`](memory.local/README.md)** — machine-local agent/fleet identity notes (gitignored, not present in every clone); see `freelocli-identity.md` there for this machine's current agent identity
