@@ -205,9 +205,16 @@ describe('freelo tasks list — happy paths', () => {
     expect(env.data.applied_filters.labels).toEqual(['bug', 'p1']);
   });
 
-  it('3. --project + --tasklist → /project/{p}/tasklist/{t}/tasks unpaginated', async () => {
+  it('3. --project + --tasklist → unpaginated route, defaulted to board order (spec 0060)', async () => {
     const items = await loadFixture<Array<Record<string, unknown>>>('tasklist-tasks.json');
-    server.use(tasksHandlers.tasklistTasksOk(42, 101, items));
+    let capturedUrl = '';
+    const { http, HttpResponse } = await import('msw');
+    server.use(
+      http.get('https://api.freelo.io/v1/project/42/tasklist/101/tasks', ({ request }) => {
+        capturedUrl = new URL(request.url).toString();
+        return HttpResponse.json(items);
+      }),
+    );
 
     const { run } = await import('../../../src/bin/freelo.js');
     const { stdout, exitCode } = await runCli(run, [
@@ -221,14 +228,28 @@ describe('freelo tasks list — happy paths', () => {
       'json',
     ]);
     expect(exitCode).toBe(0);
+    // Issue #108: with neither --order-by nor --order, the CLI must ask for the
+    // tasklist's manual/drag board order explicitly instead of sending a bare
+    // path and inheriting an unstated server default.
+    expect(capturedUrl).toContain('order_by=priority');
+    expect(capturedUrl).toContain('order=asc');
     const env = parseFirstJson(stdout) as {
-      data: { endpoint: string; entity_shape: string; tasks: unknown[] };
+      data: {
+        endpoint: string;
+        entity_shape: string;
+        applied_filters: Record<string, unknown>;
+        tasks: unknown[];
+      };
       paging: { next_cursor: number | null };
     };
     expect(env.data.endpoint).toBe('tasklist-tasks');
     expect(env.data.entity_shape).toBe('task_summary');
     expect(env.data.tasks).toHaveLength(2);
     expect(env.paging.next_cursor).toBeNull();
+    // applied_filters stays a faithful echo of *user*-supplied flags only, so
+    // the envelope is byte-identical for callers that never passed a sort flag.
+    expect(env.data.applied_filters).not.toHaveProperty('order_by');
+    expect(env.data.applied_filters).not.toHaveProperty('order');
   });
 
   it('4. --order-by/--order forwarded on per-tasklist route', async () => {
@@ -260,11 +281,112 @@ describe('freelo tasks list — happy paths', () => {
     expect(exitCode).toBe(0);
     expect(capturedUrl).toContain('order_by=name');
     expect(capturedUrl).toContain('order=desc');
+    // Regression guard for spec 0060: the injected default must never override
+    // an explicit user flag.
+    expect(capturedUrl).not.toContain('order_by=priority');
+    expect(capturedUrl).not.toContain('order=asc');
     const env = parseFirstJson(stdout) as {
       data: { applied_filters: { order_by: string; order: string } };
     };
     expect(env.data.applied_filters.order_by).toBe('name');
     expect(env.data.applied_filters.order).toBe('desc');
+  });
+
+  it('4a. --order-by alone on per-tasklist route → no default injected for either half', async () => {
+    const items = await loadFixture<Array<Record<string, unknown>>>('tasklist-tasks.json');
+    let capturedUrl = '';
+    const { http, HttpResponse } = await import('msw');
+    server.use(
+      http.get('https://api.freelo.io/v1/project/42/tasklist/101/tasks', ({ request }) => {
+        capturedUrl = new URL(request.url).toString();
+        return HttpResponse.json(items);
+      }),
+    );
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'tasks',
+      'list',
+      '--project',
+      '42',
+      '--tasklist',
+      '101',
+      '--order-by',
+      'name',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(0);
+    // Spec 0060 / decision 4: partial supply suppresses the default for *both*
+    // halves, so this request is byte-identical to pre-0060 behavior.
+    expect(capturedUrl).toContain('order_by=name');
+    expect(capturedUrl).not.toMatch(/[?&]order=/);
+    expect(capturedUrl).not.toContain('order_by=priority');
+    const env = parseFirstJson(stdout) as {
+      data: { applied_filters: Record<string, unknown> };
+    };
+    expect(env.data.applied_filters.order_by).toBe('name');
+    expect(env.data.applied_filters).not.toHaveProperty('order');
+  });
+
+  it('4b. --order alone on per-tasklist route → no default order_by injected', async () => {
+    const items = await loadFixture<Array<Record<string, unknown>>>('tasklist-tasks.json');
+    let capturedUrl = '';
+    const { http, HttpResponse } = await import('msw');
+    server.use(
+      http.get('https://api.freelo.io/v1/project/42/tasklist/101/tasks', ({ request }) => {
+        capturedUrl = new URL(request.url).toString();
+        return HttpResponse.json(items);
+      }),
+    );
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'tasks',
+      'list',
+      '--project',
+      '42',
+      '--tasklist',
+      '101',
+      '--order',
+      'desc',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(0);
+    expect(capturedUrl).toContain('order=desc');
+    expect(capturedUrl).not.toContain('order_by');
+    const env = parseFirstJson(stdout) as {
+      data: { applied_filters: Record<string, unknown> };
+    };
+    expect(env.data.applied_filters.order).toBe('desc');
+    expect(env.data.applied_filters).not.toHaveProperty('order_by');
+  });
+
+  it('4c. /all-tasks with no order flags → still sends no order_by (default is scoped)', async () => {
+    const page0 = await loadFixture<Record<string, unknown>>('all-page0.json');
+    let capturedUrl = '';
+    server.use(
+      tasksHandlers.allTasksByQuery((u) => {
+        capturedUrl = u.toString();
+        return true;
+      }, page0 as never),
+    );
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { exitCode } = await runCli(run, [
+      'tasks',
+      'list',
+      '--project',
+      '42',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(0);
+    // Spec 0060 §3: the board-order default belongs to the per-tasklist route
+    // only. /all-tasks keeps its own documented default (date_add).
+    expect(capturedUrl).not.toContain('order_by');
+    expect(capturedUrl).not.toMatch(/[?&]order=/);
   });
 
   it('5. --worker + --project + --tasklist falls through to /all-tasks', async () => {
