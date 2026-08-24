@@ -112,6 +112,14 @@ export async function getAllTasks(
   return { page, raw };
 }
 
+/**
+ * Ordering the CLI asks for on `/project/{p}/tasklist/{t}/tasks` when the
+ * user expresses no preference. `priority` is the tasklist's manual board
+ * order on this endpoint; see `getTasklistActiveTasks` and spec 0060.
+ */
+export const TASKLIST_TASKS_DEFAULT_ORDER_BY = 'priority';
+export const TASKLIST_TASKS_DEFAULT_ORDER = 'asc';
+
 export type TasklistTasksOpts = FetchOpts & {
   projectId: number;
   tasklistId: number;
@@ -124,6 +132,21 @@ export type TasklistTasksOpts = FetchOpts & {
  * NOT paginated. Synthesizes a single-page wrapper. Only `order_by` /
  * `order` are documented filter passthroughs; the dispatcher in the leaf
  * command guarantees no other filters are routed here. Spec 0017 §2.2.
+ *
+ * Ordering (spec 0060, issue #108): when the caller supplies **neither**
+ * `orderBy` nor `order`, the request explicitly asks for
+ * `order_by=priority&order=asc` rather than omitting both parameters and
+ * inheriting an unstated server default. On this endpoint `priority` is the
+ * tasklist's manual / drag-and-drop board order — not the L/M/H
+ * `priority_enum` that `POST /task/{id}` accepts. That was verified live
+ * against a dedicated test account (2026-08-24): dragging a task to the top
+ * of the board in the web UI moved it to index 0 in the response, for both
+ * the bare request and `order_by=priority`, while `order_by=date_add`
+ * returned a distinct order.
+ *
+ * A caller-supplied value always wins. Supplying only one of the two flags
+ * suppresses the default for both, so a partially-specified request stays
+ * byte-identical on the wire to what this function sent before spec 0060.
  */
 export async function getTasklistActiveTasks(
   client: HttpClient,
@@ -133,13 +156,16 @@ export async function getTasklistActiveTasks(
     string,
     string | number | boolean | readonly (string | number)[] | undefined
   > = {};
-  if (opts.orderBy !== undefined) params['order_by'] = opts.orderBy;
-  if (opts.order !== undefined) params['order'] = opts.order;
+  if (opts.orderBy === undefined && opts.order === undefined) {
+    params['order_by'] = TASKLIST_TASKS_DEFAULT_ORDER_BY;
+    params['order'] = TASKLIST_TASKS_DEFAULT_ORDER;
+  } else {
+    if (opts.orderBy !== undefined) params['order_by'] = opts.orderBy;
+    if (opts.order !== undefined) params['order'] = opts.order;
+  }
+  // Every branch above writes at least one parameter, so `qs` is never empty.
   const qs = buildQuery(params);
-  const path =
-    qs.length > 0
-      ? `/project/${opts.projectId}/tasklist/${opts.tasklistId}/tasks?${qs}`
-      : `/project/${opts.projectId}/tasklist/${opts.tasklistId}/tasks`;
+  const path = `/project/${opts.projectId}/tasklist/${opts.tasklistId}/tasks?${qs}`;
   const raw = await client.request({
     method: 'GET',
     path,

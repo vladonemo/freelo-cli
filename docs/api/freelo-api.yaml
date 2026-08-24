@@ -1380,12 +1380,26 @@ paths:
         - $ref: '#/components/parameters/TasklistIdParam'
         - name: order_by
           in: query
+          description: |
+            Sort key. `priority` here means the **tasklist's manual / drag-and-drop board order** — the
+            order tasks appear in on the Freelo web board — and **not** the L/M/H `priority_enum` field
+            that `POST /task/{task_id}` accepts. The two are unrelated despite the shared name.
+
+            Verified live 2026-08-24 against a dedicated test account (freelo-cli issue #108, spec 0060):
+            omitting `order_by` and passing `order_by=priority` returned byte-identical order; dragging a
+            task to the top of the board in the web UI moved it to index 0 in both responses;
+            `order_by=date_add` returned a distinct order. The documented `default: priority` below is
+            therefore accurate as of that date.
+
+            Note that no response field exposes this ordering — `TaskSummary` carries no position/priority
+            key — so board order can only be *requested*, never reconstructed client-side.
           schema:
             type: string
             enum: [priority, name, date_add, date_edited_at]
             default: priority
         - name: order
           in: query
+          description: Sort direction applied to `order_by`.
           schema:
             type: string
             enum: [asc, desc]

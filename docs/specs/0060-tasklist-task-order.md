@@ -1,11 +1,11 @@
 # 0060 — `tasks list` per-tasklist route does not request an explicit order
 
-**Status:** Specced + planned — **BLOCKED at implement gate** (needs a live API check or a human decision)
+**Status:** Implemented — §11 resolved by live verification (see §12); Option A taken
 **Run:** 2026-08-24-1759-fix-tasklist-task-order
 **Issue:** [#108](https://github.com/vladonemo/freelo-cli/issues/108)
 **Type:** fix
-**Changeset:** `patch` (if Option B lands) / none (if Option C or docs-only)
-**Risk tier:** Red
+**Changeset:** `patch`
+**Risk tier:** Red (PR stops for human review — no auto-merge)
 
 ---
 
@@ -326,20 +326,68 @@ evidence rather than hypotheses — the precedent is spec 0059's live repro (§2
 
 ---
 
+## 12. Resolution of §11 — live verification (2026-08-24)
+
+Option **A** was taken. The human granted a dedicated test account and the coordinating session ran
+the §11 experiment out-of-band (no code in this repo made the calls; the key was rotated afterwards).
+Project/tasklist ids and raw bodies are deliberately not reproduced here — the account's content was
+disposable onboarding-template data and carries no evidence value. The full verbatim answer is in
+`docs/runs/2026-08-24-1759-fix-tasklist-task-order/phase-reports/04-implement-resume.md`.
+
+**Observations**
+
+1. No `order_by` and `order_by=priority` returned byte-identical task order.
+2. After a task was dragged to the top of the board in the Freelo web UI, both re-fetches showed it
+   at index 0 — it moved from index 3 to index 0 in both.
+3. `order_by=date_add` returned a genuinely different, distinct order in both pulls.
+
+**Answers**
+
+| OQ | Question | Answer |
+|---|---|---|
+| OQ-1 | What does the live endpoint return with no `order_by`? | Identical to `order_by=priority` — the doc's `default: priority` is accurate. **H1 refuted.** |
+| OQ-2 | What does `order_by=priority` sort by? | The tasklist's manual / drag board order. **H2 refuted** — it is not the L/M/H `priority_enum`, despite the name collision in §4.4. |
+| OQ-3 | Is there any `order_by` value that yields board order? | Yes — `priority`. **H3 refuted.** |
+
+**Consequences for the rest of this spec**
+
+- §6.3 no longer applies. This is a **correctness** fix, not determinism-only: the changeset and PR
+  say *fixes #108*. **H4 is the closest surviving reading**, minus the "default silently differs"
+  half — `priority` is the board-position column *and* the live default matches the doc.
+- §10's non-goal "no change to `freelo-api.yaml`" is **lifted for the `description` only**. The
+  `default:` line was empirically confirmed correct and is left as-is; what the experiment added is
+  the missing *meaning* of `priority`, which is now recorded on the parameter (TODO-3, amended).
+- §8's 8a/8b choice and TODO-4 were framed as Option-B-only sub-decisions. They still have to be
+  answered by an Option-A implementation; the human delegated both back to the orchestrator. See
+  decision 4 — **8b** (`applied_filters` stays user-only) and **partial supply injects nothing**.
+- §4.3 stands: no undeclared ordering key was observed to be worth declaring, and no client-side
+  re-sort is possible. `TaskSummarySchema` is unchanged.
+
+### 12.1 Out of scope, flagged for a later human decision
+
+The reported symptom only reproduces on the exact route `/project/{p}/tasklist/{t}/tasks` — that
+is, `--project` **and** `--tasklist`, and no other filter. Any other invocation shape (`--tasklist`
+alone, or any added filter) falls through to `/all-tasks` via `resolveRoute()`
+(`src/commands/tasks/list.ts:165-191`), which defaults to `date_add` and has **no concept of manual
+order at all**. That silent fallthrough is plausibly the real mechanism behind how #108 was noticed.
+It is a routing/UX question, not an ordering bug, and this run deliberately does not touch it.
+
+---
+
 ## Plan
 
-**Not executable on this run.** Every step below is gated on the §11 resolution; the run pauses
-before TODO-1. Recorded now so `/resume` has a contract to execute against rather than re-deriving
-one.
+**Executed on `/resume` after §12.** Slice 0 resolved out-of-band; slices 1-3 landed as described,
+with TODO-2 dropped and TODO-3 amended per §12.
 
 ### Slice 0 — resolve §11 (human / networked)
 
-- [ ] **TODO-0.** Run the §11 experiment against a dedicated test account, or take the human's
+- [x] **TODO-0.** Run the §11 experiment against a dedicated test account, or take the human's
       §11 decision from `pause.md`. **Gates everything below.** No new deps.
+      → Done out-of-band; Option A, all three OQs answered (§12).
 
-### Slice 1 — code (Option B only; skip entirely under Option A→H3 or Option C)
+### Slice 1 — code
 
-- [ ] **TODO-1.** `src/api/tasks.ts` — in `getTasklistActiveTasks` (:128-152), replace the
+- [x] **TODO-1.** `src/api/tasks.ts` — in `getTasklistActiveTasks` (:128-152), replace the
       conditional-only parameter assembly with defaulted assembly:
       `params['order_by'] = opts.orderBy ?? 'priority'`, `params['order'] = opts.order ?? 'asc'`.
       The `qs.length > 0` branch at :139-142 becomes dead (`qs` is now always non-empty) — collapse
@@ -347,43 +395,47 @@ one.
       entry #4's spirit. Update the JSDoc at :122-127 to state that the defaults are sent
       explicitly and **why** (deterministic output; do not rely on an unstated server default), and
       cite this spec.
-- [ ] **TODO-2.** *(Only under §8a.)* `src/commands/tasks/list.ts` — `buildAppliedFilters` (:197-215)
+      → Done, with one amendment from decision 4: the defaults are injected only when **both**
+      opts are absent (not `??` per-half), so partial supply stays byte-identical to pre-0060.
+      `qs` is still always non-empty in every branch, so the dead ternary was collapsed as
+      planned. Values live in `TASKLIST_TASKS_DEFAULT_ORDER_BY` / `TASKLIST_TASKS_DEFAULT_ORDER`.
+- [x] ~~**TODO-2.**~~ **Dropped** — §8b chosen (decision 4). `buildAppliedFilters` and
+      `filtersForAllTasks` are untouched; the envelope is byte-identical for every existing caller.
+      *(original text)* *(Only under §8a.)* `src/commands/tasks/list.ts` — `buildAppliedFilters` (:197-215)
       currently echoes user-supplied flags only. Make the `tasklist-tasks` route echo the effective
       values. Note `buildAppliedFilters` is shared with the `/all-tasks` route, so this must **not**
       be done inside it unconditionally — either pass an effective-defaults argument or apply the
       overlay at the `tasklist-tasks` call site (:396, :418-425). `filtersForAllTasks` (:496-514)
       must remain untouched so `/all-tasks` keeps its own documented default.
-- [ ] **TODO-3.** *(Only under H1/H4.)* `docs/api/freelo-api.yaml:1386` — correct `default:` to the
-      empirically observed value, and add a `description:` to the `order_by` parameter recording
-      what each enum value sorts by, with the capture date. This is the durable output of the
-      experiment.
-- [ ] **TODO-4 (decision required, do not guess).** Partial supply: user passes `--order-by name`
-      but not `--order`. Today neither `order` nor a default is sent. `??`-defaulting sends
-      `order=asc`. Is that the intended read of the flag pair, or should a default only be injected
-      when **both** are absent? Affects §9 test 3. Resolve alongside §8a/§8b — same class of
-      question (what does the envelope/wire owe the user), same decision-maker.
+- [x] **TODO-3.** *(amended — §12.)* `docs/api/freelo-api.yaml:1381-1392` — `default: priority` was
+      empirically **confirmed** and therefore left unchanged; what was added is the missing
+      `description:` on `order_by` (and a one-liner on `order`), recording that `priority` is the
+      manual board order and explicitly not the L/M/H `priority_enum`, with the capture date and a
+      pointer to #108. This is the durable output of the experiment.
+- [x] **TODO-4 (decided — decision 4).** Partial supply injects **nothing**: a default is added only
+      when both flags are absent. `--order-by name` alone still sends `order_by=name` and no
+      `order`, byte-identical to pre-0060. Covered by §9 test 3 (tests `4a` / `4b` in the suite).
 
 ### Slice 2 — tests
 
-- [ ] **TODO-5.** `test/commands/tasks/list.test.ts` — add §9 tests 1-4 using the URL-capture
-      pattern at :234-267. Extend existing test 3 (:208-231, the no-flags per-tasklist case) to
-      assert the new query string rather than adding a near-duplicate.
-- [ ] **TODO-6.** *(Only under §8a.)* Assert the `applied_filters` echo for the defaulted case.
-- [ ] **TODO-7.** Consider promoting `tasklistTasksOk` (`test/msw/handlers.ts:600-607`) to accept
-      `{ request }` and expose the captured URL, so future tests on this route don't each re-declare
-      an inline `http.get`. Cosmetic; skip if it widens the diff.
+- [x] **TODO-5.** `test/commands/tasks/list.test.ts` — §9 tests 1-4 added via the URL-capture
+      pattern. Existing test `3.` was extended in place (no near-duplicate); new `4a` (order-by
+      alone), `4b` (order alone), `4c` (`/all-tasks` leak guard); existing `4.` gained negative
+      assertions that the default never overrides an explicit flag.
+- [x] ~~**TODO-6.**~~ **Dropped** with TODO-2 (§8b). Instead, test `3.` asserts the *absence* of
+      `order_by`/`order` in `applied_filters` — the envelope-stability guarantee, tested directly.
+- [x] ~~**TODO-7.**~~ **Skipped** as permitted (cosmetic; would widen the diff into a shared handler
+      used by other suites).
 
 ### Slice 3 — docs + changeset
 
-- [ ] **TODO-8.** `docs/commands/tasks-list.md:60` — the `--order-by` row says default `unset`.
-      Under B it becomes `priority` **on the per-tasklist route only** (`/all-tasks` keeps `unset`
-      → server default `date_add`). Add a short note on what board order does or doesn't map to,
-      per the §11 finding.
-- [ ] **TODO-9.** Changeset, `patch`. Wording must respect §6.3: under H2/H3 it says
-      *"always sends an explicit sort order so output is deterministic"* and **not** *"fixes #108"*.
-      Under §8a it must also call out the `applied_filters` value change.
-- [ ] **TODO-10.** `pnpm fix:readme` is **not** required — no command added, removed, renamed, or
-      re-described (`.claude/docs/sdlc.md` Phase 6). Verify with `pnpm check:readme` regardless.
+- [x] **TODO-8.** `docs/commands/tasks-list.md` — both order rows footnoted, and a new `## Ordering`
+      section explains board order, the both-flags-absent trigger, the `priority_enum` name
+      collision, and why `/all-tasks` cannot offer board order.
+- [x] **TODO-9.** Changeset, `patch`. §6.3 is lifted by §12, so it says **fixes #108** and states
+      that the envelope is unchanged (no `applied_filters` value change under §8b).
+- [x] **TODO-10.** `pnpm fix:readme` not required — no command added, removed, renamed, or
+      re-described. Verified with `pnpm check:readme`.
 
 ### New dependencies
 

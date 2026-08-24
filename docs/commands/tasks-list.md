@@ -57,12 +57,46 @@ guessing.
 | `--finished-from <date>` | strict `YYYY-MM-DD`                           | unset   | Tasks finished on or after this date (`finished_date_range[date_from]`).                                                                                 |
 | `--finished-to <date>`   | strict `YYYY-MM-DD`                           | unset   | Tasks finished on or before this date (`finished_date_range[date_to]`).                                                                                  |
 | `--search <query>`       | string                                        | unset   | Free-text search (`search_query=<q>`). Not supported on the per-tasklist active route — drop `--project` to land on `/all-tasks`.                        |
-| `--order-by <field>`     | `priority`/`name`/`date_add`/`date_edited_at` | unset   | Order key (`order_by=<field>`).                                                                                                                          |
-| `--order <dir>`          | `asc`/`desc`                                  | unset   | Order direction (`order=<dir>`).                                                                                                                         |
+| `--order-by <field>`     | `priority`/`name`/`date_add`/`date_edited_at` | unset\* | Order key (`order_by=<field>`). \*On the per-tasklist route, omitting **both** order flags sends `order_by=priority` — see [Ordering](#ordering).        |
+| `--order <dir>`          | `asc`/`desc`                                  | unset\* | Order direction (`order=<dir>`). \*See [Ordering](#ordering).                                                                                            |
 | `--page <N>`             | int >= 1 (1-indexed for the user)             | unset   | Single-page fetch. Mapped to `?p=N-1` on the wire. Mutually exclusive with `--all`/`--cursor`.                                                           |
 | `--all`                  | boolean                                       | `false` | Iterate every page until exhausted. Mutually exclusive with `--page`/`--cursor`. No-op on the per-tasklist (unpaginated) route.                          |
 | `--cursor <n>`           | int >= 0 (0-indexed)                          | unset   | Resume at the cursor reported by a prior envelope. On the per-tasklist route, only `--cursor 0` is allowed (anything else fails closed).                 |
 | `--fields <list>`        | comma-separated snake_case keys               | unset   | Project each record down to these top-level keys. Validated against the entity shape _for the resolved route_ (so `state` is invalid on `task_summary`). |
+
+## Ordering
+
+Ordering is server-side. Nothing in the response exposes the applied order, so
+it can only be requested, never reconstructed locally.
+
+**Per-tasklist route** (`--project <p> --tasklist <t>`, no other filters): when
+you pass **neither** `--order-by` nor `--order`, the CLI explicitly requests
+`order_by=priority&order=asc`. On this endpoint `priority` means the tasklist's
+**manual / drag-and-drop board order** — the order the tasks appear in on the
+Freelo web board. It is _not_ the L/M/H task priority field (Freelo reuses the
+word; the sort key and the `priority_enum` field are unrelated).
+
+```bash
+freelo tasks list --project 42 --tasklist 101
+# wire: GET /v1/project/42/tasklist/101/tasks?order_by=priority&order=asc
+```
+
+Passing either flag turns the default off for both halves, so an explicit
+choice is always honored verbatim:
+
+```bash
+freelo tasks list --project 42 --tasklist 101 --order-by date_add
+# wire: GET /v1/project/42/tasklist/101/tasks?order_by=date_add
+#       (no `order` is sent; the server applies its own default direction)
+```
+
+`applied_filters` continues to echo only the flags **you** passed, so the
+envelope is unchanged for callers that never sorted explicitly.
+
+**`/all-tasks` route** (every other invocation shape): unchanged. No order
+parameter is sent unless you pass one, and the server's documented default
+there is `date_add`. `/all-tasks` has no concept of manual board order — if you
+need board order, use the per-tasklist route.
 
 ## Examples
 
