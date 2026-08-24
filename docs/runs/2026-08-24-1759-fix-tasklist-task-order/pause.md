@@ -120,3 +120,33 @@ If **A**, include the project id, tasklist id, and the board order you observe i
 re-invoke with `--allow-network`.
 If **B** or **B′**, also state the §8a/§8b choice and the TODO-4 partial-supply behavior, or say
 "architect's call" and the recommendations in spec §8 will be taken.
+
+---
+
+## RESOLVED — 2026-08-24 (appended on resume; nothing above was altered)
+
+**Answer:** **A**. The human granted a dedicated test account and the live experiment was run
+out-of-band by the coordinating session (no code in this repo made the calls; the key was rotated
+afterwards). All three §11 open questions are closed:
+
+- **OQ-1** — no `order_by` returns the same order as `order_by=priority`. The doc's
+  `default: priority` is accurate. **H1 refuted.**
+- **OQ-2** — `order_by=priority` sorts by the tasklist's manual / drag board order, not the L/M/H
+  `priority_enum`. **H2 refuted.** A task dragged to the top of the board in the web UI moved from
+  index 3 to index 0 in the response.
+- **OQ-3** — moot; `priority` *is* the board-order value. **H3 refuted.**
+
+Consequence: this became a **correctness** fix, not the determinism-only change option B would have
+shipped. §6.3's prohibition on saying "fixes #108" was lifted.
+
+The verbatim human answer is in `phase-reports/04-implement-resume.md`; the analysis is in spec
+§12. The two sub-decisions this report flagged as unresolved (§8a vs §8b, and TODO-4 partial supply)
+were delegated back to the orchestrator and answered in
+`docs/decisions/2026-08-24-1759-fix-tasklist-task-order-4-envelope-user-only-and-partial-supply.md`
+— **8b** and **inject nothing on partial supply**.
+
+The environment note above (local `pnpm test` failures) was re-confirmed unchanged at review time
+and is still not a regression from this run. See `phase-reports/06-review.md` §Gates.
+
+**Outcome:** PR https://github.com/vladonemo/freelo-cli/pull/110 — open, awaiting human review
+(Red tier, no auto-merge).
