@@ -58,7 +58,10 @@ on the committed tree. `test/commands/tasks/list.test.ts` 46/46.
 
 Full-suite `pnpm test:cov` is red locally with 11 pre-existing, load-induced failures — identical in
 count and shape to the docs-only baseline recorded in `pause.md`, on a source tree CI was green on.
-Detail in `phase-reports/06-review.md` §Gates. CI on the PR is the authority.
+Detail in `phase-reports/06-review.md` §Gates. CI on the PR is the authority — and **all 7 checks
+passed** on PR #110 (`pnpm test:cov` green on Node 22/24 across ubuntu, macos and windows, so the
+coverage thresholds are met too). That settles it: the local failures are this machine, not this
+change.
 
 ## Carried forward for a human
 

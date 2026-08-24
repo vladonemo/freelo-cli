@@ -74,3 +74,7 @@ subprocess watchdog. Total wall time 756s for 4454s of test time.
 isolation. CI is the authoritative gate here (branch protection requires all 7 checks), and the
 run's parameters explicitly instructed that this pre-existing condition not block the pipeline and
 not be investigated further. It remains worth a separate issue if it reproduces on an idle machine.
+
+**Post-push CI result:** all 7 required checks passed on PR #110 — `pnpm test:cov` green on Node
+22 and 24 across ubuntu, macos and windows, plus `check README autogen`. Coverage thresholds met.
+The local red suite was the machine.
