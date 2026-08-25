@@ -2770,6 +2770,64 @@ export const taskLabelsHandlers = {
       HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
     );
   },
+
+  /* ---------------------------------------------------------------------
+   *  GET /task-labels/find-available — list (M04, spec 0062)
+   *
+   *  Distinct endpoint from `GET /project-labels/find-available`, which is
+   *  served by `projectLabelsHandlers.findAvailable*` above. Different
+   *  resource group, uuid-keyed items, accepts `?project_id=`.
+   * ------------------------------------------------------------------- */
+
+  /** 200 with a `{ labels: TaskLabel[] }` body. */
+  findOk(labels: Record<string, unknown>[]): RequestHandler {
+    return http.get(`${API_BASE}/task-labels/find-available`, () => HttpResponse.json({ labels }));
+  },
+
+  /**
+   * 200, and records the full request URL into `capture` so the test can
+   * assert on the query string (presence/absence of `project_id`).
+   */
+  findOkCapturing(capture: string[], labels: Record<string, unknown>[] = []): RequestHandler {
+    return http.get(`${API_BASE}/task-labels/find-available`, ({ request }) => {
+      capture.push(request.url);
+      return HttpResponse.json({ labels });
+    });
+  },
+
+  /** 200 with malformed body — `labels` key missing → schema validation fails. */
+  findMalformed(): RequestHandler {
+    return http.get(`${API_BASE}/task-labels/find-available`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  findUnauthorized(): RequestHandler {
+    return http.get(`${API_BASE}/task-labels/find-available`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  findServerError(status = 500): RequestHandler {
+    return http.get(`${API_BASE}/task-labels/find-available`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  findRateLimited(): RequestHandler {
+    return http.get(
+      `${API_BASE}/task-labels/find-available`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  findNetworkError(): RequestHandler {
+    return http.get(`${API_BASE}/task-labels/find-available`, () => HttpResponse.error());
+  },
 };
 
 /**

@@ -1,13 +1,20 @@
 import { type ApiResponse, type HttpClient } from './client.js';
-import { SuccessResponseSchema } from './schemas/task-label.js';
+import {
+  FindAvailableTaskLabelsResponseSchema,
+  SuccessResponseSchema,
+  type TaskLabel,
+} from './schemas/task-label.js';
+import { buildQuery } from '../lib/query.js';
 
 /**
- * Wire wrappers for the `task-labels` resource group, R24 (spec 0036).
+ * Wire wrappers for the `task-labels` resource group, R24 (spec 0036) and
+ * M04 (spec 0062).
  *
- * Three endpoints:
+ * Four endpoints:
  *   - `POST /task-labels`                                — bulk-create
  *   - `POST /task-labels/add-to-task/{task_id}`          — attach
  *   - `POST /task-labels/remove-from-task/{task_id}`     — detach
+ *   - `GET  /task-labels/find-available`                 — list (M04)
  *
  * Verbs reconciled against OpenAPI (spec 0036 decision 01) — detach is POST,
  * not DELETE despite roadmap copy. OpenAPI is authoritative.
@@ -28,6 +35,22 @@ export const addTaskLabelsPath = (taskId: number): string => `/task-labels/add-t
 
 export const removeTaskLabelsPath = (taskId: number): string =>
   `/task-labels/remove-from-task/${taskId}`;
+
+export const FIND_AVAILABLE_TASK_LABELS_PATH = '/task-labels/find-available';
+
+/**
+ * Compose the find-available path, appending `?project_id=` only when a
+ * project scope was requested. Omitted → bare path, no query string at all
+ * (matching the convention in `src/api/tasks.ts` / `src/api/reports.ts`).
+ *
+ * Exported so tests can assert the composed path without a live request.
+ */
+export const findAvailableTaskLabelsPath = (projectId?: number): string => {
+  const qs = buildQuery({ project_id: projectId });
+  return qs.length > 0
+    ? `${FIND_AVAILABLE_TASK_LABELS_PATH}?${qs}`
+    : FIND_AVAILABLE_TASK_LABELS_PATH;
+};
 
 /* ---------------------------------------------------------------------------
  *  Shared opts shape — mirrors the convention in `src/api/project-labels.ts`.
@@ -230,4 +253,46 @@ export async function removeTaskLabelsFromTask(
     ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
   });
   return { raw };
+}
+
+/* ---------------------------------------------------------------------------
+ *  GET /task-labels/find-available  (M04, spec 0062)
+ * ------------------------------------------------------------------------- */
+
+export type FindAvailableTaskLabelsOpts = FetchOpts & {
+  /** Restrict to labels used in this project. Omitted → all usable labels. */
+  projectId?: number;
+};
+
+export type FindAvailableTaskLabelsResult = {
+  labels: TaskLabel[];
+  raw: ApiResponse<unknown>;
+};
+
+/**
+ * `GET /task-labels/find-available` — every task label usable by the caller,
+ * sorted by `name` ascending (server-side), optionally scoped to one project.
+ *
+ * **Empty is a success, not an error.** The server returns HTTP 200 with
+ * `{ "labels": [] }` when `projectId` names a project the caller can't reach
+ * *and* when the caller has no accessible projects at all. It does not
+ * distinguish the two, and neither does this wrapper — no synthesised 404, no
+ * throw. Spec 0062 §5 / decision 04.
+ *
+ * Not to be confused with `findAvailableLabels` in `src/api/project-labels.ts`
+ * (`GET /project-labels/find-available`) — separate endpoint, id-keyed items,
+ * accepts no query parameters. Spec 0062 §3.1.
+ */
+export async function findAvailableTaskLabels(
+  client: HttpClient,
+  opts: FindAvailableTaskLabelsOpts = {},
+): Promise<FindAvailableTaskLabelsResult> {
+  const raw = await client.request({
+    method: 'GET',
+    path: findAvailableTaskLabelsPath(opts.projectId),
+    schema: FindAvailableTaskLabelsResponseSchema,
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+  return { labels: raw.data.labels, raw };
 }
