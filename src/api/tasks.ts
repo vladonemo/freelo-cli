@@ -11,6 +11,7 @@ import {
   type TaskDetail,
   type TaskComment,
   type Subtask,
+  type TaskOrderBy,
 } from './schemas/task.js';
 import { type NormalizedPage, normalizePaginated, synthesizeUnpaginated } from './pagination.js';
 import { buildQuery } from '../lib/query.js';
@@ -48,7 +49,8 @@ export type AllTasksFilters = {
   finishedFrom?: string;
   finishedTo?: string;
   search?: string;
-  orderBy?: 'priority' | 'name' | 'date_add' | 'date_edited_at';
+  /** `/all-tasks` documents all five values; server default is `date_add`. */
+  orderBy?: TaskOrderBy;
   order?: 'asc' | 'desc';
 };
 
@@ -123,7 +125,7 @@ export const TASKLIST_TASKS_DEFAULT_ORDER = 'asc';
 export type TasklistTasksOpts = FetchOpts & {
   projectId: number;
   tasklistId: number;
-  orderBy?: 'priority' | 'name' | 'date_add' | 'date_edited_at';
+  orderBy?: TaskOrderBy;
   order?: 'asc' | 'desc';
 };
 
@@ -147,6 +149,8 @@ export type TasklistTasksOpts = FetchOpts & {
  * A caller-supplied value always wins. Supplying only one of the two flags
  * suppresses the default for both, so a partially-specified request stays
  * byte-identical on the wire to what this function sent before spec 0060.
+ * That includes `orderBy: 'due_date'` (spec 0061), which this branch treats
+ * like any other caller-supplied value — it is opaque here.
  */
 export async function getTasklistActiveTasks(
   client: HttpClient,

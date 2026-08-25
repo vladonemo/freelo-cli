@@ -17,12 +17,14 @@ import {
 } from '../../api/pagination.js';
 import {
   TASK_FULL_DEFAULT_FIELDS,
+  TASK_ORDER_BY_VALUES,
   TASK_SUMMARY_DEFAULT_FIELDS,
   type AppliedFilters,
   type EndpointKey,
   type TaskEntityShape,
   type TaskFull,
   type TaskListData,
+  type TaskOrderBy,
   type TaskSummary,
 } from '../../api/schemas/task.js';
 import { buildEnvelope } from '../../ui/envelope.js';
@@ -60,7 +62,7 @@ type ListOpts = {
   finishedFrom?: string;
   finishedTo?: string;
   search?: string;
-  orderBy?: 'priority' | 'name' | 'date_add' | 'date_edited_at';
+  orderBy?: TaskOrderBy;
   order?: 'asc' | 'desc';
   page?: number;
   all?: boolean;
@@ -271,15 +273,8 @@ export function registerList(
       (raw) => parseDateFlag('--finished-to', raw),
     )
     .option('--search <query>', 'Free-text search query.')
-    .option(
-      '--order-by <field>',
-      'Order results by: priority, name, date_add, date_edited_at.',
-      (raw) =>
-        parseEnumFlag(
-          '--order-by',
-          ['priority', 'name', 'date_add', 'date_edited_at'] as const,
-          raw,
-        ),
+    .option('--order-by <field>', `Order results by: ${TASK_ORDER_BY_VALUES.join(', ')}.`, (raw) =>
+      parseEnumFlag('--order-by', TASK_ORDER_BY_VALUES, raw),
     )
     .option('--order <dir>', 'Order direction: asc or desc.', (raw) =>
       parseEnumFlag('--order', ['asc', 'desc'] as const, raw),
