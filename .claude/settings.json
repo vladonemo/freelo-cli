@@ -1,0 +1,21 @@
+{
+    "permissions":  {
+                        "defaultMode":  "acceptEdits",
+                        "allow":  [
+                                      "Read",
+                                      "Grep",
+                                      "Glob",
+                                      "Edit",
+                                      "Write",
+                                      "Bash",
+                                      "WebSearch",
+                                      "WebFetch"
+                                  ],
+                        "deny":  [
+                                     "Read(//**/.env)",
+                                     "Read(//**/.env.*)",
+                                     "Read(//**/.claude/channels/**)",
+                                     "Edit(//**/.claude/channels/**)"
+                                 ]
+                    }
+}
