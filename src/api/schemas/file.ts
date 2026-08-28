@@ -207,3 +207,48 @@ export const FilesDownloadDataSchema = z.object({
   overwrote: z.boolean(),
 });
 export type FilesDownloadData = z.infer<typeof FilesDownloadDataSchema>;
+
+/* ---------------------------------------------------------------------------
+ *  M07 — `freelo files delete`  (spec 0064)
+ *
+ *  Wire endpoint: `DELETE /file/{file_uuid}` (yaml :4492-4521,
+ *  `deleteDocOrFileByUuid`) — soft-deletes a file **or** a document/note,
+ *  resolving which from the UUID server-side.
+ *
+ *  The 200 body is a bare `SuccessResponse` with no per-resource detail, so
+ *  `data` can only echo the input and the verb's implied outcome. In
+ *  particular there is deliberately **no** `type` / `kind` field: the endpoint
+ *  never reports whether it removed a file or a document, and inventing one
+ *  would be a guess (spec 0064 §4.2).
+ *
+ *  Spec 0064 §4.1.
+ * ------------------------------------------------------------------------- */
+
+export const FilesDeleteDataSchema = z.object({
+  /** The UUID we asked to delete (echoed for trace correlation). */
+  uuid: z.string().min(1),
+  current_state: z.literal('deleted'),
+  /**
+   * Always `false` in v1 — this command never absorbs a 404 into an idempotent
+   * success, because a 404 here means "missing **or** not visible to you"
+   * (yaml :4504), so absorbing it could report success for a document that is
+   * still there (spec 0064 §5.1).
+   *
+   * Kept in the envelope for cross-command consistency with
+   * `freelo.tasks.delete/v1` and `freelo.comments.delete/v1`: an agent
+   * scripting deletes across resources reads one uniform field rather than a
+   * per-resource special case.
+   */
+  already_in_target_state: z.boolean(),
+  /** Present only on `--dry-run` — echoes the call that would have been made. */
+  would: z
+    .object({
+      method: z.literal('DELETE'),
+      path: z.string(),
+      body: z.unknown(),
+    })
+    .optional(),
+  /** Present only in `--stdin` batch mode: the 0-based input line index. */
+  line_index: z.number().int().min(0).optional(),
+});
+export type FilesDeleteData = z.infer<typeof FilesDeleteDataSchema>;

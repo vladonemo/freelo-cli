@@ -163,5 +163,6 @@ The CLI HTML-escapes `<>&"'` in filenames before splicing them into the `<a data
 ## See also
 
 - [`freelo comments add`](comments-add.md) — adds a comment to a task without uploading files.
+- [`freelo files delete`](files-delete.md) — remove a file or document by UUID.
 - Roadmap entry: R25 in [`docs/roadmap.md`](../roadmap.md).
 - Spec: [0037-r25-files-upload](../specs/0037-r25-files-upload.md).

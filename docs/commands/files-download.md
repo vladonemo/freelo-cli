@@ -134,4 +134,5 @@ freelo files download aaa00000-0000-0000-0000-000000000001 \
 
 - [`freelo files list`](./files-list.md) — discover UUIDs.
 - [`freelo files upload`](./files-upload.md) — produce UUIDs.
+- [`freelo files delete`](./files-delete.md) — remove a file or document by UUID.
 - [Spec 0039](../specs/0039-r27-files-download.md) — full design doc.

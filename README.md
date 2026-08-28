@@ -74,6 +74,7 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 
 ### files
 
+- `freelo files delete [uuid...]` — Delete one or more files or documents/notes by UUID. The endpoint resolves which kind the UUID refers to, so one command covers both. Deletion is a soft-delete — the resource is marked deleted, not physically removed, and there is no undelete endpoint. Destructive — requires --yes (non-TTY) or interactive confirmation (TTY). Unlike `tasks delete`, a 404 is reported as an error, not as an idempotent already-deleted success, because Freelo returns 404 both for resources that are gone and for ones you cannot see.
 - `freelo files download <uuid>` — Download a file by UUID. Streams the binary body to a local path (atomic write) or to stdout. Refuses to overwrite an existing destination unless --force is set.
 - `freelo files list` — List every directory, link, file, and document the caller can see (paginated). Filter by --project / --type. No --task filter — endpoint does not surface one.
 - `freelo files upload <path...>` — Upload one or more local files to Freelo. Returns a UUID per file. Optionally attach the uploads to a task by posting a comment with embedded references (the only documented attach mechanism — yaml :3876).

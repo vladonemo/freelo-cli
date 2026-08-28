@@ -164,7 +164,11 @@ freelo taskchecks reopen <id>... [--notify-author] [--dry-run]
 
 ---
 
-## M07 — `freelo files delete <uuid>` (extends R25–R27)
+## M07 — `freelo files delete <uuid>` (extends R25–R27) ✅ shipped
+
+**Status:** **Shipped** — [spec 0064](specs/0064-m07-files-delete.md), run `2026-08-28-2039-files-delete`. Tiered Yellow, confirming the guess below on independently-checked signals (new user-visible command + `minor` changeset).
+
+**Design note worth carrying forward:** the 404 was **not** treated as an idempotent already-deleted success, matching M01's outcome but reached from this endpoint's own text rather than from M01's precedent — `docs/api/freelo-api.yaml` :4504 says a 404 means "no file or document matches the UUID, **or the caller has no access to it**", so absorbing it could report success for a document still sitting untouched in a project the caller cannot see. Note the standing question this leaves for future delete slices: the ACL-hides-existence pattern now looks like Freelo's house style rather than a per-endpoint quirk, so `src/lib/idempotency.ts`'s 404 absorption may be wrong more often than it is right. Check each endpoint's 404 sentence before reusing it.
 
 **Outcome:** Closes the read/write asymmetry in the existing files surface — R25 uploads, R26 lists, R27 downloads, but nothing deletes. Now something does.
 **Endpoints:** `DELETE /file/{file_uuid}`.
