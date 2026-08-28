@@ -389,6 +389,82 @@ describe('freelo tasks list — happy paths', () => {
     expect(capturedUrl).not.toMatch(/[?&]order=/);
   });
 
+  // --- spec 0061: `due_date` is the fifth accepted --order-by value ---------
+  // Both listing routes document it in docs/api/freelo-api.yaml (tasklist route
+  // line 1522, /all-tasks line 1639), so both halves are pinned here.
+
+  it('4d. --order-by due_date on per-tasklist route → forwarded, no 0060 default injected', async () => {
+    const items = await loadFixture<Array<Record<string, unknown>>>('tasklist-tasks.json');
+    let capturedUrl = '';
+    const { http, HttpResponse } = await import('msw');
+    server.use(
+      http.get('https://api.freelo.io/v1/project/42/tasklist/101/tasks', ({ request }) => {
+        capturedUrl = new URL(request.url).toString();
+        return HttpResponse.json(items);
+      }),
+    );
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'tasks',
+      'list',
+      '--project',
+      '42',
+      '--tasklist',
+      '101',
+      '--order-by',
+      'due_date',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(0);
+    expect(capturedUrl).toContain('order_by=due_date');
+    // Spec 0060 interaction: supplying only --order-by suppresses the injected
+    // default for BOTH halves. `due_date` must behave exactly like `name` here.
+    expect(capturedUrl).not.toMatch(/[?&]order=/);
+    expect(capturedUrl).not.toContain('order_by=priority');
+    const env = parseFirstJson(stdout) as {
+      data: { applied_filters: { order_by: string } };
+    };
+    expect(env.data.applied_filters.order_by).toBe('due_date');
+    expect(env.data.applied_filters).not.toHaveProperty('order');
+  });
+
+  it('4e. --order-by due_date --order asc on /all-tasks → both forwarded and echoed', async () => {
+    const page0 = await loadFixture<Record<string, unknown>>('all-page0.json');
+    let capturedUrl = '';
+    server.use(
+      tasksHandlers.allTasksByQuery((u) => {
+        capturedUrl = u.toString();
+        return true;
+      }, page0 as never),
+    );
+
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, [
+      'tasks',
+      'list',
+      '--order-by',
+      'due_date',
+      '--order',
+      'asc',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(0);
+    expect(capturedUrl).toContain('order_by=due_date');
+    expect(capturedUrl).toContain('order=asc');
+    const env = parseFirstJson(stdout) as {
+      data: { applied_filters: { order_by: string; order: string } };
+    };
+    expect(env.data.applied_filters.order_by).toBe('due_date');
+    expect(env.data.applied_filters.order).toBe('asc');
+  });
+
+  // The rejection path for an unknown --order-by value (including the copy that
+  // enumerates all five) lives with the other exit-2 cases: see test 24a in
+  // `freelo tasks list — validation errors`.
+
   it('5. --worker + --project + --tasklist falls through to /all-tasks', async () => {
     const page0 = await loadFixture<Record<string, unknown>>('all-page0.json');
     let capturedUrl = '';
@@ -796,6 +872,28 @@ describe('freelo tasks list — validation errors', () => {
     ]);
     expect(exitCode).toBe(2);
     expectValidationError(stderr);
+  });
+
+  it('24a. --order-by duedate → exit 2, message lists all five valid values (spec 0061)', async () => {
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stderr, exitCode } = await runCli(run, [
+      'tasks',
+      'list',
+      '--order-by',
+      'duedate',
+      '--output',
+      'json',
+    ]);
+    expect(exitCode).toBe(2);
+    expectValidationError(stderr);
+    // Guards the error/help copy against drifting out of sync with
+    // TASK_ORDER_BY_VALUES — the allow-list and the rendered string share a
+    // single source, so a future value added to one shows up in both or this
+    // test fails.
+    const env = parseFirstJson(stderr) as { error: { message: string } };
+    for (const v of ['priority', 'name', 'date_add', 'date_edited_at', 'due_date']) {
+      expect(env.error.message).toContain(v);
+    }
   });
 
   it('25. --search + --project + --tasklist (no other filter) → exit 2 with drop-search hint', async () => {

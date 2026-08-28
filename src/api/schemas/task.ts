@@ -126,6 +126,37 @@ export type TaskEntityShape = 'task_full' | 'task_summary' | 'task_finished';
 export type EndpointKey = 'all-tasks' | 'tasklist-tasks' | 'tasklist-finished-tasks';
 
 /**
+ * Accepted `order_by` values for `freelo tasks list`, and the single source of
+ * truth behind `--order-by`'s runtime allow-list, its help text, and the three
+ * compile-time unions that guard the call sites (`ListOpts.orderBy`,
+ * `AllTasksFilters.orderBy`, `TasklistTasksOpts.orderBy`).
+ *
+ * Both task-listing routes document the same five values in
+ * `docs/api/freelo-api.yaml` — `/project/{p}/tasklist/{t}/tasks` (line 1522,
+ * default `priority`) and `/all-tasks` (line 1639, default `date_add`) — so one
+ * list covers both. They differ only in their *default*, which is applied at
+ * the call site, not here.
+ *
+ * `due_date` was added upstream in the PR #112 spec refresh (spec 0061). Per the
+ * contract: tasks without a due date always sort last, and all-day tasks sort at
+ * the start of their day (00:00). On `/all-tasks` results are additionally
+ * tie-broken by task id so page boundaries stay stable. All of that is
+ * server-side — the CLI forwards the string and never re-sorts.
+ *
+ * Note `priority` here is the tasklist's manual/drag board order, not the L/M/H
+ * `priority_enum` field that shares the name (spec 0060, issue #108).
+ */
+export const TASK_ORDER_BY_VALUES = [
+  'priority',
+  'name',
+  'date_add',
+  'date_edited_at',
+  'due_date',
+] as const;
+
+export type TaskOrderBy = (typeof TASK_ORDER_BY_VALUES)[number];
+
+/**
  * Echo of the filter arguments the user passed, surfaced in the envelope's
  * `data.applied_filters`. Always present (object), even when empty (`{}`).
  *
@@ -146,7 +177,7 @@ export type AppliedFilters = {
   finished_from?: string;
   finished_to?: string;
   search?: string;
-  order_by?: 'priority' | 'name' | 'date_add' | 'date_edited_at';
+  order_by?: TaskOrderBy;
   order?: 'asc' | 'desc';
 };
 

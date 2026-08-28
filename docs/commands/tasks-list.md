@@ -14,7 +14,7 @@ freelo tasks list [--project <id>...] [--tasklist <id>...]
                   [--finished-overdue]
                   [--finished-from YYYY-MM-DD] [--finished-to YYYY-MM-DD]
                   [--search <query>]
-                  [--order-by priority|name|date_add|date_edited_at]
+                  [--order-by priority|name|date_add|date_edited_at|due_date]
                   [--order asc|desc]
                   [--page N | --all | --cursor <n>]
                   [--fields a,b,c]
@@ -42,27 +42,27 @@ guessing.
 
 ## Options
 
-| Flag                     | Type                                          | Default | Purpose                                                                                                                                                  |
-| ------------------------ | --------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--project <id>`         | int >= 1, repeatable                          | unset   | Filter to tasks in this project (or any of these projects when repeated). Maps to `projects_ids[]=<id>...`                                               |
-| `--tasklist <id>`        | int >= 1, repeatable                          | unset   | Filter to tasks in this tasklist. Maps to `tasklists_ids[]=<id>...`                                                                                      |
-| `--worker <id>`          | int >= 1                                      | unset   | Filter to tasks assigned to this user (`worker_id=<id>`).                                                                                                |
-| `--state <id>`           | int >= 1                                      | unset   | Filter by numeric state id (`state_id=<id>`).                                                                                                            |
-| `--label <name>`         | non-empty string, repeatable                  | unset   | OR-filter by label name (`with_labels[]=<name>...`). The deprecated singular `with_label` is **never** emitted.                                          |
-| `--without-label <name>` | non-empty string                              | unset   | Exclude tasks carrying this label (`without_label=<name>`).                                                                                              |
-| `--due-from <date>`      | strict `YYYY-MM-DD`                           | unset   | Tasks with `due_date >= <date>` (`due_date_range[date_from]`).                                                                                           |
-| `--due-to <date>`        | strict `YYYY-MM-DD`                           | unset   | Tasks with `due_date <= <date>` (`due_date_range[date_to]`).                                                                                             |
-| `--no-due`               | boolean                                       | `false` | Tasks with no due date (`no_due_date=true`). Mutually exclusive with `--due-from`/`--due-to`.                                                            |
-| `--finished-overdue`     | boolean                                       | `false` | Tasks finished after their due date (`finished_overdue=true`).                                                                                           |
-| `--finished-from <date>` | strict `YYYY-MM-DD`                           | unset   | Tasks finished on or after this date (`finished_date_range[date_from]`).                                                                                 |
-| `--finished-to <date>`   | strict `YYYY-MM-DD`                           | unset   | Tasks finished on or before this date (`finished_date_range[date_to]`).                                                                                  |
-| `--search <query>`       | string                                        | unset   | Free-text search (`search_query=<q>`). Not supported on the per-tasklist active route — drop `--project` to land on `/all-tasks`.                        |
-| `--order-by <field>`     | `priority`/`name`/`date_add`/`date_edited_at` | unset\* | Order key (`order_by=<field>`). \*On the per-tasklist route, omitting **both** order flags sends `order_by=priority` — see [Ordering](#ordering).        |
-| `--order <dir>`          | `asc`/`desc`                                  | unset\* | Order direction (`order=<dir>`). \*See [Ordering](#ordering).                                                                                            |
-| `--page <N>`             | int >= 1 (1-indexed for the user)             | unset   | Single-page fetch. Mapped to `?p=N-1` on the wire. Mutually exclusive with `--all`/`--cursor`.                                                           |
-| `--all`                  | boolean                                       | `false` | Iterate every page until exhausted. Mutually exclusive with `--page`/`--cursor`. No-op on the per-tasklist (unpaginated) route.                          |
-| `--cursor <n>`           | int >= 0 (0-indexed)                          | unset   | Resume at the cursor reported by a prior envelope. On the per-tasklist route, only `--cursor 0` is allowed (anything else fails closed).                 |
-| `--fields <list>`        | comma-separated snake_case keys               | unset   | Project each record down to these top-level keys. Validated against the entity shape _for the resolved route_ (so `state` is invalid on `task_summary`). |
+| Flag                     | Type                                                     | Default | Purpose                                                                                                                                                                    |
+| ------------------------ | -------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--project <id>`         | int >= 1, repeatable                                     | unset   | Filter to tasks in this project (or any of these projects when repeated). Maps to `projects_ids[]=<id>...`                                                                 |
+| `--tasklist <id>`        | int >= 1, repeatable                                     | unset   | Filter to tasks in this tasklist. Maps to `tasklists_ids[]=<id>...`                                                                                                        |
+| `--worker <id>`          | int >= 1                                                 | unset   | Filter to tasks assigned to this user (`worker_id=<id>`).                                                                                                                  |
+| `--state <id>`           | int >= 1                                                 | unset   | Filter by numeric state id (`state_id=<id>`).                                                                                                                              |
+| `--label <name>`         | non-empty string, repeatable                             | unset   | OR-filter by label name (`with_labels[]=<name>...`). The deprecated singular `with_label` is **never** emitted.                                                            |
+| `--without-label <name>` | non-empty string                                         | unset   | Exclude tasks carrying this label (`without_label=<name>`).                                                                                                                |
+| `--due-from <date>`      | strict `YYYY-MM-DD`                                      | unset   | Tasks with `due_date >= <date>` (`due_date_range[date_from]`).                                                                                                             |
+| `--due-to <date>`        | strict `YYYY-MM-DD`                                      | unset   | Tasks with `due_date <= <date>` (`due_date_range[date_to]`).                                                                                                               |
+| `--no-due`               | boolean                                                  | `false` | Tasks with no due date (`no_due_date=true`). Mutually exclusive with `--due-from`/`--due-to`.                                                                              |
+| `--finished-overdue`     | boolean                                                  | `false` | Tasks finished after their due date (`finished_overdue=true`).                                                                                                             |
+| `--finished-from <date>` | strict `YYYY-MM-DD`                                      | unset   | Tasks finished on or after this date (`finished_date_range[date_from]`).                                                                                                   |
+| `--finished-to <date>`   | strict `YYYY-MM-DD`                                      | unset   | Tasks finished on or before this date (`finished_date_range[date_to]`).                                                                                                    |
+| `--search <query>`       | string                                                   | unset   | Free-text search (`search_query=<q>`). Not supported on the per-tasklist active route — drop `--project` to land on `/all-tasks`.                                          |
+| `--order-by <field>`     | `priority`/`name`/`date_add`/`date_edited_at`/`due_date` | unset\* | Order key (`order_by=<field>`). Accepted on both routes. \*On the per-tasklist route, omitting **both** order flags sends `order_by=priority` — see [Ordering](#ordering). |
+| `--order <dir>`          | `asc`/`desc`                                             | unset\* | Order direction (`order=<dir>`). \*See [Ordering](#ordering).                                                                                                              |
+| `--page <N>`             | int >= 1 (1-indexed for the user)                        | unset   | Single-page fetch. Mapped to `?p=N-1` on the wire. Mutually exclusive with `--all`/`--cursor`.                                                                             |
+| `--all`                  | boolean                                                  | `false` | Iterate every page until exhausted. Mutually exclusive with `--page`/`--cursor`. No-op on the per-tasklist (unpaginated) route.                                            |
+| `--cursor <n>`           | int >= 0 (0-indexed)                                     | unset   | Resume at the cursor reported by a prior envelope. On the per-tasklist route, only `--cursor 0` is allowed (anything else fails closed).                                   |
+| `--fields <list>`        | comma-separated snake_case keys                          | unset   | Project each record down to these top-level keys. Validated against the entity shape _for the resolved route_ (so `state` is invalid on `task_summary`).                   |
 
 ## Ordering
 
@@ -97,6 +97,40 @@ envelope is unchanged for callers that never sorted explicitly.
 parameter is sent unless you pass one, and the server's documented default
 there is `date_add`. `/all-tasks` has no concept of manual board order — if you
 need board order, use the per-tasklist route.
+
+### Sorting by deadline (`--order-by due_date`)
+
+Both routes accept `due_date`, so this works whether you're looking at one
+tasklist or everything you can see:
+
+```bash
+freelo tasks list --project 42 --tasklist 101 --order-by due_date
+# wire: GET /v1/project/42/tasklist/101/tasks?order_by=due_date
+
+freelo tasks list --order-by due_date --order asc --all
+# wire: GET /v1/all-tasks?p=0&order_by=due_date&order=asc
+```
+
+Freelo defines the sort, not the CLI — the CLI forwards the key and renders what
+comes back, in the order it comes back. Two rules are worth knowing before you
+read the output:
+
+- **Tasks with no due date always sort last**, regardless of `--order asc` or
+  `--order desc`. `desc` reverses the dated tasks among themselves; it does not
+  float the undated ones to the top. To work with undated tasks directly, filter
+  for them with `--no-due` instead of sorting.
+- **All-day tasks sort at the start of their day** (00:00), so an all-day task
+  comes before a timed task due later the same day.
+
+On `/all-tasks` the server additionally tie-breaks equal due dates **by task
+id**, which is what keeps page boundaries stable while you walk `--all` or
+`--cursor`. The per-tasklist route is unpaginated and carries no such guarantee,
+so ties there may come back in any order.
+
+As with every other value, passing `--order-by due_date` on the per-tasklist
+route suppresses the `order_by=priority&order=asc` board-order default for both
+halves — you get `order_by=due_date` and no `order` parameter unless you pass
+`--order` yourself.
 
 ## Examples
 
