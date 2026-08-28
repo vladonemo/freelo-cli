@@ -6276,6 +6276,104 @@ export const pinsHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo comments delete` (M01, spec 0061).
+ *
+ * One endpoint: `DELETE /comment/{comment_id}` (yaml :3203-3232).
+ *
+ * Mirrors `tasksDeleteHandlers` with two endpoint-specific additions:
+ *   - `deleteWindowExpired` — the 400 the API returns once the 15-minute
+ *     post-time deletion window has closed (yaml :3229-3230).
+ *   - `deleteMatrix` — per-id status map for mixed-batch tests.
+ *
+ * Note that `deleteNotFound` here is an **error** path, not the idempotent
+ * already-deleted path it is for tasks (spec 0061 §5.1 / decision 1).
+ */
+export const commentsDeleteHandlers = {
+  /** `DELETE /comment/{id}` — 200 success. */
+  deleteOk(commentId: number): RequestHandler {
+    return http.delete(`${API_BASE}/comment/${commentId}`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /**
+   * `DELETE /comment/{id}` — 400, the 15-minute deletion window has expired.
+   * The command layer rewrites the message and hint (spec 0061 §5.2).
+   */
+  deleteWindowExpired(commentId: number): RequestHandler {
+    return http.delete(`${API_BASE}/comment/${commentId}`, () =>
+      HttpResponse.json({ errors: ['Comment is too old to be deleted.'] }, { status: 400 }),
+    );
+  },
+
+  /**
+   * `DELETE /comment/{id}` — 404. Comment missing **or** not authored by the
+   * caller; the API deliberately doesn't distinguish (yaml :3215). Unlike
+   * `tasks delete`, the command surfaces this as an error, never as success.
+   */
+  deleteNotFound(commentId: number): RequestHandler {
+    return http.delete(`${API_BASE}/comment/${commentId}`, () =>
+      HttpResponse.json({ errors: ['Comment not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `DELETE /comment/{id}` — 401. */
+  deleteUnauthorized(commentId: number): RequestHandler {
+    return http.delete(`${API_BASE}/comment/${commentId}`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `DELETE /comment/{id}` — 403 (defensive; yaml says ACL failures are 404). */
+  deleteForbidden(commentId: number): RequestHandler {
+    return http.delete(`${API_BASE}/comment/${commentId}`, () =>
+      HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** `DELETE /comment/{id}` — 5xx. */
+  deleteServerError(commentId: number, status = 500): RequestHandler {
+    return http.delete(`${API_BASE}/comment/${commentId}`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** `DELETE /comment/{id}` — 429 (Retry-After: 0). */
+  deleteRateLimited(commentId: number): RequestHandler {
+    return http.delete(
+      `${API_BASE}/comment/${commentId}`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** `DELETE /comment/{id}` — connection-closed (network error). */
+  deleteNetworkError(commentId: number): RequestHandler {
+    return http.delete(`${API_BASE}/comment/${commentId}`, () => HttpResponse.error());
+  },
+
+  /**
+   * Per-id status matrix for mixed-batch tests: `{ [commentId]: httpStatus }`.
+   * Ids absent from the map (or mapped to 200) succeed. Mirrors the
+   * `pinned-item` matrix handler at the top of this section.
+   */
+  deleteMatrix(matrix: Readonly<Record<number, number>>): RequestHandler {
+    return http.delete(`${API_BASE}/comment/:commentId`, ({ params }) => {
+      const idRaw = (params as Record<string, string>)['commentId'];
+      const idNum = Number(idRaw);
+      const status = matrix[idNum];
+      if (status === undefined || status === 200) {
+        return HttpResponse.json({ result: 'success' });
+      }
+      return HttpResponse.json({ errors: [`Status ${status} for comment ${idNum}`] }, { status });
+    });
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));

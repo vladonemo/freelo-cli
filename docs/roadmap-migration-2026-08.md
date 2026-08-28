@@ -46,7 +46,11 @@ Dependency rule is the same as `docs/roadmap.md`: a slice may only depend on ear
 
 ---
 
-## M01 — `freelo comments delete <id>` (unblocks R18.5)
+## M01 — `freelo comments delete <id>` (unblocks R18.5) ✅ shipped
+
+**Status:** **Shipped** — [spec 0061](specs/0061-m01-comments-delete.md), run `2026-08-25-0813-comments-delete`. `docs/roadmap.md` §R18.5 updated to shipped.
+
+**Design note worth carrying forward:** the 404 was **not** treated as an idempotent already-deleted success, unlike every other delete in the CLI. Because the ACL-hides-existence pattern makes 404 mean _either_ "gone" _or_ "not yours", absorbing it would report success for a comment still in the thread. M04 (`task-labels merge`) and M07 (`files delete`) hit the same 404-ACL pattern — re-read spec 0061 §5.1 and decision `2026-08-25-0813-comments-delete-1` before deciding their idempotency policy, and note that the answer may legitimately differ per resource depending on whether 404 is ambiguous there.
 
 **Outcome:** R18.5 is no longer blocked. `docs/roadmap.md` §R18.5 can be updated from "Blocked on Freelo API confirmation" to shipped once this lands; no further probing needed, the endpoint is now documented.
 **Endpoints:** `DELETE /comment/{comment_id}`.

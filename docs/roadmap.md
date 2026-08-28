@@ -334,9 +334,13 @@ Goal after this wave: the CLI replaces the Freelo web UI for 80% of individual-c
 
 > **Note (2026-04-28, run `2026-04-28-1309-r18-comments-edit-delete`):** The original entry referenced `PATCH /comment/{comment_id}` and a sibling `DELETE /comment/{comment_id}`. Triage confirmed the OpenAPI disagrees on both — verb is POST (yaml :2634), and `comments delete` is **not in the OpenAPI**. Per `/resume Q1=A, Q2=A`, this slice ships only `comments edit` against the canonical POST endpoint. `comments delete` is deferred to R18.5 below.
 
-### R18.5 — `freelo comments delete` (queued)
+### R18.5 — `freelo comments delete` ✅ shipped
 
-**Status:** **Unblocked as of the 2026-08-24 API refresh** — `DELETE /comment/{comment_id}` is now documented (15-minute deletion window, author-only ACL). Re-specced as `docs/roadmap-migration-2026-08.md` M01; that slice supersedes the "target CLI shape" below with load-bearing behavior notes from the live spec. Previously: Blocked on Freelo API confirmation.
+**Status:** **Shipped** as `docs/roadmap-migration-2026-08.md` M01 / [spec 0061](specs/0061-m01-comments-delete.md), run `2026-08-25-0813-comments-delete`. Was blocked on Freelo API confirmation from 2026-04-28 until the 2026-08-24 API refresh documented `DELETE /comment/{comment_id}`.
+
+**Shipped shape:** `freelo comments delete <id>... [--yes] [--dry-run]` / `--ids` / `--stdin`, envelope `freelo.comments.delete/v1`.
+
+**One deviation from the target shape below:** it does **not** reuse `src/lib/idempotency.ts`, and a re-delete does not report `already_in_target_state: true`. Only a comment's author may delete it, and the API returns 404 rather than 403 for someone else's comment (to avoid leaking existence), so a 404 means _either_ "already gone" _or_ "not yours" — absorbing it would report success for a comment still in the thread. It surfaces as `NOT_FOUND` / exit 4 instead. See spec 0061 §5.1.
 **Endpoints:** **Not in `docs/api/freelo-api.yaml` as of 2026-04-28.** The Comments tag declares exactly three operations (R16 list, R17 add, R18 edit); no `delete:` key on `/comment/{comment_id}`, no other comment-delete operationId.
 **First action:** invoke `freelo-api-specialist` to probe a live test account and confirm the real shape (could be `DELETE /comment/{id}`, `POST /comment/{id}/delete`, soft-delete via edit with a delete-flag, or genuinely unsupported in v1). Until that probe lands, **no command shipped**.
 **CLI (target shape, post-confirmation):** `freelo comments delete <id>... [--yes] [--dry-run]` / `--ids` / `--stdin`. Reuses `src/lib/confirm.ts` (R13) and `src/lib/idempotency.ts` (R11) — destructive op, `already_in_target_state` on a re-delete.

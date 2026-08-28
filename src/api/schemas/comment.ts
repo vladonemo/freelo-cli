@@ -292,3 +292,48 @@ export const CommentsAddDataSchema = z.object({
     .optional(),
 });
 export type CommentsAddData = z.infer<typeof CommentsAddDataSchema>;
+
+/**
+ * `freelo.comments.delete/v1` envelope `data` shape (M01, spec 0061 §4.1).
+ *
+ *   - `comment_id`: target comment id (echoed). **Always present.**
+ *   - `current_state`: always `'deleted'` — derived from the verb, not from
+ *     the response. `DELETE /comment/{id}` declares no 200 response schema
+ *     (yaml :3227-3228), so there is nothing server-derived to surface.
+ *   - `already_in_target_state`: **always `false` in v1.** Unlike
+ *     `tasks delete` (R13), a 404 here is NOT absorbed into an idempotent
+ *     success — per yaml :3216 it means *either* "no such comment" *or* "you
+ *     are not its author", so absorbing it would report success for a comment
+ *     still sitting in the thread (spec 0061 §5.1 / decision 1). The field is
+ *     retained anyway so agents looping deletes across `tasks` / `projects` /
+ *     `labels` / `comments` read one field shape everywhere.
+ *
+ *     Typed `z.boolean()` rather than `z.literal(false)` on purpose: if Freelo
+ *     ever lets us distinguish the two 404 causes, widening a `false` literal
+ *     to `boolean` would be a retype — a breaking envelope change. `boolean`
+ *     keeps that door open at zero cost.
+ *   - `would`: only in `--dry-run` envelopes (mirrors R09 / R13 / R15 / R17).
+ *   - `line_index`: 0-indexed line number in `--stdin` batch mode. **Present
+ *     only** for NDJSON-derived envelopes; **absent** for positional / --ids /
+ *     single-id flows.
+ *
+ * No `previous_state`: in `TasksDeleteData` that is a task-lifecycle enum the
+ * delete path hardcodes to `null` anyway, and comments have no lifecycle enum
+ * — it would be null-typed noise on a brand-new schema (decision 3).
+ *
+ * Spec 0061 §4.1.
+ */
+export const CommentsDeleteDataSchema = z.object({
+  comment_id: z.number().int(),
+  current_state: z.literal('deleted'),
+  already_in_target_state: z.boolean(),
+  would: z
+    .object({
+      method: z.literal('DELETE'),
+      path: z.string(),
+      body: z.unknown(),
+    })
+    .optional(),
+  line_index: z.number().int().min(0).optional(),
+});
+export type CommentsDeleteData = z.infer<typeof CommentsDeleteDataSchema>;
