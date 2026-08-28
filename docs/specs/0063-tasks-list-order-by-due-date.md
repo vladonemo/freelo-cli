@@ -1,4 +1,4 @@
-# 0061 — `tasks list --order-by due_date`
+# 0063 — `tasks list --order-by due_date`
 
 **Run:** 2026-08-25-0909-tasks-list-order-by-due-date
 **Roadmap slice:** M08 (`docs/roadmap-migration-2026-08.md` §M08)

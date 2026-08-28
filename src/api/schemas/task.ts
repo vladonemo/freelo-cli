@@ -137,7 +137,7 @@ export type EndpointKey = 'all-tasks' | 'tasklist-tasks' | 'tasklist-finished-ta
  * list covers both. They differ only in their *default*, which is applied at
  * the call site, not here.
  *
- * `due_date` was added upstream in the PR #112 spec refresh (spec 0061). Per the
+ * `due_date` was added upstream in the PR #112 spec refresh (spec 0063). Per the
  * contract: tasks without a due date always sort last, and all-day tasks sort at
  * the start of their day (00:00). On `/all-tasks` results are additionally
  * tie-broken by task id so page boundaries stay stable. All of that is

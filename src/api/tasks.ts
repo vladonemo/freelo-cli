@@ -149,7 +149,7 @@ export type TasklistTasksOpts = FetchOpts & {
  * A caller-supplied value always wins. Supplying only one of the two flags
  * suppresses the default for both, so a partially-specified request stays
  * byte-identical on the wire to what this function sent before spec 0060.
- * That includes `orderBy: 'due_date'` (spec 0061), which this branch treats
+ * That includes `orderBy: 'due_date'` (spec 0063), which this branch treats
  * like any other caller-supplied value — it is opaque here.
  */
 export async function getTasklistActiveTasks(

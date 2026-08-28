@@ -175,7 +175,9 @@ freelo taskchecks reopen <id>... [--notify-author] [--dry-run]
 
 ---
 
-## M08 — `tasks list --order-by due_date` (extends R07, already-shipped)
+## M08 — `tasks list --order-by due_date` (extends R07, already-shipped) ✅ shipped
+
+**Status:** **Shipped** — [spec 0063](specs/0063-tasks-list-order-by-due-date.md), run `2026-08-25-0909-tasks-list-order-by-due-date`. Tiered Yellow, not Green as guessed below (new user-visible flag value + minor changeset); both routes gained `due_date`, not just the tasklist-scoped one.
 
 **Outcome:** `--order-by` on the already-shipped `freelo tasks list --project <p> --tasklist <t>` route gains a fifth value. Small, mechanical, but worth its own tiny slice since R07's CLI flag enum (`src/commands/tasks/list.ts`) needs a one-line update to accept it — right now `due_date` would fail client-side validation before ever reaching the wire.
 **Endpoints:** same as R07's tasklist-tasks route (`GET /project/{project_id}/tasklist/{tasklist_id}/tasks`) — no new endpoint, just a new accepted value on an existing query param.

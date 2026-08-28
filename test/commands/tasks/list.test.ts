@@ -389,7 +389,7 @@ describe('freelo tasks list — happy paths', () => {
     expect(capturedUrl).not.toMatch(/[?&]order=/);
   });
 
-  // --- spec 0061: `due_date` is the fifth accepted --order-by value ---------
+  // --- spec 0063: `due_date` is the fifth accepted --order-by value ---------
   // Both listing routes document it in docs/api/freelo-api.yaml (tasklist route
   // line 1522, /all-tasks line 1639), so both halves are pinned here.
 
@@ -874,7 +874,7 @@ describe('freelo tasks list — validation errors', () => {
     expectValidationError(stderr);
   });
 
-  it('24a. --order-by duedate → exit 2, message lists all five valid values (spec 0061)', async () => {
+  it('24a. --order-by duedate → exit 2, message lists all five valid values (spec 0063)', async () => {
     const { run } = await import('../../../src/bin/freelo.js');
     const { stderr, exitCode } = await runCli(run, [
       'tasks',
