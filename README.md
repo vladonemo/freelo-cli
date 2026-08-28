@@ -139,6 +139,7 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 - `freelo task-labels attach` — Attach one or more labels to a task. Each --name and --uuid becomes one entry in a single bulk POST. --hex applies to name-mode entries only (UUID-mode uses the existing label's color).
 - `freelo task-labels create` — Bulk-create task-label definitions in the caller account. Server-side fetch-or-create on `name` (case-sensitive) — re-running with the same names is a safe no-op. The API does not report new vs. reused.
 - `freelo task-labels detach` — Detach one or more labels from a task. --name without --hex removes ALL labels with that name (aggressive); add --hex to scope to a specific (name,color) pair. UUID-mode is precise — removes exactly that label. Server is idempotent — detaching a label not on the task is a successful no-op.
+- `freelo task-labels find` — List the task labels usable by the caller (uuid, name, color), sorted by name. Use it to resolve a label name to the uuid that `task-labels attach --uuid` takes. An empty result is a success, not an error — the API returns no labels both for an inaccessible --project and for an account with no accessible projects, and does not distinguish the two.
 
 ### tasklists
 

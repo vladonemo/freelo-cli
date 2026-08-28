@@ -116,13 +116,22 @@ freelo taskchecks reopen <id>... [--notify-author] [--dry-run]
 
 ---
 
-## M04 — `freelo task-labels find` (name → uuid resolver)
+## M04 — `freelo task-labels find` (name → uuid resolver) ✅ shipped
+
+**Status:** **Shipped** — [spec 0062](specs/0062-m04-task-labels-find.md), run `2026-08-25-1037-task-labels-find`. Envelope `freelo.task_labels.find/v1`. `.claude/skills/freelo-api/SKILL.md`'s "no bulk-list for task-labels" quirk is retired; the two round-trip workarounds it documented are now obsolete.
+
+**Tier came back Yellow, not the Green this slice guessed** — new user-visible command + new flag + new envelope schema + `minor` changeset are each an explicit Yellow trigger, and "highest tier wins". Read-only-ness keeps a slice out of Red; it does not pull it down to Green. M05 below carries the same "Green candidate" guess and should expect the same correction.
+
+**Two notes for M05/M06, which share this resource group:**
+
+- `TaskLabel` has **no `id`** — task labels are uuid-keyed (`docs/api/freelo-api.yaml:5949-5958`). The "id/uuid/name/color" phrasing in the CLI line below is wrong; the OpenAPI contract won. Don't propagate it.
+- The `--project`-inaccessible and no-accessible-projects cases both return `{"labels":[]}` / HTTP 200 and are **indistinguishable**. Shipped as exit 0 with an empty list — no synthesised 404. M06's merge, by contrast, gets real 404s for unowned uuids (see M01's note above), so don't copy this empty-is-success policy across without checking the endpoint's actual error model.
 
 **Outcome:** Closes the exact gap SKILL.md's "Known quirks" section has flagged since the original R24 work: _"there is no documented bulk-list endpoint for task-labels... to resolve a task-label name to its uuid, either (a) scan tasks via `GET /all-tasks` (expensive) or (b) round-trip via `POST /task-labels/add-to-task`."_ Neither workaround is needed anymore.
 **Endpoints:** `GET /task-labels/find-available` — optionally scoped by `?project_id=`.
 **Behavior notes:** sorted by name ascending; returns `{ labels: [] }` (not an error) when the caller has no accessible projects or the given `project_id` isn't accessible — mirror that as an empty result, not an error, in the CLI.
 **CLI:** `freelo task-labels find [--project <id>]` — lists all task labels usable by the caller, id/uuid/name/color.
-**Follow-up, not part of this slice:** once this ships, `task-labels attach`'s existing `--name` resolution path (R24) can be revisited to use this endpoint instead of its current round-trip-via-add workaround, if one exists — check R24's actual implementation before assuming a change is needed.
+**Follow-up, not part of this slice:** once this ships, `task-labels attach`'s existing `--name` resolution path (R24) can be revisited to use this endpoint instead of its current round-trip-via-add workaround, if one exists — check R24's actual implementation before assuming a change is needed. **Checked during the M04 run: there is no workaround to remove.** `attach` passes name-mode entries straight through to `POST /task-labels/add-to-task/{task_id}` and lets the server fetch-or-create (`buildAddTaskLabelsBody`); it never resolves a uuid client-side. No follow-up change is needed. The one _behavioral_ gap that remains is that `attach --name` will happily create a near-miss duplicate on a typo — `task-labels find` is the mitigation (resolve first, then `attach --uuid`), documented in `docs/commands/task-labels-find.md`, not a code change to `attach`.
 **Depends on:** R24.
 **Tier:** Green candidate (pure new read command, no existing behavior touched) — confirm at triage.
 
