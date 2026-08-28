@@ -122,3 +122,13 @@ Thresholds required: 90% lines / 85% branches on `src/commands/**`, 90/80 on `sr
 
 Tier **Yellow** → the pipeline stops at an open PR. No auto-merge; a human reviews and merges.
 `autoShip` is false, so no release step ran.
+
+## CI verdict — PR #117
+
+All 7 required checks green on the first run: `check README autogen`, plus the full matrix
+(node 22 and 24 × ubuntu / macos / windows). The three **windows-latest** jobs passing is the
+corroboration that mattered — it confirms the 11 local failures were this machine's load artifacts and
+not a platform-specific defect this slice introduced.
+
+PR: https://github.com/vladonemo/freelo-cli/pull/117 — left **open** for human review per the Yellow tier.
+Auto-merge deliberately **not** enabled.
