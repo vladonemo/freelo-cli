@@ -157,6 +157,6 @@ $ echo $?
 - **Multi-value `--type` not supported.** The wire enum is single-valued per the OpenAPI; pass one filter at a time.
 - **No `--per-page` flag.** Server controls page size.
 - **No `--fields` projection.** All `FileItem` fields are returned.
-- **No write surface.** Upload is `freelo files upload` (R25). Download is **R27**.
+- **No write surface.** Upload is `freelo files upload` (R25). Download is `freelo files download` (R27). Deletion is [`freelo files delete`](./files-delete.md) (M07) — it takes the `uuid` values this command returns.
 
 See [spec 0038](../specs/0038-r26-files-list.md) for the full design rationale, the deferral decision for `--task`, and the mandatory-test list.

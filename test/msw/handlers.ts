@@ -6431,6 +6431,90 @@ export const commentsDeleteHandlers = {
   },
 };
 
+/* ---------------------------------------------------------------------------
+ *  M07 — `freelo files delete` (spec 0064)
+ *
+ *  `DELETE /file/{file_uuid}` (yaml :4492-4521, `deleteDocOrFileByUuid`).
+ *  Direct analogue of `commentsDeleteHandlers` above, keyed on UUID strings
+ *  rather than numeric ids.
+ *
+ *  There is deliberately **no 400 handler**: the endpoint documents only 200
+ *  and 404 (spec 0064 §3), so a 400 fixture would be inventing API behavior.
+ * ------------------------------------------------------------------------- */
+
+export const filesDeleteHandlers = {
+  /** `DELETE /file/{uuid}` — 200 success. */
+  deleteOk(uuid: string): RequestHandler {
+    return http.delete(`${API_BASE}/file/${uuid}`, () => HttpResponse.json({ result: 'success' }));
+  },
+
+  /**
+   * `DELETE /file/{uuid}` — 404. Resource missing **or** invisible to the
+   * caller; the API deliberately doesn't distinguish (yaml :4504). Unlike
+   * `tasks delete`, the command surfaces this as an error, never as an
+   * idempotent success (spec 0064 §5.1).
+   */
+  deleteNotFound(uuid: string): RequestHandler {
+    return http.delete(`${API_BASE}/file/${uuid}`, () =>
+      HttpResponse.json({ errors: ['File not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `DELETE /file/{uuid}` — 401. */
+  deleteUnauthorized(uuid: string): RequestHandler {
+    return http.delete(`${API_BASE}/file/${uuid}`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** `DELETE /file/{uuid}` — 403 (defensive; yaml says ACL failures are 404). */
+  deleteForbidden(uuid: string): RequestHandler {
+    return http.delete(`${API_BASE}/file/${uuid}`, () =>
+      HttpResponse.json({ errors: ['Role action forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** `DELETE /file/{uuid}` — 5xx. */
+  deleteServerError(uuid: string, status = 500): RequestHandler {
+    return http.delete(`${API_BASE}/file/${uuid}`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** `DELETE /file/{uuid}` — 429 (Retry-After: 0). */
+  deleteRateLimited(uuid: string): RequestHandler {
+    return http.delete(
+      `${API_BASE}/file/${uuid}`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** `DELETE /file/{uuid}` — connection-closed (network error). */
+  deleteNetworkError(uuid: string): RequestHandler {
+    return http.delete(`${API_BASE}/file/${uuid}`, () => HttpResponse.error());
+  },
+
+  /**
+   * Per-uuid status matrix for mixed-batch tests: `{ [uuid]: httpStatus }`.
+   * UUIDs absent from the map (or mapped to 200) succeed. Mirrors
+   * `commentsDeleteHandlers.deleteMatrix`.
+   */
+  deleteMatrix(matrix: Readonly<Record<string, number>>): RequestHandler {
+    return http.delete(`${API_BASE}/file/:fileUuid`, ({ params }) => {
+      const uuid = (params as Record<string, string>)['fileUuid'] ?? '';
+      const status = matrix[uuid];
+      if (status === undefined || status === 200) {
+        return HttpResponse.json({ result: 'success' });
+      }
+      return HttpResponse.json({ errors: [`Status ${status} for file ${uuid}`] }, { status });
+    });
+  },
+};
+
 /**
  * Pre-configured MSW server. Start in tests with:
  *
