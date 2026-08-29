@@ -4,6 +4,7 @@ import { registerList } from './tasklists/list.js';
 import { registerShow } from './tasklists/show.js';
 import { registerCreate } from './tasklists/create.js';
 import { registerCreateFromTemplate } from './tasklists/create-from-template.js';
+import { registerEdit } from './tasklists/edit.js';
 
 /**
  * Register the `tasklists` subcommand tree on the root program. Mirrors the
@@ -23,4 +24,5 @@ export function register(
   registerShow(tasklists, getConfig, env);
   registerCreate(tasklists, getConfig, env);
   registerCreateFromTemplate(tasklists, getConfig, env);
+  registerEdit(tasklists, getConfig, env);
 }
