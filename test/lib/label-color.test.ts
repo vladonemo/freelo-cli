@@ -11,6 +11,12 @@
  *       - mutex: both flags set → ValidationError, exit 2, hintNext lists names
  *       - unknown name → ValidationError, exit 2, hintNext enumerates names
  *       - empty string for --palette → unknown-name path (ValidationError)
+ *   - paletteNameForHex / comparePaletteToServer (M05, spec 0067 §4.3):
+ *       - case-insensitive in both directions (the wire is lowercase, PALETTE
+ *         is uppercase — a case-sensitive compare would report total drift
+ *         against a perfectly current server; spec 0067 §3.1(b))
+ *       - drift detected in both directions, and neither direction alone
+ *       - null/undefined/empty wire values skipped, not crashed on
  *   - paletteHelpBlock:
  *       - contains every palette name and hex value
  *       - is multiline and starts with a blank line
@@ -19,7 +25,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   PALETTE,
+  comparePaletteToServer,
   paletteHelpBlock,
+  paletteNameForHex,
   resolveColorFlags,
   type PaletteName,
 } from '../../src/lib/label-color.js';
@@ -172,5 +180,106 @@ describe('paletteHelpBlock', () => {
 
   it('mentions case-insensitivity (so --help users see the contract)', () => {
     expect(paletteHelpBlock()).toMatch(/case-insensitive/i);
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ *  M05 (spec 0067 §4.3) — server-palette comparison helpers.
+ *
+ *  These never run on the `--palette` resolution path. The tests above for
+ *  `resolveColorFlags` / `PALETTE` / `paletteHelpBlock` are unchanged by M05
+ *  by design: spec 0067 §6 decided the local table stays authoritative, so a
+ *  behaviour change to any of them would be a bug, not a feature.
+ * ------------------------------------------------------------------------- */
+
+const ALL_HEXES_UPPER = Object.values(PALETTE) as string[];
+const ALL_HEXES_LOWER = ALL_HEXES_UPPER.map((h) => h.toLowerCase());
+const ALL_NAMES = Object.keys(PALETTE);
+
+describe('paletteNameForHex', () => {
+  it('maps every canonical hex back to its palette name (exact case)', () => {
+    for (const name of ALL_NAMES) {
+      const hex = (PALETTE as Record<string, string>)[name]!;
+      expect(paletteNameForHex(hex)).toBe(name);
+    }
+  });
+
+  it('is case-insensitive — the wire sends lowercase, PALETTE stores uppercase', () => {
+    expect(paletteNameForHex('#15acc0')).toBe('aqua');
+    expect(paletteNameForHex('#15ACC0')).toBe('aqua');
+    expect(paletteNameForHex('#15AcC0')).toBe('aqua');
+  });
+
+  it('returns null for a hex the local table does not know', () => {
+    expect(paletteNameForHex('#123456')).toBeNull();
+  });
+
+  it('returns null for null, undefined and empty string rather than throwing', () => {
+    expect(paletteNameForHex(null)).toBeNull();
+    expect(paletteNameForHex(undefined)).toBeNull();
+    expect(paletteNameForHex('')).toBeNull();
+  });
+});
+
+describe('comparePaletteToServer', () => {
+  it('reports no drift when the server returns exactly the nine local hexes', () => {
+    const cmp = comparePaletteToServer(ALL_HEXES_UPPER);
+    expect(cmp.matches).toBe(true);
+    expect(cmp.serverOnly).toEqual([]);
+    expect(cmp.localOnly).toEqual([]);
+  });
+
+  it('still reports no drift when the server sends them lowercase (the real wire case)', () => {
+    const cmp = comparePaletteToServer(ALL_HEXES_LOWER);
+    expect(cmp.matches).toBe(true);
+    expect(cmp.serverOnly).toEqual([]);
+    expect(cmp.localOnly).toEqual([]);
+  });
+
+  it('reports a server-only hex when the server adds a tenth color', () => {
+    const cmp = comparePaletteToServer([...ALL_HEXES_LOWER, '#0abcde']);
+    expect(cmp.matches).toBe(false);
+    expect(cmp.serverOnly).toEqual(['#0abcde']);
+    expect(cmp.localOnly).toEqual([]);
+  });
+
+  it('reports a local-only NAME (not hex) when the server drops one', () => {
+    const withoutAqua = ALL_HEXES_LOWER.filter((h) => h !== PALETTE.aqua!.toLowerCase());
+    const cmp = comparePaletteToServer(withoutAqua);
+    expect(cmp.matches).toBe(false);
+    expect(cmp.localOnly).toEqual(['aqua']);
+    expect(cmp.serverOnly).toEqual([]);
+  });
+
+  it('reports drift in both directions at once', () => {
+    const swapped = ALL_HEXES_LOWER.filter((h) => h !== PALETTE.red!.toLowerCase());
+    const cmp = comparePaletteToServer([...swapped, '#ff0000']);
+    expect(cmp.matches).toBe(false);
+    expect(cmp.serverOnly).toEqual(['#ff0000']);
+    expect(cmp.localOnly).toEqual(['red']);
+  });
+
+  it('puts all nine names in localOnly when the server returns nothing', () => {
+    const cmp = comparePaletteToServer([]);
+    expect(cmp.matches).toBe(false);
+    expect(cmp.localOnly).toEqual(ALL_NAMES);
+    expect(cmp.serverOnly).toEqual([]);
+  });
+
+  it('skips null, undefined and empty entries instead of counting them as drift', () => {
+    const cmp = comparePaletteToServer([...ALL_HEXES_LOWER, null, undefined, '']);
+    expect(cmp.matches).toBe(true);
+    expect(cmp.serverOnly).toEqual([]);
+  });
+
+  it('does not report the same unknown hex twice', () => {
+    const cmp = comparePaletteToServer([...ALL_HEXES_LOWER, '#0abcde', '#0abcde']);
+    expect(cmp.serverOnly).toEqual(['#0abcde']);
+  });
+
+  it('preserves PALETTE insertion order in localOnly', () => {
+    const cmp = comparePaletteToServer([]);
+    expect(cmp.localOnly[0]).toBe('gray');
+    expect(cmp.localOnly.at(-1)).toBe('yellow');
   });
 });
