@@ -6632,6 +6632,160 @@ export const tasklistsEditHandlers = {
 };
 
 /**
+ * MSW handlers for the `freelo taskchecks` family (M03, spec 0066).
+ *
+ * Four endpoints keyed by `tasks_checks.id`:
+ *   `POST /taskcheck/{id}`, `DELETE /taskcheck/{id}`,
+ *   `POST /taskcheck/{id}/finish`, `POST /taskcheck/{id}/activate`.
+ *
+ * All four return a bare `SuccessResponse` on 200 — no entity, no state.
+ *
+ * NOTE: no factory here counts requests. This repo's MSW setup is known to
+ * invoke a resolver twice per logical request; assert request *content*, not
+ * request *counts*. See M07 decision 6.
+ *
+ * The `captureBody` factories record what was sent, which is how the tests
+ * prove the decision-3 contract: `edit`/`finish` may carry `notify_author`,
+ * `delete`/`reopen` send no body at all.
+ */
+export const taskchecksHandlers = {
+  /** `POST /taskcheck/{id}` — 200, recording the received body. */
+  editOk(id: number, sink: (body: unknown) => void): RequestHandler {
+    return http.post(`${API_BASE}/taskcheck/${id}`, async ({ request }) => {
+      sink(await readJsonBody(request));
+      return HttpResponse.json({ result: 'success' });
+    });
+  },
+
+  /** `DELETE /taskcheck/{id}` — 200, recording the received body (expected: none). */
+  deleteOk(id: number, sink?: (body: unknown) => void): RequestHandler {
+    return http.delete(`${API_BASE}/taskcheck/${id}`, async ({ request }) => {
+      if (sink) sink(await readJsonBody(request));
+      return HttpResponse.json({ result: 'success' });
+    });
+  },
+
+  /** `POST /taskcheck/{id}/finish` — 200, recording the received body. */
+  finishOk(id: number, sink?: (body: unknown) => void): RequestHandler {
+    return http.post(`${API_BASE}/taskcheck/${id}/finish`, async ({ request }) => {
+      if (sink) sink(await readJsonBody(request));
+      return HttpResponse.json({ result: 'success' });
+    });
+  },
+
+  /**
+   * `POST /taskcheck/{id}/activate` — 200, recording the received body
+   * (expected: none — the operation declares no `requestBody`).
+   */
+  activateOk(id: number, sink?: (body: unknown) => void): RequestHandler {
+    return http.post(`${API_BASE}/taskcheck/${id}/activate`, async ({ request }) => {
+      if (sink) sink(await readJsonBody(request));
+      return HttpResponse.json({ result: 'success' });
+    });
+  },
+
+  /**
+   * 404 on any of the four paths — the *smart taskcheck id* case
+   * (yaml :2124, :2161, :2179, :2212), which the CLI must surface as an error
+   * and never absorb as an idempotent success (spec 0066 §5.1).
+   */
+  editNotFound(id: number): RequestHandler {
+    return http.post(`${API_BASE}/taskcheck/${id}`, () =>
+      HttpResponse.json({ errors: ['Taskcheck not found.'] }, { status: 404 }),
+    );
+  },
+  deleteNotFound(id: number): RequestHandler {
+    return http.delete(`${API_BASE}/taskcheck/${id}`, () =>
+      HttpResponse.json({ errors: ['Taskcheck not found.'] }, { status: 404 }),
+    );
+  },
+  finishNotFound(id: number): RequestHandler {
+    return http.post(`${API_BASE}/taskcheck/${id}/finish`, () =>
+      HttpResponse.json({ errors: ['Taskcheck not found.'] }, { status: 404 }),
+    );
+  },
+  activateNotFound(id: number): RequestHandler {
+    return http.post(`${API_BASE}/taskcheck/${id}/activate`, () =>
+      HttpResponse.json({ errors: ['Taskcheck not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** `POST /taskcheck/{id}` — arbitrary failure status (401/403/429/5xx). */
+  editStatus(id: number, status: number, headers?: Record<string, string>): RequestHandler {
+    return http.post(
+      `${API_BASE}/taskcheck/${id}`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: [`Status ${status}.`] }), {
+          status,
+          headers: { 'Content-Type': 'application/json', ...(headers ?? {}) },
+        }),
+    );
+  },
+
+  /** `POST /taskcheck/{id}` — connection closed (network error). */
+  editNetworkError(id: number): RequestHandler {
+    return http.post(`${API_BASE}/taskcheck/${id}`, () => HttpResponse.error());
+  },
+
+  /** Per-id status matrix for mixed-batch DELETE tests: `{ [id]: httpStatus }`. */
+  deleteMatrix(matrix: Readonly<Record<number, number>>): RequestHandler {
+    return http.delete(`${API_BASE}/taskcheck/:taskcheckId`, ({ params }) => {
+      const id = Number((params as Record<string, string>)['taskcheckId'] ?? '0');
+      const status = matrix[id];
+      if (status === undefined || status === 200) {
+        return HttpResponse.json({ result: 'success' });
+      }
+      return HttpResponse.json({ errors: [`Status ${status} for taskcheck ${id}`] }, { status });
+    });
+  },
+
+  /** Per-id status matrix for mixed-batch finish tests. */
+  finishMatrix(matrix: Readonly<Record<number, number>>): RequestHandler {
+    return http.post(`${API_BASE}/taskcheck/:taskcheckId/finish`, ({ params }) => {
+      const id = Number((params as Record<string, string>)['taskcheckId'] ?? '0');
+      const status = matrix[id];
+      if (status === undefined || status === 200) {
+        return HttpResponse.json({ result: 'success' });
+      }
+      return HttpResponse.json({ errors: [`Status ${status} for taskcheck ${id}`] }, { status });
+    });
+  },
+
+  /**
+   * Fails the test if any taskcheck endpoint is called. Used to prove
+   * `--dry-run` and the confirmation gate make zero HTTP calls **by content**
+   * (the 599 marker never appears) rather than by counting invocations.
+   */
+  forbidAnyCall(onCall: () => void): RequestHandler[] {
+    const reject = (): HttpResponse => {
+      onCall();
+      return HttpResponse.json({ errors: ['must not call the API'] }, { status: 599 });
+    };
+    return [
+      http.post(`${API_BASE}/taskcheck/:taskcheckId`, reject),
+      http.delete(`${API_BASE}/taskcheck/:taskcheckId`, reject),
+      http.post(`${API_BASE}/taskcheck/:taskcheckId/finish`, reject),
+      http.post(`${API_BASE}/taskcheck/:taskcheckId/activate`, reject),
+    ];
+  },
+};
+
+/**
+ * Read a request body as JSON, returning `undefined` when the request carried
+ * no body at all. Lets a test distinguish "sent `{}`" from "sent nothing",
+ * which is exactly the decision-3 assertion for `delete` and `reopen`.
+ */
+async function readJsonBody(request: Request): Promise<unknown> {
+  const text = await request.text();
+  if (text.length === 0) return undefined;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return text;
+  }
+}
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));

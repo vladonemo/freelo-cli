@@ -101,6 +101,7 @@ export async function run(argv: readonly string[]): Promise<void> {
   const { register: registerTasklists } = await import('../commands/tasklists.js');
   const { register: registerTasks } = await import('../commands/tasks.js');
   const { register: registerSubtasks } = await import('../commands/subtasks.js');
+  const { register: registerTaskchecks } = await import('../commands/taskchecks.js');
   const { register: registerComments } = await import('../commands/comments.js');
   const { register: registerTime } = await import('../commands/time.js');
   const { register: registerReports } = await import('../commands/reports.js');
@@ -146,6 +147,7 @@ export async function run(argv: readonly string[]): Promise<void> {
   registerTasklists(program, getAppConfig, env);
   registerTasks(program, getAppConfig, env);
   registerSubtasks(program, getAppConfig, env);
+  registerTaskchecks(program, getAppConfig, env);
   registerComments(program, getAppConfig, env);
   registerTime(program, getAppConfig, env);
   registerReports(program, getAppConfig, env);
