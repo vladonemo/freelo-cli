@@ -65,7 +65,11 @@ Dependency rule is the same as `docs/roadmap.md`: a slice may only depend on ear
 
 ---
 
-## M02 — `freelo tasklists edit <id>`
+## M02 — `freelo tasklists edit <id>` ✅ shipped
+
+**Status:** **Shipped** — [spec 0065](specs/0065-m02-tasklists-edit.md), run `2026-08-29-0921-tasklists-edit`, PR #118 (commit `59a6d49`). Envelope `freelo.tasklists.edit/v1`. Tiered **Yellow**.
+
+**Two behaviours worth carrying forward:** `--priority` on a tasklist is a **position** within the project, not an importance level (unrelated to `tasks edit --priority low|normal|high`); and the reorder is applied **outside** the transaction that commits every other field, so a partial success is possible and exits 0 — consumers branch on `data.priority_applied`, not on the exit code.
 
 **Outcome:** First write command on tasklists other than create. Rename a tasklist, adjust its budget / time fund, manage followers and default worker, and reorder tasklists within a project — all from the terminal.
 **Endpoints:** `POST /tasklist/{tasklist_id}/edit`.
