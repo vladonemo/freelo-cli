@@ -157,12 +157,14 @@ Hard limits per run. The orchestrator tracks them and pauses when exhausted.
 
 | Resource | Default | Override |
 |---|---|---|
-| Wall clock | 30 min | `--budget-minutes` |
+| Wall clock | 90 min | `--budget-minutes` |
 | Agent invocations | 40 | `--budget-calls` |
 | Phase retries (total across phases) | 8 | `--budget-retries` |
 | Files touched | 25 | `--budget-files` |
 
 When a budget is exhausted, the orchestrator finishes the current agent call, writes the pause report, and stops. Partial work is committed to the branch so nothing is lost.
+
+**Wall clock excludes nothing — it is measured end to end, and the calibration §3 gate run is the dominant term.** A single full-tree `pnpm test:cov` costs 10–17 min on a developer machine, and a run that hits a flake and re-runs it pays that twice. See §8 for why the default is 90 and not 30.
 
 ---
 
@@ -338,9 +340,15 @@ The test-writer agent should grep its diff for `isTTY.*true` in test files and v
 
 Future calibration candidate: add an `it.runIfCI` / `it.skipIfCI` or shared `withTtyPromptable()` helper to make this footgun harder to step on.
 
----
+### 8. The wall-clock budget was measuring the gate, not the work
 
-## Rollback
+**Trigger:** four consecutive runs overran the 30-minute cap and each logged an overrun decision: M02 (`2026-08-29-0921-tasklists-edit`, decision 10), M03 (`2026-08-29-1046-m03-taskchecks`, decision 7), M05 (`2026-08-29-1750-m05-task-label-colors`), M06 (`2026-08-29-2050-m06-task-labels-merge`). M03 was a four-command slice and M05 a single read-only command, so the overrun did not track slice size.
+
+**Why it matters:** the cap is supposed to catch a run that has gone wrong — stuck loops, runaway retries, a requirement larger than it looked. It stopped doing that. Every run overran, so the signal carried no information, and the only thing the cap reliably produced was a per-run decision record explaining why it was ignored. Worse, it created standing pressure toward the one shortcut calibration §3 exists to forbid: skipping `pnpm test:cov` for the faster `pnpm test`, which does not enforce the branch-coverage threshold. A budget that can only be honoured by cheating on a gate is worse than no budget.
+
+**The measurement:** the mandatory §3 gate run is the dominant cost, not the agent work. A full-tree `pnpm test:cov` measured 798 s (M03) and 10–13 min (M05, M06) on a developer machine. A run that hits the known load-dependent flake pays it twice — M06 spent ~25 min in `test:cov` alone against a 30 min total.
+
+**Rule:** the wall-clock default is **90 min**. It is still a real cap — a run that passes it has genuinely gone wrong and should pause — but it is now set above the cost of an honest gate run rather than below it. If a future change makes the test suite substantially faster or slower, re-derive this number from a measured `test:cov` rather than adjusting it by feel. The other three caps (calls, retries, files) were not changed: none of them has been the binding constraint in any run to date, and M03 and M06 both finished inside the files cap at 24/25 and 23/25.
 
 If autonomous merge lands a broken change:
 
