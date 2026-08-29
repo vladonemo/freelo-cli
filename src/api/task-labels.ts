@@ -9,20 +9,22 @@ import {
 import { buildQuery } from '../lib/query.js';
 
 /**
- * Wire wrappers for the `task-labels` resource group, R24 (spec 0036) and
- * M04 (spec 0062).
+ * Wire wrappers for the `task-labels` resource group, R24 (spec 0036),
+ * M04 (spec 0062), M05 (spec 0067) and M06 (spec 0068).
  *
- * Four endpoints:
+ * Six endpoints:
  *   - `POST /task-labels`                                — bulk-create
  *   - `POST /task-labels/add-to-task/{task_id}`          — attach
  *   - `POST /task-labels/remove-from-task/{task_id}`     — detach
  *   - `GET  /task-labels/find-available`                 — list (M04)
  *   - `GET  /task-label-colors`                          — palette (M05)
+ *   - `POST /task-labels/merge`                          — merge (M06)
  *
  * Verbs reconciled against OpenAPI (spec 0036 decision 01) — detach is POST,
  * not DELETE despite roadmap copy. OpenAPI is authoritative.
  *
- * The API is bulk-by-design: every endpoint takes `{ labels: [...] }`. Unlike
+ * The API is bulk-by-design: every endpoint bar `merge` takes
+ * `{ labels: [...] }` (merge takes `{ from_uuids, to_uuid }`). Unlike
  * R23 project-labels, there is **no per-name fan-out** — the CLI sends one
  * POST per invocation (spec 0036 decision 05).
  */
@@ -341,4 +343,80 @@ export async function getTaskLabelColors(
     ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
   });
   return { colors: raw.data.colors, raw };
+}
+
+/* ---------------------------------------------------------------------------
+ *  POST /task-labels/merge  (M06, spec 0068)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * `POST /task-labels/merge` (yaml :2936). A sibling of `/task-labels/*` in
+ * naming only — it takes no path parameter and no `labels` array, unlike every
+ * other endpoint in this group.
+ */
+export const TASK_LABELS_MERGE_PATH = '/task-labels/merge';
+
+/**
+ * Wire body of `POST /task-labels/merge` (yaml :2954-2973). Both keys are
+ * required by the contract; neither is nullable and neither has a default.
+ *
+ * Note what is *not* here: no `name`, no `color`. The target label's name and
+ * colour are taken from the existing `to_uuid` label and cannot be set through
+ * this call (yaml :2951).
+ */
+export type MergeTaskLabelsBody = {
+  from_uuids: string[];
+  to_uuid: string;
+};
+
+/**
+ * Build the merge body. Pure — exported so the `--dry-run` path can echo the
+ * exact object that would have gone over the wire without touching the network
+ * branch (same pattern as `buildAddTaskLabelsBody`).
+ *
+ * De-duplication and the self-merge check happen in the command layer, before
+ * this is called; this function does not validate.
+ */
+export function buildMergeTaskLabelsBody(input: {
+  fromUuids: readonly string[];
+  toUuid: string;
+}): MergeTaskLabelsBody {
+  return { from_uuids: [...input.fromUuids], to_uuid: input.toUuid };
+}
+
+export type MergeTaskLabelsOpts = FetchOpts & {
+  body: MergeTaskLabelsBody;
+};
+
+export type MergeTaskLabelsResult = {
+  raw: ApiResponse<unknown>;
+};
+
+/**
+ * Merge one or more source labels into a target label server-side.
+ *
+ * **The 200 body says nothing about what happened.** It is the generic
+ * `SuccessResponse` — `{ "result": "success" }` — with no task count, no list
+ * of affected tasks, and no indication of how many tasks were skipped because
+ * the caller is not a commander in their project (yaml :2948). Callers must
+ * not infer completeness from a 200; see spec 0068 §D1 for why the envelope
+ * refuses to fabricate one.
+ *
+ * A `404` means *either* a label does not exist *or* the caller does not own
+ * it — the contract collapses the two deliberately (yaml :2947). It is never
+ * absorbed into an idempotent success here or in the command layer.
+ */
+export async function mergeTaskLabels(
+  client: HttpClient,
+  opts: MergeTaskLabelsOpts,
+): Promise<MergeTaskLabelsResult> {
+  const raw = await client.request({
+    method: 'POST',
+    path: TASK_LABELS_MERGE_PATH,
+    body: opts.body,
+    schema: SuccessResponseSchema,
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+  return { raw };
 }

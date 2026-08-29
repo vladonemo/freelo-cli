@@ -5,17 +5,19 @@ import { registerAttach } from './task-labels/attach.js';
 import { registerDetach } from './task-labels/detach.js';
 import { registerFind } from './task-labels/find.js';
 import { registerColors } from './task-labels/colors.js';
+import { registerMerge } from './task-labels/merge.js';
 
 /**
  * Register the `task-labels` subcommand tree on the root program (R24,
  * spec 0036; `find` added by M04, spec 0062; `colors` added by M05,
- * spec 0067).
+ * spec 0067; `merge` added by M06, spec 0068).
  *
  * Mirrors `src/commands/labels.ts` shape: parent has a description but no
  * `meta` (only leaves do).
  *
- * Five leaves: `create`, `attach`, `detach`, `find`, `colors`. `find` and
- * `colors` are the read-only ones.
+ * Six leaves: `create`, `attach`, `detach`, `find`, `colors`, `merge`. `find`
+ * and `colors` are the read-only ones; `merge` is the only destructive one and
+ * the only leaf carrying a confirmation gate.
  *
  * `colors` is the odd one out in wiring terms: it maps to the top-level
  * `GET /task-label-colors` path, not to anything under `/task-labels`. It
@@ -45,4 +47,5 @@ export function register(
   registerDetach(taskLabels, getConfig, env);
   registerFind(taskLabels, getConfig, env);
   registerColors(taskLabels, getConfig, env);
+  registerMerge(taskLabels, getConfig, env);
 }
