@@ -178,7 +178,52 @@ freelo taskchecks reopen <id>... [--notify-author] [--dry-run]
 
 ---
 
-## M06 — `freelo task-labels merge`
+## M06 — `freelo task-labels merge` ✅ shipped
+
+**Status:** **Shipped** — [spec 0068](specs/0068-m06-task-labels-merge.md), run
+`2026-08-29-2050-m06-task-labels-merge`. Tiered Yellow on this slice's own signals (new
+user-visible command, new envelope schema, `minor` changeset), matching the guess below. Green was
+explicitly rejected: it is unreachable for a new command under the rulebook, and auto-merging an
+irreversible account-wide relabel would have been wrong on the merits regardless.
+
+**All four behaviour notes below verified against the contract and confirmed** — including the two
+that were flagged as needing checking. Two carry nuance the note did not:
+
+- **The 404 is declared by this endpoint's own prose, not inherited by pattern-matching.** The
+  `responses:` map lists only `'200'` (yaml :2974), which by M03 decision 4's test alone would mean
+  no 404 handling — but the description states it outright (yaml :2947). M03's rule was "derive it
+  from this endpoint's own contract", and doing exactly that yields a documented, deliberately
+  ambiguous 404. It is handled, kept an error (never absorbed as an idempotent already-merged
+  success), given a plain message, and the ownership nuance lives in `hint_next`. Decision 4.
+- **`task-labels find` is a superset of "labels you own", not an ownership oracle** — it returns
+  labels usable across owned _and invited_ projects (yaml :2847), so it can list a label merge will
+  still 404 on. The not-found hint points at `find` and says so, rather than sending users in a
+  circle. Decision 5.
+
+**Contract correction: there is no task-label delete endpoint, so the "follow-up
+`task-labels delete`" this slice speculated about cannot be built.** The only DELETE on a label is
+`/project-labels/{labelId}` — a different resource. Leftover source label definitions after a merge
+are therefore **permanent**, not a missing CLI feature; help text, human output and docs all say so.
+Decision 7.
+
+**The silent partial success was treated as the core of the slice.** The endpoint returns
+`{"result": "success"}` and nothing else while applying the replacement only where the caller is a
+commander, so a plain success reads as a completeness claim the API never made. The envelope
+reports what was _sent_ (`to_uuid`, `from_uuids`, `count`) and never what was _changed_ — no
+`tasks_updated`, no `already_in_target_state` (decision 1, following M03 decision 5) — but it does
+carry one constant, `scope: "commander_projects"`, typed as a `z.literal`. Help text and docs
+cannot reach a JSON consumer; a contract restatement is not a fabricated measurement. Decision 2.
+
+**Batch shape:** `--from` is repeatable _and_ comma-splitting; there is no `--ids` and no
+`--stdin`. The merge is already the batch — one call, array in the body — so there is no per-source
+request to amortise and no per-source result to report, and an NDJSON line here would not be an
+operation. Decision 3.
+
+**Follow-up left open:** this run was `allowNetwork: false`, so the command has never been run
+against a real account. Two things only a live run can settle: whether the server rejects a
+self-merge (the CLI fails it closed client-side, decision 6, because the contract is silent), and
+what a merge touching zero tasks looks like end to end — it is indistinguishable from one touching
+ten thousand, by design.
 
 **Outcome:** Consolidate duplicate/near-duplicate task labels across every task that carries them, in one server-side operation, instead of manually re-tagging tasks one at a time.
 **Endpoints:** `POST /task-labels/merge`.

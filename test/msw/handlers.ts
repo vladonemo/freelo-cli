@@ -2678,6 +2678,7 @@ export const projectLabelsHandlers = {
  *   POST /task-labels/remove-from-task/{task_id}       — detach
  *   GET  /task-labels/find-available                   — list (M04)
  *   GET  /task-label-colors                            — palette (M05)
+ *   POST /task-labels/merge                            — merge (M06)
  *
  * Note: detach is POST per OpenAPI (decision 01), not DELETE.
  */
@@ -2888,6 +2889,79 @@ export const taskLabelsHandlers = {
 
   colorsNetworkError(): RequestHandler {
     return http.get(`${API_BASE}/task-label-colors`, () => HttpResponse.error());
+  },
+
+  /* ---------------------------------------------------------------------
+   *  POST /task-labels/merge — merge labels (M06, spec 0068)
+   *
+   *  Body is `{ from_uuids: string[], to_uuid: string }` — no `labels` array,
+   *  no path parameter. The 200 body is the generic SuccessResponse and says
+   *  nothing about what changed, which is the whole point of spec 0068 §D1;
+   *  the fixtures mirror that emptiness rather than inventing a count.
+   * ------------------------------------------------------------------- */
+
+  mergeOk(): RequestHandler {
+    return http.post(`${API_BASE}/task-labels/merge`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  /**
+   * 200, and records the parsed request body into `capture` so a test can
+   * assert the wire shape.
+   *
+   * Records rather than predicates because a resolver can fire twice per
+   * logical request in this harness — tests assert on the *content* of
+   * `capture`, never on its length.
+   */
+  mergeOkCapturing(capture: unknown[]): RequestHandler {
+    return http.post(`${API_BASE}/task-labels/merge`, async ({ request }) => {
+      capture.push(await request.clone().json());
+      return HttpResponse.json({ result: 'success' });
+    });
+  },
+
+  /**
+   * 404 — the documented failure (yaml :2947). Means the label is missing
+   * *or* not owned by the caller; the contract collapses the two.
+   */
+  mergeNotFound(): RequestHandler {
+    return http.post(`${API_BASE}/task-labels/merge`, () =>
+      HttpResponse.json({ errors: ['Task label not found.'] }, { status: 404 }),
+    );
+  },
+
+  mergeUnauthorized(): RequestHandler {
+    return http.post(`${API_BASE}/task-labels/merge`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  mergeForbidden(): RequestHandler {
+    return http.post(`${API_BASE}/task-labels/merge`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  mergeServerError(status = 500): RequestHandler {
+    return http.post(`${API_BASE}/task-labels/merge`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  mergeRateLimited(): RequestHandler {
+    return http.post(
+      `${API_BASE}/task-labels/merge`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  mergeNetworkError(): RequestHandler {
+    return http.post(`${API_BASE}/task-labels/merge`, () => HttpResponse.error());
   },
 };
 

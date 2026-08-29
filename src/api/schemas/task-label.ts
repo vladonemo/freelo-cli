@@ -5,6 +5,7 @@
  *   - `POST /task-labels`                                — bulk-create label definitions
  *   - `POST /task-labels/add-to-task/{task_id}`          — attach labels to a task
  *   - `POST /task-labels/remove-from-task/{task_id}`     — detach labels from a task
+ *   - `POST /task-labels/merge`                          — merge labels (M06, yaml :2936)
  *
  * Note: the detach endpoint is **POST** (not DELETE as the roadmap suggests).
  * OpenAPI is authoritative — see spec 0036 decision 01.
@@ -233,3 +234,40 @@ export const TaskLabelsColorsDataSchema = z.object({
   }),
 });
 export type TaskLabelsColorsData = z.infer<typeof TaskLabelsColorsDataSchema>;
+
+/* ---------------------------------------------------------------------------
+ *  POST /task-labels/merge  (M06, spec 0068)
+ *
+ *  Wire body: `{ from_uuids: string[], to_uuid: string }` — both required
+ *  (yaml :2954-2973). Wire response: `SuccessResponse` (yaml :2974-2981), i.e.
+ *  `{ "result": "success" }` and nothing else. That emptiness is the whole
+ *  design constraint of this envelope.
+ *
+ *  What is deliberately **absent**, and must stay absent:
+ *
+ *    tasks_updated / tasks_skipped   The 200 body carries no count and no
+ *                                    per-task detail. Synthesising one would
+ *                                    be fabricating a measurement the CLI
+ *                                    cannot take. Spec 0068 §D1; same call as
+ *                                    M03 decision 5 (`already_in_target_state`
+ *                                    on taskchecks) and for the same reason.
+ *    already_in_target_state         A repeat merge is a server-side no-op and
+ *                                    returns the same 200. Unobservable.
+ *
+ *  `scope` is the single constant, and is a `z.literal` precisely so that its
+ *  constancy is legible in the schema rather than something a reader has to
+ *  infer from the command source. It restates a contract fact — "the
+ *  replacement is applied only to tasks in projects where the caller is a
+ *  commander" (yaml :2948) — which is true of every invocation and which a
+ *  JSON consumer has no other way to learn. Without it an agent sees an
+ *  unqualified success and concludes the merge was complete. Spec 0068 §D1b.
+ * ------------------------------------------------------------------------- */
+
+export const TaskLabelsMergeDataSchema = z.object({
+  to_uuid: z.string(),
+  from_uuids: z.array(z.string()),
+  count: z.number().int().min(0),
+  scope: z.literal('commander_projects'),
+  would: WouldSchema,
+});
+export type TaskLabelsMergeData = z.infer<typeof TaskLabelsMergeDataSchema>;
