@@ -127,4 +127,5 @@ fi
 ## See also
 
 - [`freelo task-labels create`](./task-labels-create.md) — create label definitions
+- [`freelo task-labels colors`](./task-labels-colors.md) — the color palette the server accepts, and whether the CLI's `--palette` names still match it
 - [`freelo labels list`](./labels-list.md) — the **project**-label equivalent (id-keyed, different endpoint)

@@ -94,3 +94,77 @@ export function paletteHelpBlock(): string {
   });
   return ['', 'Palette names accepted by --palette (case-insensitive):', ...rows].join('\n');
 }
+
+/* ---------------------------------------------------------------------------
+ *  Server-palette comparison helpers (M05, spec 0067 §4.3)
+ *
+ *  These read `PALETTE`; they never mutate it and are never on the
+ *  `--palette` resolution path. `resolveColorFlags` stays offline, pure and
+ *  synchronous — spec 0067 §6 explains why that is deliberate and not an
+ *  oversight.
+ *
+ *  Every comparison is case-insensitive: the wire uses lowercase hex
+ *  ("#15acc0", yaml :5964) and `PALETTE` stores uppercase ("#15ACC0"), so a
+ *  case-sensitive compare would report total drift against a perfectly
+ *  current server. Spec 0067 §3.1(b).
+ * ------------------------------------------------------------------------- */
+
+/** Lowercased hex → palette name, built once from the frozen `PALETTE`. */
+const HEX_TO_NAME: ReadonlyMap<string, string> = new Map(
+  NAMES.map((name) => [(PALETTE as Record<string, string>)[name]!.toLowerCase(), name]),
+);
+
+/**
+ * The local `--palette` name for a hex value, or `null` when the hex is not in
+ * the local table. Case-insensitive; `null`/`undefined`/empty input yields
+ * `null` rather than throwing — the caller is mapping a permissive wire value.
+ */
+export function paletteNameForHex(hex: string | null | undefined): string | null {
+  if (hex === null || hex === undefined || hex === '') return null;
+  return HEX_TO_NAME.get(hex.toLowerCase()) ?? null;
+}
+
+export interface PaletteComparison {
+  /** True when neither side has an entry the other lacks. */
+  readonly matches: boolean;
+  /** Server hex values with no local palette name (reachable only via `--hex`). */
+  readonly serverOnly: string[];
+  /** Local palette names whose hex the server did not return. */
+  readonly localOnly: string[];
+}
+
+/**
+ * Compare the server's accepted palette against the local `PALETTE`.
+ *
+ * `serverOnly` carries hex values (there is no local name for them, by
+ * definition); `localOnly` carries names (that is what a user types into
+ * `--palette`). Null/undefined/empty server entries are skipped, not counted
+ * as drift — the inbound schema is permissive by policy and a missing `color`
+ * is a server bug, not a palette change.
+ *
+ * Order is deterministic: `serverOnly` follows the server's response order,
+ * `localOnly` follows `PALETTE`'s frozen insertion order.
+ */
+export function comparePaletteToServer(
+  serverColors: readonly (string | null | undefined)[],
+): PaletteComparison {
+  const seen = new Set<string>();
+  const serverOnly: string[] = [];
+
+  for (const raw of serverColors) {
+    if (raw === null || raw === undefined || raw === '') continue;
+    const lower = raw.toLowerCase();
+    seen.add(lower);
+    if (!HEX_TO_NAME.has(lower) && !serverOnly.includes(raw)) serverOnly.push(raw);
+  }
+
+  const localOnly = NAMES.filter(
+    (name) => !seen.has((PALETTE as Record<string, string>)[name]!.toLowerCase()),
+  );
+
+  return {
+    matches: serverOnly.length === 0 && localOnly.length === 0,
+    serverOnly,
+    localOnly,
+  };
+}

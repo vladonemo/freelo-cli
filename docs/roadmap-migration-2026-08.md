@@ -65,7 +65,11 @@ Dependency rule is the same as `docs/roadmap.md`: a slice may only depend on ear
 
 ---
 
-## M02 — `freelo tasklists edit <id>`
+## M02 — `freelo tasklists edit <id>` ✅ shipped
+
+**Status:** **Shipped** — [spec 0065](specs/0065-m02-tasklists-edit.md), run `2026-08-29-0921-tasklists-edit`, PR #118 (commit `59a6d49`). Envelope `freelo.tasklists.edit/v1`. Tiered **Yellow**.
+
+**Two behaviours worth carrying forward:** `--priority` on a tasklist is a **position** within the project, not an importance level (unrelated to `tasks edit --priority low|normal|high`); and the reorder is applied **outside** the transaction that commits every other field, so a partial success is possible and exits 0 — consumers branch on `data.priority_applied`, not on the exit code.
 
 **Outcome:** First write command on tasklists other than create. Rename a tasklist, adjust its budget / time fund, manage followers and default worker, and reorder tasklists within a project — all from the terminal.
 **Endpoints:** `POST /tasklist/{tasklist_id}/edit`.
@@ -147,7 +151,23 @@ freelo taskchecks reopen <id>... [--notify-author] [--dry-run]
 
 ---
 
-## M05 — `freelo task-labels colors` (server-side palette)
+## M05 — `freelo task-labels colors` (server-side palette) ✅ shipped
+
+**Status:** **Shipped** — [spec 0067](specs/0067-m05-task-label-colors.md), run `2026-08-29-1750-m05-task-label-colors`. Envelope `freelo.task_labels.colors/v1`.
+
+**Tier came back Yellow, not the Green this slice guessed** — the third slice in a row to make that guess and the third correction. New user-visible command + new envelope schema + `minor` changeset each fire an explicit Yellow trigger independently, and highest tier wins. The correction M04 already recorded at line 123 applies unchanged: read-only-and-additive keeps a slice out of Red, it does not pull it down to Green. **Future slices in this document should stop pre-labelling read-only work as a Green candidate** — on the evidence of M04, M05 and M07, a new user-visible command is Yellow by construction.
+
+**The design question below is resolved: `alongside`, and the OpenAPI contract makes the case far more strongly than the reasoning below did.** The decisive fact is one the roadmap did not have: `TaskLabelColor.display_name` is documented as _"for display only; not accepted as input"_ (`docs/api/freelo-api.yaml` :5968). The server therefore publishes **no name vocabulary a client could adopt** — the only value that ever goes over the wire is the hex. A "replace" design could not have replaced the name→hex mapping with a server-supplied one; it would have had to keep mapping `display_name` client-side and hope those names stay stable and untranslated. Freelo is a Czech/Slovak product, so a localised `display_name` would silently change which names `--palette` accepts based on account locale. Add to that: a stale local table fails **closed** and `--hex` is already a complete escape hatch for any colour the server accepts, whereas a live fetch would import 401/429/timeout failure modes into validation that is currently offline, free and synchronous. See spec 0067 §6 and decision 02.
+
+**Three contract findings the slice text below did not carry:**
+
+- The response is `{ colors: TaskLabelColor[] }` with **three** fields per entry, not the "name + hex, if the response provides names" the text hedged on: `color`, `display_name`, and `is_default` (yaml :5960-5972). Not paginated, takes no parameters.
+- `is_default` marks the colour Freelo applies when a label is created without one — information the CLI previously had only as prose in a _request_ schema. Surfaced as `data.default_color`.
+- **The wire sends lowercase hex (`#15acc0`); `PALETTE` stores uppercase (`#15ACC0`).** A case-sensitive comparison would have reported total drift against a perfectly current server on day one. Every comparison is case-insensitive.
+
+**Beyond the slice as written:** the envelope carries a `drift` object (`matches` / `server_only` / `local_only`) rather than leaving a human to compare two nine-row tables by eye — which is precisely the process that lets drift go unnoticed. This makes the stated outcome scriptable (`... | jq -e '.data.drift.matches'`) without adding a flag, a mode, or an exit code. Drift is data: exit is 0 either way.
+
+**Follow-up left open:** this run was `allowNetwork: false`, so the local table has still never been compared against production. Running `freelo task-labels colors` against a real account is the one-command way to find out, and is not a code change.
 
 **Outcome:** Replaces the hardcoded nine-color palette client-side lookup table from R24.5 (`src/lib/label-color.ts`) with a call to the server's own source of truth, so the CLI stops silently drifting if Freelo changes the accepted palette.
 **Endpoints:** `GET /task-label-colors`.

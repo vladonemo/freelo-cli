@@ -160,3 +160,76 @@ export const TaskLabelsFindDataSchema = z.object({
   project_id: z.number().int().optional(),
 });
 export type TaskLabelsFindData = z.infer<typeof TaskLabelsFindDataSchema>;
+
+/* ---------------------------------------------------------------------------
+ *  GET /task-label-colors  (M05, spec 0067)
+ *
+ *  Wire item shape: `TaskLabelColor` (OpenAPI :5960-5972) — three fields, all
+ *  optional per the permissive-schema policy:
+ *
+ *    color        hex to send as the label color, e.g. "#15acc0" (lowercase
+ *                 on the wire; `PALETTE` in `src/lib/label-color.ts` stores
+ *                 uppercase, so every comparison is case-insensitive)
+ *    display_name the server's human-readable name — **display only, not
+ *                 accepted as input** (yaml :5968). This is why the CLI's
+ *                 `--palette <name>` vocabulary stays client-side; see spec
+ *                 0067 §3.1(a) and §6.
+ *    is_default   true for the color applied when a label is created without
+ *                 one (the contract's prose default is "#77787a" = local
+ *                 `PALETTE.gray`)
+ *
+ *  Not paginated — the endpoint declares no query parameters.
+ * ------------------------------------------------------------------------- */
+
+export const TaskLabelColorSchema = z
+  .object({
+    color: z.string().nullable().optional(),
+    display_name: z.string().nullable().optional(),
+    is_default: z.boolean().nullable().optional(),
+  })
+  .passthrough();
+export type TaskLabelColor = z.infer<typeof TaskLabelColorSchema>;
+
+/**
+ * Response body of `GET /task-label-colors` (yaml :2884-2896).
+ *
+ * `colors` is **required** — a body without the key is a contract violation
+ * and must fail validation loudly (exit 4). An *empty* array validates fine;
+ * spec 0067 §5 renders it as a zero-row table, exit 0.
+ */
+export const TaskLabelColorsResponseSchema = z
+  .object({
+    colors: z.array(TaskLabelColorSchema),
+  })
+  .passthrough();
+export type TaskLabelColorsResponse = z.infer<typeof TaskLabelColorsResponseSchema>;
+
+/* ---------------------------------------------------------------------------
+ *  freelo.task_labels.colors/v1
+ *
+ *  `palette_name` is the **local** `--palette` name whose hex equals this
+ *  server color (case-insensitive), or null when the server offers a color the
+ *  local table has no name for. Deliberately distinct from `display_name`:
+ *  `palette_name` is what the user can type, `display_name` is what Freelo
+ *  calls it and is not typeable anywhere. Spec 0067 §4.2.
+ *
+ *  `count` mirrors the `count` carried by the four sibling `task_labels.*`
+ *  envelopes. No `paging` — the endpoint documents none.
+ * ------------------------------------------------------------------------- */
+
+export const TaskLabelsColorsEntrySchema = TaskLabelColorSchema.extend({
+  palette_name: z.string().nullable(),
+});
+export type TaskLabelsColorsEntry = z.infer<typeof TaskLabelsColorsEntrySchema>;
+
+export const TaskLabelsColorsDataSchema = z.object({
+  colors: z.array(TaskLabelsColorsEntrySchema),
+  count: z.number().int().min(0),
+  default_color: z.string().nullable(),
+  drift: z.object({
+    matches: z.boolean(),
+    server_only: z.array(z.string()),
+    local_only: z.array(z.string()),
+  }),
+});
+export type TaskLabelsColorsData = z.infer<typeof TaskLabelsColorsDataSchema>;

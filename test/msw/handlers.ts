@@ -2676,6 +2676,8 @@ export const projectLabelsHandlers = {
  *   POST /task-labels                                  — bulk-create
  *   POST /task-labels/add-to-task/{task_id}            — attach
  *   POST /task-labels/remove-from-task/{task_id}       — detach
+ *   GET  /task-labels/find-available                   — list (M04)
+ *   GET  /task-label-colors                            — palette (M05)
  *
  * Note: detach is POST per OpenAPI (decision 01), not DELETE.
  */
@@ -2827,6 +2829,65 @@ export const taskLabelsHandlers = {
 
   findNetworkError(): RequestHandler {
     return http.get(`${API_BASE}/task-labels/find-available`, () => HttpResponse.error());
+  },
+
+  /* ---------------------------------------------------------------------
+   *  GET /task-label-colors — server palette (M05, spec 0067)
+   *
+   *  Top-level path, NOT a child of `/task-labels`. Takes no parameters.
+   *  Wire hex is lowercase ("#15acc0", yaml :5964) while the local `PALETTE`
+   *  is uppercase — fixtures below deliberately use lowercase so the
+   *  case-insensitive comparison is exercised for real.
+   * ------------------------------------------------------------------- */
+
+  /** 200 with a `{ colors: TaskLabelColor[] }` body. */
+  colorsOk(colors: Record<string, unknown>[]): RequestHandler {
+    return http.get(`${API_BASE}/task-label-colors`, () => HttpResponse.json({ colors }));
+  },
+
+  /**
+   * 200, recording the full request URL into `capture` so a test can assert
+   * the outbound path carries no query string.
+   */
+  colorsOkCapturing(capture: string[], colors: Record<string, unknown>[] = []): RequestHandler {
+    return http.get(`${API_BASE}/task-label-colors`, ({ request }) => {
+      capture.push(request.url);
+      return HttpResponse.json({ colors });
+    });
+  },
+
+  /** 200 with malformed body — `colors` key missing → schema validation fails. */
+  colorsMalformed(): RequestHandler {
+    return http.get(`${API_BASE}/task-label-colors`, () =>
+      HttpResponse.json({ result: 'success' }),
+    );
+  },
+
+  colorsUnauthorized(): RequestHandler {
+    return http.get(`${API_BASE}/task-label-colors`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  colorsServerError(status = 500): RequestHandler {
+    return http.get(`${API_BASE}/task-label-colors`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  colorsRateLimited(): RequestHandler {
+    return http.get(
+      `${API_BASE}/task-label-colors`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  colorsNetworkError(): RequestHandler {
+    return http.get(`${API_BASE}/task-label-colors`, () => HttpResponse.error());
   },
 };
 

@@ -2,7 +2,9 @@ import { type ApiResponse, type HttpClient } from './client.js';
 import {
   FindAvailableTaskLabelsResponseSchema,
   SuccessResponseSchema,
+  TaskLabelColorsResponseSchema,
   type TaskLabel,
+  type TaskLabelColor,
 } from './schemas/task-label.js';
 import { buildQuery } from '../lib/query.js';
 
@@ -15,6 +17,7 @@ import { buildQuery } from '../lib/query.js';
  *   - `POST /task-labels/add-to-task/{task_id}`          — attach
  *   - `POST /task-labels/remove-from-task/{task_id}`     — detach
  *   - `GET  /task-labels/find-available`                 — list (M04)
+ *   - `GET  /task-label-colors`                          — palette (M05)
  *
  * Verbs reconciled against OpenAPI (spec 0036 decision 01) — detach is POST,
  * not DELETE despite roadmap copy. OpenAPI is authoritative.
@@ -37,6 +40,14 @@ export const removeTaskLabelsPath = (taskId: number): string =>
   `/task-labels/remove-from-task/${taskId}`;
 
 export const FIND_AVAILABLE_TASK_LABELS_PATH = '/task-labels/find-available';
+
+/**
+ * `GET /task-label-colors` (M05, spec 0067). Note the singular `task-label-`
+ * prefix and the absence of a `/task-labels/` parent — this is a top-level
+ * path in the contract (yaml :2878), not a child of the `task-labels`
+ * resource. Takes no parameters of any kind.
+ */
+export const TASK_LABEL_COLORS_PATH = '/task-label-colors';
 
 /**
  * Compose the find-available path, appending `?project_id=` only when a
@@ -295,4 +306,39 @@ export async function findAvailableTaskLabels(
     ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
   });
   return { labels: raw.data.labels, raw };
+}
+
+/* ---------------------------------------------------------------------------
+ *  GET /task-label-colors  (M05, spec 0067)
+ * ------------------------------------------------------------------------- */
+
+export type GetTaskLabelColorsResult = {
+  colors: TaskLabelColor[];
+  raw: ApiResponse<unknown>;
+};
+
+/**
+ * `GET /task-label-colors` — the palette Freelo accepts for task-label colors.
+ *
+ * Read-only, unparameterised, unpaginated. The response's `display_name` is
+ * documented as display-only and **not accepted as input** (yaml :5968); the
+ * only value that goes back over the wire is `color`. That contract fact is
+ * why the CLI's `--palette` name table stays a local constant rather than
+ * becoming a live fetch — spec 0067 §6.
+ *
+ * An empty `colors: []` is a valid body, not an error. A body missing the
+ * `colors` key fails schema validation loudly (exit 4).
+ */
+export async function getTaskLabelColors(
+  client: HttpClient,
+  opts: FetchOpts = {},
+): Promise<GetTaskLabelColorsResult> {
+  const raw = await client.request({
+    method: 'GET',
+    path: TASK_LABEL_COLORS_PATH,
+    schema: TaskLabelColorsResponseSchema,
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
+  });
+  return { colors: raw.data.colors, raw };
 }

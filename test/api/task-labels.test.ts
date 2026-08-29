@@ -1,5 +1,6 @@
 /**
- * Unit tests for `src/api/task-labels.ts` (R24, spec 0036).
+ * Unit tests for `src/api/task-labels.ts` (R24, spec 0036; `getTaskLabelColors`
+ * added by M05, spec 0067).
  *
  * Pure-function tests — no MSW for the builders. The wire-call wrappers
  * use MSW + the real `createHttpClient` to exercise the optional-spread
@@ -19,6 +20,8 @@ import {
   createTaskLabels,
   addTaskLabelsToTask,
   removeTaskLabelsFromTask,
+  TASK_LABEL_COLORS_PATH,
+  getTaskLabelColors,
 } from '../../src/api/task-labels.js';
 import { server, taskLabelsHandlers, API_BASE } from '../msw/handlers.js';
 
@@ -219,5 +222,63 @@ describe('removeTaskLabelsFromTask — signal/requestId branches', () => {
       requestId: '11111111-2222-4333-8444-555555555555',
     });
     expect(out.raw.data).toEqual(expect.objectContaining({ result: 'success' }));
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ *  GET /task-label-colors (M05, spec 0067)
+ * ------------------------------------------------------------------------- */
+
+describe('TASK_LABEL_COLORS_PATH', () => {
+  it('is the top-level /task-label-colors path, not a /task-labels child', () => {
+    expect(TASK_LABEL_COLORS_PATH).toBe('/task-label-colors');
+    expect(TASK_LABEL_COLORS_PATH.startsWith('/task-labels/')).toBe(false);
+  });
+});
+
+describe('getTaskLabelColors', () => {
+  it('returns the colors array off the wire body', async () => {
+    server.use(
+      taskLabelsHandlers.colorsOk([
+        { color: '#77787a', display_name: 'Gray', is_default: true },
+        { color: '#15acc0', display_name: 'Aqua', is_default: false },
+      ]),
+    );
+    const out = await getTaskLabelColors(makeClient());
+    expect(out.colors).toHaveLength(2);
+    expect(out.colors[0]!.color).toBe('#77787a');
+    expect(out.colors[0]!.is_default).toBe(true);
+  });
+
+  it('accepts an empty palette without throwing', async () => {
+    server.use(taskLabelsHandlers.colorsOk([]));
+    const out = await getTaskLabelColors(makeClient());
+    expect(out.colors).toEqual([]);
+  });
+
+  it('keeps undocumented extra fields (passthrough schema)', async () => {
+    server.use(taskLabelsHandlers.colorsOk([{ color: '#77787a', sort_order: 1 }]));
+    const out = await getTaskLabelColors(makeClient());
+    expect(out.colors[0]).toEqual(expect.objectContaining({ sort_order: 1 }));
+  });
+
+  it('honours an explicit signal (covers the signal-set branch)', async () => {
+    server.use(taskLabelsHandlers.colorsOk([{ color: '#77787a' }]));
+    const controller = new AbortController();
+    const out = await getTaskLabelColors(makeClient(), { signal: controller.signal });
+    expect(out.colors).toHaveLength(1);
+  });
+
+  it('honours an explicit requestId (covers the requestId-set branch)', async () => {
+    server.use(taskLabelsHandlers.colorsOk([{ color: '#77787a' }]));
+    const out = await getTaskLabelColors(makeClient(), {
+      requestId: '11111111-2222-4333-8444-555555555555',
+    });
+    expect(out.colors).toHaveLength(1);
+  });
+
+  it('rejects a body without the colors key (contract violation, not empty)', async () => {
+    server.use(taskLabelsHandlers.colorsMalformed());
+    await expect(getTaskLabelColors(makeClient())).rejects.toThrow();
   });
 });
