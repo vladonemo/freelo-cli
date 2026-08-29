@@ -323,3 +323,127 @@ export type TasklistsCreateFromTemplateData = {
     body: CreateTasklistFromTemplateBody;
   };
 };
+
+/* ------------------------------------------------------------------------- *
+ *  M02 — `freelo tasklists edit <id>` (spec 0065)
+ *
+ *  POST /tasklist/{tasklist_id}/edit                              (yaml :1235-1305)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Response shape of `POST /tasklist/{tasklist_id}/edit` (yaml :1294-1305).
+ *
+ * The endpoint returns **exactly one documented field**: `priorityApplied`.
+ * No tasklist entity comes back — which is why M02 does not do a refresh GET
+ * (spec 0065 decision 6).
+ *
+ * `priorityApplied` is declared **required** in the OpenAPI (`required:
+ * [priorityApplied]`) and is therefore NOT `.optional()` here. A 200 that
+ * omits it is a genuine contract break and must fail fast at the HTTP layer
+ * rather than silently defaulting — same reasoning as `TasklistDetail.project_id`
+ * above.
+ *
+ * Semantics (yaml :1247): the priority renumber runs **outside** the
+ * transaction that commits `name`, `budget`, `time_budget_minutes`,
+ * `tracking_users_ids` and `worker_id`. `false` means every other field
+ * committed but the reorder did not, and the client may retry the priority
+ * change alone. See spec 0065 §3.1 / decision 4 for how the CLI surfaces this.
+ *
+ * `.passthrough()` per repo convention so future Freelo additions survive.
+ */
+export const EditTasklistResponseSchema = z
+  .object({
+    priorityApplied: z.boolean(),
+  })
+  .passthrough();
+
+export type EditTasklistResponse = z.infer<typeof EditTasklistResponseSchema>;
+
+/**
+ * CLI-side input for `freelo tasklists edit`. Camel-case and already
+ * validated by the flag parsers by the time the body builder sees it.
+ *
+ * The `clear*` members are `true`-only (never `false`) so that "flag absent"
+ * and "flag passed" are distinguishable without a tri-state. Mirrors
+ * `EditTaskInput.clearPriority` (R10).
+ *
+ * `budget` is a digits-only string in **minor currency units** ("100000" =
+ * 1000.00) — validated `^[0-9]+$` upstream and passed through verbatim to
+ * avoid float-precision drift. Decimal strings are rejected by Freelo with a
+ * 400 (yaml :1272), so the CLI rejects them client-side with a clearer message.
+ */
+export type EditTasklistInput = {
+  name?: string;
+  budget?: string;
+  clearBudget?: true;
+  timeBudgetMinutes?: number;
+  clearTimeBudget?: true;
+  worker?: number;
+  clearWorker?: true;
+  trackingUsers?: readonly number[];
+  clearTrackingUsers?: true;
+  shouldChangeExistingTasks?: true;
+  /**
+   * New **position** of the tasklist within its project (1 = first).
+   * Positional ordering, NOT importance — unrelated to `priority_enum`
+   * (l/m/h) elsewhere in this API. See spec 0065 §2.2.
+   */
+  priority?: number;
+};
+
+/**
+ * Wire body for `POST /tasklist/{tasklist_id}/edit` (yaml :1262-1292).
+ *
+ * Every field is optional; only keys the user actually set are emitted.
+ * `null` is a meaningful value on three fields (clear semantics) and is
+ * distinct from the key being absent:
+ *
+ *   - `budget: null`               → clear the budget      (decision 8)
+ *   - `time_budget_minutes: null`  → clear the time fund
+ *   - `worker_id: null`            → clear the default worker
+ *   - `tracking_users_ids: []`     → clear all followers
+ *
+ * Note `time_budget_minutes: 0` is a **real value** (a zero fund), not a
+ * clear — the OpenAPI declares `minimum: 0`.
+ */
+export type EditTasklistBody = {
+  name?: string;
+  budget?: string | null;
+  time_budget_minutes?: number | null;
+  priority?: number;
+  tracking_users_ids?: number[];
+  should_change_existing_tasks?: boolean;
+  worker_id?: number | null;
+};
+
+/**
+ * Envelope `data` shape for `freelo.tasklists.edit/v1` (spec 0065 §3).
+ *
+ * `tasklist_id`, `priority_requested`, `priority_applied` and
+ * `applied_changes` are **always present**. `would` is present iff `--dry-run`.
+ *
+ * `priority_applied` is deliberately required rather than optional: it is the
+ * machine-readable half of the partial-success contract (decision 4), and an
+ * optional field can be missed by absence. `priority_requested` disambiguates
+ * the API's own conflation — Freelo returns `priorityApplied: true` both when
+ * the reorder succeeded and when no reorder was asked for.
+ */
+export type TasklistsEditData = {
+  tasklist_id: number;
+  /** Did the user pass `--priority`? */
+  priority_requested: boolean;
+  /**
+   * `false` only when `priority_requested` is `true` and the server reported
+   * `priorityApplied: false` — i.e. every other field committed but the
+   * reorder did not. Exit code stays 0; the envelope carries a `notice`.
+   */
+  priority_applied: boolean;
+  /** The wire body that was sent (live) or would be sent (`--dry-run`). */
+  applied_changes: EditTasklistBody;
+  would?: {
+    method: 'POST';
+    /** `/tasklist/{tasklist_id}/edit`. */
+    path: string;
+    body: EditTasklistBody;
+  };
+};

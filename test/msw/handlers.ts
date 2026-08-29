@@ -6516,6 +6516,122 @@ export const filesDeleteHandlers = {
 };
 
 /**
+ * MSW handlers for `freelo tasklists edit <id>` (M02, spec 0065).
+ *
+ * Single endpoint: `POST /tasklist/{tasklist_id}/edit`, whose 200 body is
+ * `{ priorityApplied: boolean }` and nothing else.
+ *
+ * NOTE: no factory here counts requests. This repo's MSW setup is known to
+ * invoke a resolver twice per logical request; assert request *content*, not
+ * request *counts*. See M07 decision 6
+ * (`docs/decisions/2026-08-28-2039-files-delete-6-no-wire-level-request-count-assertions.md`).
+ */
+export const tasklistsEditHandlers = {
+  /** 200 with `{ priorityApplied }`. */
+  ok(tasklistId: number, priorityApplied = true): RequestHandler {
+    return http.post(`${API_BASE}/tasklist/${tasklistId}/edit`, () =>
+      HttpResponse.json({ priorityApplied }),
+    );
+  },
+
+  /**
+   * Match-on-body variant: the predicate captures / inspects the parsed body
+   * and decides whether the 200 or a diagnostic 500 comes back. Mirrors
+   * `tasklistsCreateHandlers.okWhenBody`.
+   */
+  okWhenBody(
+    tasklistId: number,
+    predicate: (body: unknown, request: Request) => boolean,
+    priorityApplied = true,
+  ): RequestHandler {
+    return http.post(`${API_BASE}/tasklist/${tasklistId}/edit`, async ({ request }) => {
+      const body: unknown = await request.clone().json();
+      if (!predicate(body, request)) {
+        return HttpResponse.json(
+          { errors: [`Body did not match predicate: ${JSON.stringify(body)}`] },
+          { status: 500 },
+        );
+      }
+      return HttpResponse.json({ priorityApplied });
+    });
+  },
+
+  /**
+   * 200 whose body omits the REQUIRED `priorityApplied` field. Exercises the
+   * schema-validation path (`FreeloApiError` / `VALIDATION_ERROR`, exit 4).
+   */
+  malformed(tasklistId: number): RequestHandler {
+    return http.post(`${API_BASE}/tasklist/${tasklistId}/edit`, () =>
+      HttpResponse.json({ somethingElse: true }),
+    );
+  },
+
+  /** 400 — server-side validation (e.g. a decimal budget slipped through). */
+  badRequest(tasklistId: number, message = 'Invalid budget format.'): RequestHandler {
+    return http.post(`${API_BASE}/tasklist/${tasklistId}/edit`, () =>
+      HttpResponse.json({ errors: [message] }, { status: 400 }),
+    );
+  },
+
+  /** 401. */
+  unauthorized(tasklistId: number): RequestHandler {
+    return http.post(`${API_BASE}/tasklist/${tasklistId}/edit`, () =>
+      HttpResponse.json({ errors: ['Invalid token.'] }, { status: 401 }),
+    );
+  },
+
+  /** 403. */
+  forbidden(tasklistId: number): RequestHandler {
+    return http.post(`${API_BASE}/tasklist/${tasklistId}/edit`, () =>
+      HttpResponse.json({ errors: ['Forbidden.'] }, { status: 403 }),
+    );
+  },
+
+  /** 404 — tasklist missing or invisible. */
+  notFound(tasklistId: number): RequestHandler {
+    return http.post(`${API_BASE}/tasklist/${tasklistId}/edit`, () =>
+      HttpResponse.json({ errors: ['Tasklist not found.'] }, { status: 404 }),
+    );
+  },
+
+  /** 429 (Retry-After: 0). */
+  rateLimited(tasklistId: number): RequestHandler {
+    return http.post(
+      `${API_BASE}/tasklist/${tasklistId}/edit`,
+      () =>
+        new HttpResponse(JSON.stringify({ errors: ['Rate limited.'] }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        }),
+    );
+  },
+
+  /** 5xx. */
+  serverError(tasklistId: number, status = 500): RequestHandler {
+    return http.post(`${API_BASE}/tasklist/${tasklistId}/edit`, () =>
+      HttpResponse.json({ errors: ['Internal server error.'] }, { status }),
+    );
+  },
+
+  /** Connection-closed (network error). */
+  networkError(tasklistId: number): RequestHandler {
+    return http.post(`${API_BASE}/tasklist/${tasklistId}/edit`, () => HttpResponse.error());
+  },
+
+  /**
+   * Fails the test if the endpoint is called at all. Used to prove `--dry-run`
+   * makes zero HTTP calls **by content** (the request never happens, so the
+   * 599 marker never appears) rather than by counting invocations.
+   */
+  forbidAnyCall(tasklistId: number, onCall: () => void): RequestHandler {
+    return http.post(`${API_BASE}/tasklist/${tasklistId}/edit`, () => {
+      onCall();
+      return HttpResponse.json({ errors: ['dry-run must not call the API'] }, { status: 599 });
+    });
+  },
+};
+
+/**
  * Pre-configured MSW server. Start in tests with:
  *
  *   beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
