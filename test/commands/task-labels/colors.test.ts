@@ -223,6 +223,20 @@ describe('freelo task-labels colors — happy paths', () => {
     expect(env.data.default_color).toBeNull();
   });
 
+  it('default_color is null when the default entry carries no color at all', async () => {
+    // Defensive: every wire field is optional per the permissive-schema
+    // policy, so `is_default: true` with no `color` is representable.
+    server.use(taskLabelsHandlers.colorsOk([{ is_default: true }, AQUA]));
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, ['task-labels', 'colors', '--output', 'json']);
+    expect(exitCode).toBe(0);
+    const env = parseFirstJson(stdout) as unknown as ColorsEnvelope;
+    expect(env.data.default_color).toBeNull();
+    expect(env.data.colors[0]!.palette_name).toBeNull();
+    // A colorless entry is skipped by the comparison, not counted as drift.
+    expect(env.data.drift.server_only).toEqual([]);
+  });
+
   it('an empty palette is a success, not an error', async () => {
     server.use(taskLabelsHandlers.colorsOk([]));
     const { run } = await import('../../../src/bin/freelo.js');
@@ -347,6 +361,15 @@ describe('freelo task-labels colors — human output', () => {
     expect(stdout).toContain('Drift:');
     expect(stdout).toContain('not returned by the server');
     expect(stdout).not.toContain('no --palette name');
+  });
+
+  it('renders dashes for an entry with no color and no display name', async () => {
+    server.use(taskLabelsHandlers.colorsOk([{ is_default: false }]));
+    const { run } = await import('../../../src/bin/freelo.js');
+    const { stdout, exitCode } = await runCli(run, ['task-labels', 'colors', '--output', 'human']);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('-');
+    expect(stdout).toContain('COLOR');
   });
 
   it('renders a placeholder row for an empty palette', async () => {
