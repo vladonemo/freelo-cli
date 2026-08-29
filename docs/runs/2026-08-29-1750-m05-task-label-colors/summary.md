@@ -6,6 +6,7 @@
 **Mode:** `allowNetwork: false` (MSW only), `autoShip: false`
 **Base:** `main` @ `705998c`
 **Branch:** `feat/task-label-colors`
+**PR:** https://github.com/vladonemo/freelo-cli/pull/120 — all 7 CI checks green
 **Outcome:** PR open, stopped before merge — the human takes the merge decision.
 
 ## Phases run
@@ -79,6 +80,20 @@ The wall-clock overrun is logged rather than treated as grounds to shortcut the 
 run, per the run brief. M03 decision 7 already argues the 30-minute default is mis-calibrated for
 this repo; a single full-suite run costs ~13 minutes on this machine, so any run that executes the
 gate honestly exceeds the cap before it starts.
+
+## Gate results (calibration §3, on the clean committed tree)
+
+`pnpm typecheck && pnpm lint && pnpm test:cov && pnpm build && pnpm check:readme` — all five pass.
+
+- 181 test files, 3359 passed, 1 skipped, **0 failed** (632s)
+- Coverage 95.38% lines / 83.99% branches / 96.06% functions; all directory thresholds met
+- New command file 98.48% lines / 80% branches — the same shape as its shipped M04 sibling
+  `find.ts` (98.57 / 82.35); new renderer and new lib helpers at 100% branches
+- CI: all 7 required checks green, including both Windows jobs
+
+An earlier full run on the same tree hit 7 load-dependent failures across five suites
+(`tasks/{list,move,edit,create}`, `files/download`) — every one in the documented pre-existing
+environmental set, each passing in isolation. The final run, on a quieter machine, was clean.
 
 ## Limitations — what was not verified
 
