@@ -1,5 +1,169 @@
 # freelo-cli
 
+## 0.21.0
+
+### Minor Changes
+
+- 1fbba46: feat(comments): `freelo comments delete <id>...` — delete your own comments
+
+  Adds the delete verb to the `comments` resource, wrapping `DELETE /comment/{comment_id}`. This
+  closes out R18.5, queued since 2026-04-28 because the endpoint wasn't in Freelo's OpenAPI document;
+  the 2026-08-24 refresh added it. Mirrors `freelo tasks delete`: `--yes` / TTY-confirm gate,
+  `--dry-run`, and all three batch input shapes (positional `<id>...`, `--ids`, `--stdin` NDJSON).
+  No new flag names and no new flag semantics — every surface already exists elsewhere in the CLI.
+
+  **New envelope schema: `freelo.comments.delete/v1`.** Additive; no existing schema is touched.
+  `data` carries `comment_id`, `current_state: "deleted"`, `already_in_target_state`, plus the usual
+  optional `would` (dry-run) and `line_index` (`--stdin`) fields.
+
+  Two Freelo-side rules shape the error surface, and both are worth knowing before scripting against
+  this command:
+
+  - **15-minute deletion window.** A comment can only be deleted within 15 minutes of being posted;
+    after that the API returns 400. Rather than passing through a generic `Freelo API error (HTTP
+400).`, the CLI names the cause and points at `freelo comments edit`, which has no time limit and
+    is the real workaround for redacting an older comment.
+  - **A 404 is an error here, not an idempotent already-deleted success.** This is a deliberate
+    divergence from `tasks delete` / `projects delete` / `labels delete`, which all absorb a 404 into
+    a success envelope with `already_in_target_state: true`. Only a comment's author may delete it,
+    and Freelo returns 404 rather than 403 for someone else's comment so that inaccessible comments
+    aren't leaked — which makes a 404 mean _either_ "no such comment" _or_ "not yours". Absorbing it
+    would report success for a comment still sitting in the thread. It therefore surfaces as
+    `NOT_FOUND` / exit 4, with a plain not-found message (never a permission error) and the ACL nuance
+    confined to `hint_next`. `already_in_target_state` is consequently always `false`; it is retained
+    only so agents looping deletes across resources read one field shape everywhere.
+
+  Scripts that loop over comment ids and tolerate "already gone" must check for this explicitly — a
+  404 from `comments delete` does not mean the work is done.
+
+- 21ea995: feat(files): `freelo files delete <uuid>...` — delete files and documents
+
+  Closes the read/write asymmetry in the `files` resource. R25 uploads, R26 lists and R27 downloads;
+  until now nothing deleted. This adds the delete verb, wrapping `DELETE /file/{file_uuid}`. The
+  endpoint resolves whether a UUID points at a **file** or a **document/note** server-side, so one
+  command covers both.
+
+  Mirrors `freelo comments delete` and `freelo tasks delete`: `--yes` / TTY-confirm gate, `--dry-run`,
+  and all three batch input shapes (positional `<uuid>...`, `--ids`, `--stdin` NDJSON, the last taking
+  `{"uuid": "<string>"}` lines). No new flag names and no new flag semantics — every surface already
+  exists elsewhere in the CLI.
+
+  **New envelope schema: `freelo.files.delete/v1`.** Additive; no existing schema is touched. `data`
+  carries `uuid`, `current_state: "deleted"`, `already_in_target_state`, plus the usual optional
+  `would` (dry-run) and `line_index` (`--stdin`) fields. It deliberately carries no `type` / `kind`
+  field: the API never reports which of the two kinds it removed, so surfacing one would be a guess.
+
+  **A 404 is reported as an error (exit 4), not as an idempotent already-deleted success.** This
+  diverges from `freelo tasks delete` on purpose, and it is the thing to know before scripting against
+  this command. Freelo returns 404 both when the resource is gone _and_ when it exists but the caller
+  can't see it — the API doesn't distinguish, to avoid leaking the existence of inaccessible resources.
+  Absorbing that into a success would print "deleted" and exit 0 for a document still sitting untouched
+  in someone else's project, which is the one failure mode a delete command must never have. So
+  `already_in_target_state` is always `false` here, the message stays a plain not-found (the CLI cannot
+  tell which case it hit, so it doesn't claim to), and the ambiguity is spelled out in `hint_next`.
+  Passing the same UUID twice therefore reports the second as a 404 — de-duplicate upstream if you need
+  tolerance.
+
+  Deletion is a **soft delete** on Freelo's side: the resource is marked deleted rather than physically
+  removed. There is no undelete endpoint.
+
+- 8d65248: **`freelo task-labels find [--project <id>]`** — list the task labels usable by the caller (uuid, name, color), sorted by name. Wraps `GET /task-labels/find-available`.
+
+  This is the name→uuid resolver task labels never had. Previously the only ways to learn a task label's uuid were scanning every task via `GET /all-tasks` or round-tripping through `task-labels attach`; both are now obsolete. Pair it with `task-labels attach --uuid` to attach an existing label instead of risking a near-miss name that creates a duplicate.
+
+  Pass `--project <id>` to restrict results to labels used in a single project.
+
+  **An empty result is a success (exit 0), not an error.** The API returns `{"labels": []}` with HTTP 200 both when `--project` names a project you can't access and when your account has no accessible projects — and it does not distinguish those from "there genuinely are no labels". The CLI does not synthesise a 404 for any of them. Scripts should check `data.count` rather than the exit code.
+
+  New envelope schema: **`freelo.task_labels.find/v1`** — `{ labels: [{ uuid, name, color }], count, project_id? }`. `project_id` is present only when `--project` was passed. Note there is no `id` field: task labels are uuid-keyed, unlike the id-keyed project labels behind `freelo labels list`.
+
+  No existing envelope schema, flag, or exit code is changed.
+
+- 2fab276: feat(commands): `tasks list --order-by due_date` (M08)
+
+  `freelo tasks list --order-by` now accepts a fifth value, `due_date`, alongside
+  `priority`, `name`, `date_add`, and `date_edited_at`. Previously it was rejected
+  client-side with `VALIDATION_ERROR` (exit 2) before a request was ever made.
+
+  The value is accepted on **both** task-listing routes, because the refreshed
+  OpenAPI contract (PR #112) documents it on both — `GET /project/{p}/tasklist/{t}/tasks`
+  and `GET /all-tasks`. The roadmap slice only knew about the first; the second was
+  confirmed by reading the contract rather than assumed.
+
+  ```bash
+  freelo tasks list --project 42 --tasklist 101 --order-by due_date
+  freelo tasks list --order-by due_date --order asc --all
+  ```
+
+  Freelo owns the sort; the CLI forwards the key and never re-sorts. Per the
+  contract: tasks with no due date always sort last (in both directions), all-day
+  tasks sort at the start of their day (00:00), and on `/all-tasks` equal due dates
+  are tie-broken by task id so pagination boundaries stay stable.
+
+  The spec-0060 board-order default is unaffected: passing `--order-by due_date`
+  alone on the per-tasklist route suppresses the injected
+  `order_by=priority&order=asc` for both halves, exactly as any other explicit
+  value does. Omitting both order flags still gets you the manual board order.
+
+  **Envelope:** no bump. `freelo.tasks.list/v1` stays `/v1` — no field is added,
+  removed, renamed, or retyped. `applied_filters.order_by` widens its value domain
+  by one string literal, and since `applied_filters` echoes only flags you passed,
+  a consumer can observe `"due_date"` there only in response to its own
+  `--order-by due_date`. No existing caller's payload changes.
+
+- 9093ff8: Add `freelo task-labels colors` (M05) — the task-label color palette the Freelo server actually accepts, plus a drift check against the CLI's built-in `--palette` names.
+
+  ```bash
+  freelo task-labels colors
+  ```
+
+  **New envelope schema: `freelo.task_labels.colors/v1`.** `data` carries `colors[]` (each entry adds `palette_name` to the wire's `color` / `display_name` / `is_default`), `count`, `default_color`, and a `drift` object with `matches`, `server_only` and `local_only`. No existing schema is changed.
+
+  Notable behavior:
+
+  - **`--palette` is unchanged.** The nine-name table in `src/lib/label-color.ts` remains the sole, offline validator for `--palette` on every command that takes a color. This command is a check on that table, not a runtime dependency of it — validation stays local, free, and works without a network or credentials. The API's `display_name` is documented as display-only and is not accepted as input, so there is no server-side name vocabulary to adopt.
+  - **Drift is data, not an error.** Exit is 0 whether or not the tables agree. A scheduled check reads the field: `freelo task-labels colors --output json | jq -e '.data.drift.matches'`.
+  - **`palette_name` is not `display_name`.** `palette_name` is what you type into `--palette` (or `null` when the CLI has no name for a server color — reach it with `--hex`). `display_name` is Freelo's own label and is not typeable anywhere.
+  - Hex comparison is **case-insensitive**: the wire sends lowercase, the local table stores uppercase, and that difference alone is never reported as drift.
+
+- 705998c: Add `freelo taskchecks` (M03) — a new resource for managing **simple checklist items**, the lightweight `tasks_checks` rows `freelo subtasks add` silently falls back to when a tasklist can't host smart subtasks. Until now the CLI could create them but never edit, tick, un-tick or remove one.
+
+  ```bash
+  freelo taskchecks edit 4821 --name "Draft the introduction" --worker 512
+  freelo taskchecks finish 4821 4822
+  freelo taskchecks reopen 4821
+  freelo taskchecks delete 4821 --yes
+  ```
+
+  **Four new envelope schemas:** `freelo.taskchecks.edit/v1`, `freelo.taskchecks.delete/v1`, `freelo.taskchecks.finish/v1`, `freelo.taskchecks.reopen/v1`. No existing schema is changed, and no existing command's behavior changes.
+
+  Notable behavior:
+
+  - **Two id spaces, and the CLI won't guess between them.** These commands accept only a _simple_ checklist item id (`tasks_checks.id`). A _smart_ subtask — one with its own task id — returns 404 here and is managed with `freelo tasks edit|delete|finish|reopen`. The CLI deliberately does not probe-and-fall-back: the two id sequences are independent and overlap in range, so a typo'd checklist id is quite likely to be a valid, live, unrelated task, and a fallback would quietly act on the wrong object. Every 404 instead carries a `hint_next` naming the right command and the `freelo subtasks list` discovery path (read each item's `type`: `taskcheck` = simple, `subtask` = smart).
+  - **A 404 is never an idempotent success**, on any of the four verbs — unlike `freelo tasks delete`. The one 404 cause the API documents here is "wrong id space", meaning the item is still there, untouched.
+  - **No `already_in_target_state` / `previous_state`** in these envelopes, unlike every other write command. Freelo has no `GET /taskcheck/{id}`, so a checklist item's state is genuinely unobservable; emitting a hardcoded `false` would assert knowledge the CLI doesn't have.
+  - **`--notify-author` is on `edit` and `finish` only.** `DELETE /taskcheck/{id}` and `POST /taskcheck/{id}/activate` declare no request body in the OpenAPI contract, so `delete` and `reopen` send none and don't offer the flag. (The migration roadmap claimed all four accepted it; the contract disagreed and won.)
+  - **`edit` exposes only `--name` and `--worker`/`--clear-worker`** — a much smaller surface than `tasks edit`. The endpoint returns 400 for priority and due-date fields, so those flags are not defined rather than defined-and-doomed.
+  - `delete` is confirmation-gated (`--yes` or a TTY prompt); `finish`/`reopen` are not, being exact inverses of each other. `delete`, `finish` and `reopen` all support batch input (positional, `--ids`, `--stdin` NDJSON); `edit` is single-id.
+
+- 59a6d49: Add `freelo tasklists edit <id>` (M02) — the first write command on tasklists other than `create`.
+
+  Rename a tasklist, set or clear its budget and time fund, manage followers and the default worker, and reorder it within its project:
+
+  ```bash
+  freelo tasklists edit 9001 --name "Sprint 12" --budget 100000 --priority 1
+  ```
+
+  **New envelope schema: `freelo.tasklists.edit/v1`.** `data` always carries `tasklist_id`, `priority_requested`, `priority_applied` and `applied_changes`; `data.would` is present under `--dry-run`. No existing schema is changed.
+
+  Notable behavior:
+
+  - **`--priority` is a POSITION, not an importance level.** It moves the tasklist within its project (1 = first). This is unrelated to `freelo tasks edit --priority low|normal|high`. Help text and validation errors call this out explicitly.
+  - **Partial success is possible and exits 0.** Freelo applies the reorder outside the transaction that commits every other field, so it can save the rename/budget/followers while failing the reorder. That surfaces as `data.priority_applied: false` plus a `notice`, with exit code 0 — agents should branch on `data.priority_applied`, not on the exit code, and retry only `--priority`.
+  - **`--should-change-existing-tasks` requires `--yes`** (or a TTY confirmation). It propagates the follower change to every existing task in the tasklist, and Freelo returns no record of what it touched. It is also only valid alongside `--tracking-users` / `--clear-tracking-users`.
+  - **`--budget` is in minor currency units**, digits only — `100000` means 1000.00. Decimals are rejected client-side with a clear message rather than a bare server 400.
+  - `--time-budget-minutes 0` sets a zero fund and is distinct from `--clear-time-budget`, which sends `null`.
+
 ## 0.20.2
 
 ### Patch Changes
