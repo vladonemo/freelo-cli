@@ -92,7 +92,17 @@ freelo tasklists edit <id> [--name <str>] [--budget <amount>|--clear-budget]
 
 ---
 
-## M03 — `freelo taskchecks` (simple checklist items)
+## M03 — `freelo taskchecks` (simple checklist items) ✅ shipped
+
+**Status:** **Shipped** — [spec 0066](specs/0066-m03-taskchecks.md), run `2026-08-29-1046-m03-taskchecks`. Envelopes `freelo.taskchecks.{edit,delete,finish,reopen}/v1`. Tier came back **Yellow**, confirming this slice's guess.
+
+**Three corrections to the analysis below, all found by reading the OpenAPI contract rather than this document:**
+
+1. **`notify_author` is NOT accepted by all four endpoints.** `deleteTaskcheck` (yaml :2156-2171) and `activateTaskcheck` (:2206-2222) declare **no `requestBody` at all**; only `editTaskcheck` and `finishTaskcheck` do. The shipped CLI exposes `--notify-author` on `edit` and `finish` only. The "same shape across all four" claim in the bullet below is wrong — do not propagate it.
+2. **The id-space question was decided (a), and the correctness argument is stronger than framed below.** The two id sequences are independent and overlap in range, so auto-probing wouldn't merely "mask a wrong-id mistake" — it would perform a destructive write on a _different, valid, unrelated_ object. See spec 0066 §3.3.
+3. **R11's idempotency pattern does not transfer, for a structural reason.** There is no `GET /taskcheck/{id}`, so a checklist item's prior state is unobservable and `already_in_target_state` is omitted from all three transition/delete envelopes rather than hardcoded to `false`. Spec 0066 §5.2.
+
+**Follow-up left open (not in M03's scope):** `Subtask.type` (`subtask` | `taskcheck`) was added to the OpenAPI `Subtask` schema in this doc's own PR #112 refresh (yaml :6380-6386), but `SubtaskSchema` in `src/api/schemas/task.ts:438` still doesn't declare it. It currently reaches `freelo.subtasks.list/v1` output only via `.passthrough()`. Declaring it — and retiring the now-superseded `inferStorageForm` heuristic at `src/api/subtasks.ts:100-133` — is a worthwhile R14 change with its own envelope-schema callout.
 
 **Outcome:** Edit, delete, finish, and reopen simple checklist items — the lightweight `tasks_checks` rows that exist as a fallback when a tasklist can't host smart subtasks (R14 already documents that `POST /task/{id}/subtasks` auto-falls-back to these). Until now there was no way to _manage_ a simple checklist item once created; R14 only covered listing and adding smart subtasks.
 **Endpoints:** `POST /taskcheck/{id}` (edit), `DELETE /taskcheck/{id}`, `POST /taskcheck/{id}/finish`, `POST /taskcheck/{id}/activate`.

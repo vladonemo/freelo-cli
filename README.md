@@ -142,6 +142,13 @@ Use `freelo auth login` once to store credentials (env vars `FREELO_API_KEY` + `
 - `freelo task-labels detach` — Detach one or more labels from a task. --name without --hex removes ALL labels with that name (aggressive); add --hex to scope to a specific (name,color) pair. UUID-mode is precise — removes exactly that label. Server is idempotent — detaching a label not on the task is a successful no-op.
 - `freelo task-labels find` — List the task labels usable by the caller (uuid, name, color), sorted by name. Use it to resolve a label name to the uuid that `task-labels attach --uuid` takes. An empty result is a success, not an error — the API returns no labels both for an inaccessible --project and for an account with no accessible projects, and does not distinguish the two.
 
+### taskchecks
+
+- `freelo taskchecks delete [id...]` — Delete one or more simple checklist items by id. Soft-delete — the row is marked deleted, and there is no undelete endpoint. Destructive: requires --yes (non-TTY) or interactive confirmation (TTY). Requires a simple (non-smart) checklist item ids; a smart subtask id returns 404 here — delete those with `freelo tasks delete`. A 404 is always reported as an error, never as an idempotent already-deleted success.
+- `freelo taskchecks edit <id>` — Rename a simple checklist item and/or (re)assign its worker. Only --name and --worker are editable — this endpoint rejects priority and due dates with a 400, so those flags are not offered. Requires a simple (non-smart) checklist item id (`tasks_checks.id`); a smart subtask id returns 404 here — edit those with `freelo tasks edit`.
+- `freelo taskchecks finish [id...]` — Mark one or more simple checklist items as finished. Requires simple (non-smart) checklist item ids (`tasks_checks.id`); a smart subtask id returns 404 here — finish those with `freelo tasks finish`. The CLI cannot read a checklist item back (the API has no GET for one), so it does not report whether the item was already finished.
+- `freelo taskchecks reopen [id...]` — Move one or more finished simple checklist items back to active (wire: `/activate`). Requires simple (non-smart) checklist item ids; a smart subtask id returns 404 here — reopen those with `freelo tasks reopen`. No --notify-author: this endpoint declares no request body.
+
 ### tasklists
 
 - `freelo tasklists create` — Create a new tasklist in a project.
