@@ -13,7 +13,7 @@ import {
   createSubtaskPath,
   inferStorageForm,
 } from '../../src/api/subtasks.js';
-import { type Subtask } from '../../src/api/schemas/task.js';
+import { type Subtask, SubtaskSchema } from '../../src/api/schemas/task.js';
 
 describe('buildCreateSubtaskBody', () => {
   it('emits only `name` when no optional fields are set', () => {
@@ -62,8 +62,41 @@ describe('createSubtaskPath', () => {
 });
 
 describe('inferStorageForm', () => {
-  it('returns "simple" for the lean shape (only id+task_id+name)', () => {
-    const s = { id: 1, task_id: 9012, name: 'lean' } as Subtask;
+  // The two shapes below are copied verbatim from a live capture against a
+  // Freelo test account on 2026-08-30 (R14) — see
+  // docs/runs/2026-08-29-2230-r14-subtask-type/fixture-capture.md
+  //
+  // The previous version of this test asserted 'simple' for
+  // `{ id: 1, task_id: 9012, name: 'lean' }`. That is a shape the API never
+  // produces: a populated `task_id` means the subtask is *smart*
+  // (`type: 'subtask'`); a simple taskcheck has `task_id: null`. It passed
+  // only because `inferStorageForm` never inspects `task_id`.
+
+  it('returns "simple" for a real simple-taskcheck create response', () => {
+    const s = {
+      id: 18510610,
+      task_id: null,
+      name: 'R14 nested subtask (expect taskcheck fallback)',
+      due_date: null,
+      due_date_end: null,
+      worker: null,
+    } as Subtask;
+    expect(inferStorageForm(s)).toBe('simple');
+  });
+
+  it('known divergence: reads a real *smart* create response as "simple"', () => {
+    // GET /task/32125435/subtasks reports `type: 'subtask'` for this id, but
+    // the create response is lean, so the heuristic cannot see it. This is
+    // asserted deliberately: it pins current behaviour so the gap is visible
+    // rather than surprising. See the doc comment on `inferStorageForm`.
+    const s = {
+      id: 18510609,
+      task_id: 32125436,
+      name: 'R14 first subtask (expect smart)',
+      due_date: null,
+      due_date_end: null,
+      worker: null,
+    } as Subtask;
     expect(inferStorageForm(s)).toBe('simple');
   });
 
@@ -113,5 +146,51 @@ describe('inferStorageForm', () => {
       project: null,
     } as Subtask;
     expect(inferStorageForm(s)).toBe('simple');
+  });
+});
+
+describe('SubtaskSchema.type (R14)', () => {
+  // Values below are from the live capture on 2026-08-30 —
+  // docs/runs/2026-08-29-2230-r14-subtask-type/fixture-capture.md
+
+  it('parses type "subtask" from a GET element (smart)', () => {
+    const parsed = SubtaskSchema.parse({
+      id: 18510609,
+      type: 'subtask',
+      task_id: 32125436,
+      name: 'R14 first subtask (expect smart)',
+    });
+    expect(parsed.type).toBe('subtask');
+    expect(parsed.task_id).toBe(32125436);
+  });
+
+  it('parses type "taskcheck" from a GET element, with task_id null', () => {
+    const parsed = SubtaskSchema.parse({
+      id: 18510610,
+      type: 'taskcheck',
+      task_id: null,
+      name: 'R14 nested subtask (expect taskcheck fallback)',
+    });
+    expect(parsed.type).toBe('taskcheck');
+    expect(parsed.task_id).toBeNull();
+  });
+
+  it('accepts a create response that omits type entirely (POST shape)', () => {
+    // POST /task/{id}/subtasks returns no `type` key at all. This is the
+    // reason the field is optional; see the schema doc comment.
+    const parsed = SubtaskSchema.parse({
+      id: 18510609,
+      task_id: 32125436,
+      name: 'R14 first subtask (expect smart)',
+      worker: null,
+    });
+    expect(parsed.type).toBeUndefined();
+  });
+
+  it('rejects an unknown type value rather than passing it through', () => {
+    // Deliberate: strict enum matches how `state` is handled elsewhere in
+    // src/api/schemas. The trade-off is that a new server-side kind would
+    // fail validation rather than degrade — flagged in the R14 changeset.
+    expect(() => SubtaskSchema.parse({ id: 1, type: 'milestone' })).toThrow();
   });
 });

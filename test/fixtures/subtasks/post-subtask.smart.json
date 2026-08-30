@@ -1,0 +1,17 @@
+{
+  "id": 18510609,
+  "task_id": 32125436,
+  "name": "R14 first subtask (expect smart)",
+  "due_date": null,
+  "due_date_end": null,
+  "worker": null,
+  "priority_enum": null,
+  "labels": [],
+  "comment": null,
+  "tracking_users": [
+    {
+      "id": 1001,
+      "fullname": "Test User"
+    }
+  ]
+}

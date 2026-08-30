@@ -1,0 +1,147 @@
+{
+  "capturedAt": "2026-08-30T20:18:27.949Z",
+  "tlId": 1991798,
+  "taskId": 32125435,
+  "log": [
+    {
+      "method": "POST",
+      "path": "/project/628610/tasklists",
+      "status": 200,
+      "body": {
+        "name": "R14 fixture 1788121106093"
+      },
+      "response": {
+        "id": 1991798,
+        "name": "R14 fixture 1788121106093",
+        "budget": {
+          "amount": "0",
+          "currency": "USD"
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/project/628610/tasklist/1991798/tasks",
+      "status": 200,
+      "body": {
+        "name": "R14 parent task 1788121106093"
+      },
+      "response": {
+        "id": 32125435,
+        "name": "R14 parent task 1788121106093",
+        "date_add": "2026-08-30T22:18:26",
+        "due_date": null,
+        "due_date_end": null,
+        "worker": null,
+        "labels": [],
+        "priority_enum": null,
+        "tracking_users": [
+          {
+            "id": 285534,
+            "fullname": "Samuel Statny"
+          }
+        ],
+        "comment": null,
+        "subtasks": []
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/task/32125435/subtasks",
+      "status": 200,
+      "body": {
+        "name": "R14 first subtask (expect smart)"
+      },
+      "response": {
+        "id": 18510609,
+        "task_id": 32125436,
+        "name": "R14 first subtask (expect smart)",
+        "due_date": null,
+        "due_date_end": null,
+        "worker": null,
+        "priority_enum": null,
+        "labels": [],
+        "comment": null,
+        "tracking_users": [
+          {
+            "id": 285534,
+            "fullname": "Samuel Statny"
+          }
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/task/32125436/subtasks",
+      "status": 200,
+      "body": {
+        "name": "R14 nested subtask (expect taskcheck fallback)"
+      },
+      "response": {
+        "id": 18510610,
+        "task_id": null,
+        "name": "R14 nested subtask (expect taskcheck fallback)",
+        "due_date": null,
+        "due_date_end": null,
+        "worker": null,
+        "priority_enum": null,
+        "labels": [],
+        "comment": null,
+        "tracking_users": []
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/task/32125435/subtasks",
+      "status": 200,
+      "body": null,
+      "response": {
+        "total": 1,
+        "count": 1,
+        "page": 0,
+        "per_page": 100,
+        "data": {
+          "subtasks": [
+            {
+              "id": 18510609,
+              "type": "subtask",
+              "task_id": 32125436,
+              "name": "R14 first subtask (expect smart)",
+              "date_add": "2026-08-30 22:18:27",
+              "due_date": null,
+              "due_date_end": null,
+              "count_comments": 0,
+              "count_subtasks": 1,
+              "author": {
+                "id": 285534,
+                "fullname": "Samuel Statny"
+              },
+              "worker": null,
+              "state": {
+                "id": 1,
+                "state": "active"
+              },
+              "project": {
+                "id": 628610,
+                "name": "Freelo-test",
+                "state": {
+                  "id": 1,
+                  "state": "active"
+                }
+              },
+              "tasklist": {
+                "id": 1991798,
+                "name": "R14 fixture 1788121106093",
+                "state": {
+                  "id": 1,
+                  "state": "active"
+                }
+              },
+              "labels": []
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
