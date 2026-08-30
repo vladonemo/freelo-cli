@@ -106,7 +106,28 @@ freelo tasklists edit <id> [--name <str>] [--budget <amount>|--clear-budget]
 2. **The id-space question was decided (a), and the correctness argument is stronger than framed below.** The two id sequences are independent and overlap in range, so auto-probing wouldn't merely "mask a wrong-id mistake" — it would perform a destructive write on a _different, valid, unrelated_ object. See spec 0066 §3.3.
 3. **R11's idempotency pattern does not transfer, for a structural reason.** There is no `GET /taskcheck/{id}`, so a checklist item's prior state is unobservable and `already_in_target_state` is omitted from all three transition/delete envelopes rather than hardcoded to `false`. Spec 0066 §5.2.
 
-**Follow-up left open (not in M03's scope):** `Subtask.type` (`subtask` | `taskcheck`) was added to the OpenAPI `Subtask` schema in this doc's own PR #112 refresh (yaml :6380-6386), but `SubtaskSchema` in `src/api/schemas/task.ts:438` still doesn't declare it. It currently reaches `freelo.subtasks.list/v1` output only via `.passthrough()`. Declaring it — and retiring the now-superseded `inferStorageForm` heuristic at `src/api/subtasks.ts:100-133` — is a worthwhile R14 change with its own envelope-schema callout.
+**Follow-up (was open, now closed):** `Subtask.type` (`subtask` | `taskcheck`) was added to the OpenAPI `Subtask` schema in this doc's own PR #112 refresh (yaml :6380-6386), while `SubtaskSchema` did not declare it — it reached `freelo.subtasks.list/v1` only via `.passthrough()`.
+
+✅ **Shipped 2026-08-30** — PR #124, run `2026-08-29-2230-r14-subtask-type`. `type` is now declared on `SubtaskSchema`.
+
+> ⚠️ **The second half of that recommendation was wrong, and this note is the correction.**
+> This entry previously called `inferStorageForm` "now-superseded" and advised retiring it.
+> **It cannot be retired.** A live capture against a test account on 2026-08-30 showed
+> `POST /task/{id}/subtasks` returns **no `type` key at all** — on either the smart or the
+> fallback path. Only `GET /task/{id}/subtasks` returns it. `subtasks add` classifies the
+> _create_ response, so no discriminator is available to it; reading one would cost an extra
+> GET per add, the round-trip spec 0025 §4.4 already rejected on cost.
+>
+> **Do not re-open this as "retire the heuristic".** The heuristic survives because the API
+> cannot replace it. Evidence and raw capture:
+> `docs/runs/2026-08-29-2230-r14-subtask-type/fixture-capture.md`.
+>
+> Two further corrections came out of the same capture: a _simple_ taskcheck returns
+> `task_id: null` (a populated `task_id` means **smart**), and `inferStorageForm`'s
+> documented "accepted limitation" is the **common** path, not a corner case — a smart
+> subtask created with `--name` alone reads as `'simple'`.
+
+**Still genuinely open (own slice, not started):** `subtasks list` could prefer `type` over the heuristic, since `type` _is_ authoritative on the GET path. Deliberately excluded from R14 — it changes shipped `list` output and needs its own tier call.
 
 **Outcome:** Edit, delete, finish, and reopen simple checklist items — the lightweight `tasks_checks` rows that exist as a fallback when a tasklist can't host smart subtasks (R14 already documents that `POST /task/{id}/subtasks` auto-falls-back to these). Until now there was no way to _manage_ a simple checklist item once created; R14 only covered listing and adding smart subtasks.
 **Endpoints:** `POST /taskcheck/{id}` (edit), `DELETE /taskcheck/{id}`, `POST /taskcheck/{id}/finish`, `POST /taskcheck/{id}/activate`.
