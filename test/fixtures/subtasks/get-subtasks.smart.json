@@ -1,0 +1,47 @@
+{
+  "total": 1,
+  "count": 1,
+  "page": 0,
+  "per_page": 100,
+  "data": {
+    "subtasks": [
+      {
+        "id": 18510609,
+        "type": "subtask",
+        "task_id": 32125436,
+        "name": "R14 first subtask (expect smart)",
+        "date_add": "2026-08-30 22:18:27",
+        "due_date": null,
+        "due_date_end": null,
+        "count_comments": 0,
+        "count_subtasks": 1,
+        "author": {
+          "id": 1001,
+          "fullname": "Test User"
+        },
+        "worker": null,
+        "state": {
+          "id": 1,
+          "state": "active"
+        },
+        "project": {
+          "id": 628610,
+          "name": "Freelo-test",
+          "state": {
+            "id": 1,
+            "state": "active"
+          }
+        },
+        "tasklist": {
+          "id": 1991798,
+          "name": "R14 fixture tasklist",
+          "state": {
+            "id": 1,
+            "state": "active"
+          }
+        },
+        "labels": []
+      }
+    ]
+  }
+}

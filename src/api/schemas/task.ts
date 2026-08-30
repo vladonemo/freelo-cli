@@ -430,14 +430,29 @@ export const TaskDetailSchema = z
 export type TaskDetail = z.infer<typeof TaskDetailSchema>;
 
 /**
- * `Subtask` per OpenAPI :5482-5530. Inner-array element of
- * `GET /task/{id}/subtasks` (paginated).
+ * `Subtask` per OpenAPI :6374-6433. Inner-array element of
+ * `GET /task/{id}/subtasks` (paginated), and the body of
+ * `POST /task/{id}/subtasks`.
  *
- * Spec 0018 §4.2.
+ * **`type` is present on GET and absent on POST.** Verified against the live
+ * API on 2026-08-30 (R14, `docs/runs/2026-08-29-2230-r14-subtask-type/`):
+ * the create response carries no `type` key at all, on either the smart or
+ * the fallback path. It is therefore `.optional()` — not because the contract
+ * marks it so, but because a whole endpoint omits it. Anything deriving from
+ * `type` must handle its absence; see `inferStorageForm` in
+ * `src/api/subtasks.ts`.
+ *
+ * Spec 0018 §4.2, spec 0069 §6.
  */
 export const SubtaskSchema = z
   .object({
     id: z.number().int(),
+    /**
+     * `subtask` = smart subtask (carries its own `task_id`);
+     * `taskcheck` = simple checklist item (`task_id` is `null`).
+     * OpenAPI :6379-6382. GET only — see the schema note above.
+     */
+    type: z.enum(['subtask', 'taskcheck']).nullable().optional(),
     task_id: z.number().int().nullable().optional(),
     name: z.string().nullable().optional(),
     date_add: z.string().nullable().optional(),

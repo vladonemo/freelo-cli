@@ -99,8 +99,16 @@ export function buildCreateSubtaskBody(input: CreateSubtaskInput): CreateSubtask
 
 /**
  * Infer the storage form (`'smart' | 'simple'`) from the server response
- * shape. The Freelo API does not return an explicit `kind` field — we read
- * it from which fields are populated.
+ * shape, for responses that carry no `type` discriminator.
+ *
+ * **Why this heuristic still exists.** `Subtask.type` (`subtask | taskcheck`)
+ * *is* an explicit discriminator, but `POST /task/{id}/subtasks` does not
+ * return it — verified against the live API on 2026-08-30 (R14; capture in
+ * `docs/runs/2026-08-29-2230-r14-subtask-type/fixture-capture.md`). `type`
+ * appears on `GET /task/{id}/subtasks` only. Since `subtasks add` classifies
+ * the **create** response, there is no `type` available to it, and reading one
+ * would cost an extra GET per add — the round-trip spec 0025 §4.4 rejected.
+ * Do not "retire" this function in favour of `type` without re-checking that.
  *
  * **Heuristic** (spec 0025 §4.4):
  *
@@ -108,13 +116,19 @@ export function buildCreateSubtaskBody(input: CreateSubtaskInput): CreateSubtask
  *     `project` non-null/non-undefined → `'smart'`.
  *   - All of those absent or null → `'simple'`.
  *
- * **Limitation accepted in v1**: a smart subtask created with no rich fields
- * (e.g. `--name "x"` only on a tasklist that *can* host smart subtasks) can
- * return a lean response and mis-classify as `'simple'`. The trade-off is
- * acceptable because (a) calling that case "simple" is functionally correct
- * — there is no rich data either way — and (b) the alternative (round-trip
- * GET to confirm) costs an extra request per add and still wouldn't give a
- * deterministic answer.
+ * **Known mis-classification, and it is the *common* path — not a corner.**
+ * The POST response shape never includes `state`, `tasklist` or `project`, so
+ * this can only answer `'smart'` when `worker` or a due date came back set.
+ * A genuinely smart subtask created with `--name` alone is therefore labelled
+ * `'simple'`. Confirmed live: id 18510609 returned `type: 'subtask'` on GET
+ * while this function reads its create response as `'simple'`.
+ *
+ * **This does not corrupt `input_ignored`.** That field is derived only from
+ * flags the caller actually passed: if `--worker` was honoured the response
+ * carries it (→ `'smart'`, nothing reported ignored); if the server's
+ * smart→simple fallback discarded it the response has `worker: null`
+ * (→ `'simple'`, correctly reported). The mislabel is confined to the
+ * `storage_form` string itself.
  *
  * Pure function — no I/O.
  */

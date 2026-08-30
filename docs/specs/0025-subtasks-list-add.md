@@ -151,6 +151,13 @@ Envelope `data`:
 - `"smart"` — response carries any of: `worker.id != null`, `due_date != null`, `state` (with `state: 'active'`), `tasklist.id`, `project.id`. Detection heuristic in §4.4.
 - `"simple"` — response is the lean `{ id, task_id, name, date_add? }` shape (decision 3). The body the server *received* may have included `worker` / `due` / `priority` / `description`, but those are silently discarded.
 
+> **Corrected 2026-08-30 (R14).** The lean shape above is wrong about `task_id`. A live
+> capture shows a *simple* taskcheck returns `task_id: null`; a populated `task_id` means
+> the subtask is **smart** (`type: 'subtask'`). The error was harmless in practice only
+> because `inferStorageForm` never inspects `task_id`. See
+> `docs/runs/2026-08-29-2230-r14-subtask-type/fixture-capture.md`. The same capture shows
+> `type` is returned by `GET` but **not** by `POST`, which is why §4.4's heuristic stays.
+
 `input_ignored` is **only** populated on the `simple` path AND only for fields the user actually set — never echoes flags the user didn't pass. Empty array is omitted (not emitted as `[]`).
 
 #### Help text (roadmap-mandated)
